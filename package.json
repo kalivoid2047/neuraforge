@@ -1,0 +1,19 @@
+{
+  "name": "neuraforge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Neuraforge — Building Large Language Models From Scratch. A 12-month interactive AI engineering program.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @neuraforge/web",
+    "build": "npm run build -w @neuraforge/web",
+    "start": "npm run start -w @neuraforge/web",
+    "lint": "npm run lint -w @neuraforge/web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

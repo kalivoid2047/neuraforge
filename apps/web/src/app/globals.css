@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/* ─── Neuraforge design tokens (Branding §3, UIUX §4) ───
+   Dark-first: :root is the dark theme; [data-theme="light"] overrides. */
+
+:root {
+  --bg-base: #0b0b12;
+  --bg-raised: #131320;
+  --bg-glass: rgba(255, 255, 255, 0.06);
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --border-subtle: #27273a;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #22d3ee;
+}
+
+[data-theme="light"] {
+  --bg-base: #fafafc;
+  --bg-raised: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.65);
+  --text-primary: #0b0b12;
+  --text-secondary: #52525b;
+  --border-subtle: #e4e4eb;
+
+  --success: #059669;
+  --warning: #b45309;
+  --danger: #dc2626;
+  --info: #0891b2;
+}
+
+@theme inline {
+  /* semantic, theme-switching */
+  --color-base: var(--bg-base);
+  --color-raised: var(--bg-raised);
+  --color-glass: var(--bg-glass);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+  --color-line: var(--border-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  /* brand constants */
+  --color-brand: #6366f1;
+  --color-brand-violet: #8b5cf6;
+  --color-brand-cyan: #22d3ee;
+  --color-spark: #f97316;
+  --color-spark-amber: #fbbf24;
+
+  /* typography (variables provided by next/font in layout.tsx) */
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* signature gradient utility (used sparingly — UIUX §3) */
+.nf-gradient {
+  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #22d3ee 100%);
+}
+.nf-gradient-text {
+  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* prose column for lesson content */
+.nf-prose {
+  max-width: 72ch;
+}
+.nf-prose h2 {
+  font-family: var(--font-space-grotesk), sans-serif;
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  margin: 2.5rem 0 1rem;
+  scroll-margin-top: 5rem;
+}
+.nf-prose p {
+  line-height: 1.65;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+.nf-prose code {
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.875em;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+
+/* KaTeX display blocks inherit theme ink */
+.katex-display {
+  margin: 1.25rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

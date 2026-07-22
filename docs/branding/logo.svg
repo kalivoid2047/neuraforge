@@ -1,0 +1,52 @@
+<svg width="720" height="160" viewBox="0 0 720 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Neuraforge logo">
+  <defs>
+    <linearGradient id="nf-grad" x1="0" y1="160" x2="160" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="nf-spark" x1="80" y1="118" x2="80" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ============ GLYPH: "the forged network" ============ -->
+  <!-- Rounded-square badge -->
+  <rect x="8" y="8" width="144" height="144" rx="32" fill="#0B0B12"/>
+  <rect x="8" y="8" width="144" height="144" rx="32" stroke="url(#nf-grad)" stroke-width="2.5" fill="none"/>
+
+  <!-- Neural graph shaped like an anvil / upward forge -->
+  <!-- Edges -->
+  <g stroke="url(#nf-grad)" stroke-width="3.5" stroke-linecap="round">
+    <line x1="44" y1="116" x2="80" y2="80"/>
+    <line x1="116" y1="116" x2="80" y2="80"/>
+    <line x1="44" y1="116" x2="116" y2="116"/>
+    <line x1="80" y1="80" x2="80" y2="44"/>
+    <line x1="80" y1="80" x2="52" y2="60"/>
+    <line x1="80" y1="80" x2="108" y2="60"/>
+    <line x1="52" y1="60" x2="80" y2="44"/>
+    <line x1="108" y1="60" x2="80" y2="44"/>
+  </g>
+
+  <!-- Nodes -->
+  <g>
+    <circle cx="44"  cy="116" r="8"  fill="#6366F1"/>
+    <circle cx="116" cy="116" r="8"  fill="#6366F1"/>
+    <circle cx="80"  cy="80"  r="9"  fill="#8B5CF6"/>
+    <circle cx="52"  cy="60"  r="7"  fill="#22D3EE"/>
+    <circle cx="108" cy="60"  r="7"  fill="#22D3EE"/>
+  </g>
+
+  <!-- The forge spark: apex node -->
+  <circle cx="80" cy="44" r="10" fill="url(#nf-spark)"/>
+  <circle cx="80" cy="44" r="15" fill="none" stroke="#F97316" stroke-opacity="0.45" stroke-width="2"/>
+
+  <!-- ============ WORDMARK ============ -->
+  <text x="190" y="98" font-family="'Space Grotesk','Inter',system-ui,sans-serif" font-size="58" font-weight="700" letter-spacing="1" fill="#0B0B12">
+    NEURA<tspan fill="#6366F1">FORGE</tspan>
+  </text>
+  <text x="193" y="130" font-family="'Inter',system-ui,sans-serif" font-size="17" font-weight="500" letter-spacing="6" fill="#71717A">
+    FORGE INTELLIGENCE FROM FIRST PRINCIPLES
+  </text>
+</svg>

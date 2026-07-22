@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+__pycache__/
+.venv/
+.dev-keys/
+*.db
+.pytest_cache/
+uv.lock.tmp

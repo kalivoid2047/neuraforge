@@ -1,0 +1,52 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Neuraforge app icon">
+  <defs>
+    <linearGradient id="ic-bg" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B0B12"/>
+      <stop offset="1" stop-color="#16162A"/>
+    </linearGradient>
+    <linearGradient id="ic-grad" x1="96" y1="416" x2="416" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="ic-spark" x1="256" y1="380" x2="256" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+    <radialGradient id="ic-glow" cx="256" cy="150" r="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F97316" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#F97316" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background (squircle) -->
+  <rect width="512" height="512" rx="116" fill="url(#ic-bg)"/>
+  <rect x="6" y="6" width="500" height="500" rx="110" stroke="url(#ic-grad)" stroke-opacity="0.35" stroke-width="4" fill="none"/>
+
+  <!-- Spark glow -->
+  <circle cx="256" cy="150" r="140" fill="url(#ic-glow)"/>
+
+  <!-- Neural graph: forged upward -->
+  <g stroke="url(#ic-grad)" stroke-width="12" stroke-linecap="round">
+    <line x1="140" y1="372" x2="256" y2="260"/>
+    <line x1="372" y1="372" x2="256" y2="260"/>
+    <line x1="140" y1="372" x2="372" y2="372"/>
+    <line x1="256" y1="260" x2="256" y2="150"/>
+    <line x1="256" y1="260" x2="168" y2="196"/>
+    <line x1="256" y1="260" x2="344" y2="196"/>
+    <line x1="168" y1="196" x2="256" y2="150"/>
+    <line x1="344" y1="196" x2="256" y2="150"/>
+  </g>
+
+  <g>
+    <circle cx="140" cy="372" r="26" fill="#6366F1"/>
+    <circle cx="372" cy="372" r="26" fill="#6366F1"/>
+    <circle cx="256" cy="260" r="30" fill="#8B5CF6"/>
+    <circle cx="168" cy="196" r="22" fill="#22D3EE"/>
+    <circle cx="344" cy="196" r="22" fill="#22D3EE"/>
+  </g>
+
+  <!-- Apex spark node -->
+  <circle cx="256" cy="150" r="34" fill="url(#ic-spark)"/>
+  <circle cx="256" cy="150" r="50" fill="none" stroke="#F97316" stroke-opacity="0.5" stroke-width="6"/>
+</svg>
