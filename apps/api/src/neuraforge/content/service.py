@@ -68,7 +68,7 @@ async def curriculum(session: AsyncSession, user_id: uuid.UUID) -> CurriculumOut
                 )
             )
 
-        done = sum(1 for l in month_lessons if pmap.get(l.id) and pmap[l.id].status == "completed")
+        done = sum(1 for ml in month_lessons if pmap.get(ml.id) and pmap[ml.id].status == "completed")
         months.append(
             MonthOut(
                 number=month_no,

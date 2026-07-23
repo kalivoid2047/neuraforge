@@ -75,7 +75,7 @@ async def summary(session: AsyncSession, user_id: uuid.UUID) -> ProgressSummary:
     ).all()
     pmap = await progress_map(session, user_id)
 
-    done = sum(1 for l in lessons if pmap.get(l.id) and pmap[l.id].status == "completed")
+    done = sum(1 for ls in lessons if pmap.get(ls.id) and pmap[ls.id].status == "completed")
     current: ContinueTarget | None = None
     for lesson in lessons:
         p = pmap.get(lesson.id)

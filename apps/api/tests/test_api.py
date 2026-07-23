@@ -17,7 +17,7 @@ async def test_curriculum_shape_and_progress(client):
     assert len(month["weeks"]) == 4
     assert sum(len(w["lessons"]) for w in month["weeks"]) == 20
 
-    statuses = {l["slug"]: l["status"] for w in month["weeks"] for l in w["lessons"]}
+    statuses = {ls["slug"]: ls["status"] for w in month["weeks"] for ls in w["lessons"]}
     assert statuses["why-attention"] == "done"
     assert statuses["multi-head-attention"] == "current"
     assert statuses["positional-encoding"] == "todo"

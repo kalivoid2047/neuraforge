@@ -11,11 +11,10 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..core.errors import NotFoundError
 from ..gamification import service as game
-from .models import Deck, FlashCard, ReviewLog, ReviewState, Spark, SparkAssignment
+from .models import FlashCard, ReviewLog, ReviewState, Spark, SparkAssignment
 
 
 def _now() -> datetime:

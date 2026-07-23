@@ -50,7 +50,7 @@ Development proceeds in 12 reviewed phases. Each phase is documented under [`doc
 | 9  | Interactive Components — Monaco, [Pyodide runner](apps/web/public/pyodide.worker.js), [graded exercises](apps/web/src/features/lesson/ExerciseCell.tsx), [4-widget playground](apps/web/src/app/(app)/playgrounds/page.tsx) | ✅ Approved |
 | 10 | AI Tutor — [Ember backend](apps/api/src/neuraforge/tutor/) (provider-agnostic, retrieval-grounded, budgets, SSE) + [chat panel](apps/web/src/features/tutor/EmberPanel.tsx) | ✅ Approved |
 | 11 | Assessment Engine — [question bank, quizzes, server-graded exercises, projects](apps/api/src/neuraforge/assessment/) + [practice](apps/web/src/app/(app)/practice/page.tsx)/[projects](apps/web/src/app/(app)/projects/page.tsx) pages | ✅ Approved |
-| 12 | Production Deployment | ⬜ |
+| 12 | Production Deployment — [runbook](docs/phase-12-deployment/DEPLOYMENT.md), [systemd units](deploy/systemd/) + [Nginx](deploy/nginx/), [provision](scripts/provision.sh)/[deploy](scripts/deploy.sh) scripts, [CI](.github/workflows/ci.yml), live-verified end-to-end | 🔍 In review |
 
 ## License
 

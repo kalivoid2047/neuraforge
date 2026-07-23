@@ -24,7 +24,8 @@ def test_scheduler_good_grades_grow_interval():
 
 def test_scheduler_again_shrinks_and_counts_lapse():
     s = _state()
-    schedule(s, 3); schedule(s, 3)
+    schedule(s, 3)
+    schedule(s, 3)
     before = s.stability
     schedule(s, 1)
     assert s.stability < before and s.lapses == 1

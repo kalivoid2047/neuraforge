@@ -51,7 +51,7 @@ async def _corpus(session: AsyncSession, scope_lesson: str | None) -> list[Chunk
     chunks: list[Chunk] = []
 
     lessons = (await session.scalars(select(Lesson))).all()
-    lesson_by_id: dict[uuid.UUID, Lesson] = {l.id: l for l in lessons}
+    lesson_by_id: dict[uuid.UUID, Lesson] = {ls.id: ls for ls in lessons}
     for lesson in lessons:
         objectives = lesson.meta.get("objectives", [])
         body = f"{lesson.title}. " + " ".join(objectives)

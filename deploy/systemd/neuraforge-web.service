@@ -1,0 +1,51 @@
+[Unit]
+Description=Neuraforge Web (Next.js server)
+After=network.target neuraforge-api.service
+Wants=neuraforge-api.service
+
+[Service]
+Type=exec
+User=nf-web
+Group=nf-web
+WorkingDirectory=/opt/neuraforge/current/apps/web
+EnvironmentFile=-/etc/neuraforge/web.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+ExecStart=/opt/neuraforge/node/bin/node /opt/neuraforge/current/apps/web/node_modules/.bin/next start -p 3000
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 10); do curl -sf http://127.0.0.1:3000/ && exit 0; sleep 1; done; exit 1'
+
+Restart=on-failure
+RestartSec=2
+
+# Hardening (SRS §9) — matches neuraforge-api.service, minus SystemCallFilter:
+# live-testing this unit showed Node/libuv gets SIGSYS-killed (systemd
+# "status=31/SYS") under `@system-service` — it needs syscalls (io_uring and
+# similar) outside that group that vary by kernel/Node build. The Python API
+# service runs `@system-service` fine (verified the same way); this is a
+# Node-specific gap, not dropped for convenience.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# AF_NETLINK: `next start` enumerates network interfaces at boot (for its
+# "Network: http://..." banner) via uv_interface_addresses(), which needs a
+# netlink socket — omitting it, live-testing showed, crashes the process
+# outright (errno 97/EAFNOSUPPORT) rather than just skipping the banner.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+
+MemoryMax=512M
+TasksMax=128
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neuraforge-web
+
+[Install]
+WantedBy=multi-user.target

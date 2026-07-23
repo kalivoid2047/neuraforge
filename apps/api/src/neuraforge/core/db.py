@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
 
-from sqlalchemy import MetaData, func
+from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -19,6 +19,12 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    # Every `datetime.now(...)` call in this codebase passes UTC (tz-aware).
+    # SQLite silently accepts either; Postgres/asyncpg rejects tz-aware values
+    # against a naive TIMESTAMP column (found live-testing Phase 12 against
+    # real Postgres). Map every Mapped[datetime] to TIMESTAMPTZ so both
+    # dialects agree on one convention, instead of annotating every column.
+    type_annotation_map = {datetime: DateTime(timezone=True)}
 
 
 class TimestampMixin:
