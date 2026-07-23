@@ -1,0 +1,104 @@
+---
+slug: scaled-dot-product
+month: 7
+week: 1
+ord: 3
+title: "Scaled Dot-Product Attention"
+code: "7.1.3"
+minutes: 90
+difficulty: 3
+objectives:
+  - "Derive the scaled dot-product attention formula from first principles"
+  - "Explain precisely why the 1/√d_k scaling factor is necessary"
+  - "Compute attention weights and outputs by hand for a tiny example"
+prereqs:
+  - "Queries, Keys, Values ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: scaling, title: Why Scale? }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Dot product as similarity, softmax as normalization</h2>
+
+The dot product of two vectors is large when they point in a similar direction and small (or
+negative) when they don't — it's a cheap, differentiable similarity score. Scaled dot-product
+attention uses exactly this: score every key against a query with a dot product, turn the
+scores into a probability distribution with softmax, then use those probabilities to blend the
+values.
+
+<h2 id="math">The full formula</h2>
+
+<MathBlock tex="\mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V" />
+
+Read it left to right:
+
+1. `QK^T` — every query dotted against every key → a `(seq_len, seq_len)` matrix of raw scores.
+2. `/ √d_k` — scale down before softmax (see below).
+3. `softmax(...)` — turn each row into a probability distribution (sums to 1).
+4. `... V` — use those probabilities to compute a weighted sum of the value vectors.
+
+<h2 id="scaling">Why scale by √d_k?</h2>
+
+Assume the components of `Q` and `K` are independent, mean-zero, unit-variance random values.
+The dot product of two `d_k`-dimensional vectors is a sum of `d_k` independent products, so its
+**variance grows linearly with `d_k`**:
+
+<MathBlock tex="\mathrm{Var}(q\cdot k) = \sum_{i=1}^{d_k}\mathrm{Var}(q_i k_i) = d_k" />
+
+Dividing by `√d_k` brings the variance back down to 1, regardless of dimension. Without this,
+as `d_k` grows (64, 128, ...), raw dot products grow large in magnitude — softmax on large-magnitude
+inputs saturates (one entry → ~1, the rest → ~0), which means near-zero gradients almost
+everywhere. Training stalls.
+
+<Callout kind="warning" title="This is not a minor detail">
+  The original Transformer paper reports this scaling was necessary in practice, not just in
+  theory — without it, training was measurably worse for the larger `d_k` values they used.
+</Callout>
+
+<h2 id="python">By hand, then in code</h2>
+
+Work through one query by hand first. Say `d_k = 2`, and one query has raw (unscaled) dot
+products against 3 keys: `[4, 0, -2]`. Scaled by `1/√2 ≈ 0.707`: `[2.83, 0, -1.41]`. Softmax of
+that is roughly `[0.85, 0.10, 0.05]` — the first key dominates but doesn't fully win. Now the
+full computation in NumPy:
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef attention(Q, K, V):\n    d_k = K.shape[-1]\n    scores = Q @ K.T / np.sqrt(d_k)\n    weights = softmax(scores, axis=-1)\n    return weights @ V, weights\n\nnp.random.seed(1)\nseq_len, d_k = 4, 8\nQ = np.random.randn(seq_len, d_k)\nK = np.random.randn(seq_len, d_k)\nV = np.random.randn(seq_len, d_k)\n\nout, weights = attention(Q, K, V)\nprint(\"weights row sums (should all be 1):\", weights.sum(axis=-1).round(6))\nprint(\"output shape:\", out.shape)"}
+  output={"weights row sums (should all be 1): [1. 1. 1. 1.]\noutput shape: (4, 8)"}
+/>
+
+<Callout kind="danger" title="Pitfall: masking BEFORE softmax, not after">
+  If you need to hide certain positions (padding, or future tokens — next lesson), set their
+  scores to `-inf` *before* the softmax call, never zero out weights *after* softmax. Zeroing
+  after softmax breaks the row-sums-to-1 invariant; setting scores to `-inf` before softmax
+  naturally makes their post-softmax weight exactly 0 while everything else still sums to 1.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="d_k = 64 instead of d_k = 8. What happens to the variance of raw (unscaled) QK^T dot products?"
+  correct={1}
+  options={[
+    { text: "It shrinks by 8×", why: "Variance grows with d_k, it doesn't shrink." },
+    { text: "It grows by 8× (linearly with d_k)", why: "Correct — variance of a sum of d_k independent terms scales linearly with d_k." },
+    { text: "It stays the same", why: "It does not stay the same — that's exactly why scaling is needed." },
+    { text: "It becomes undefined", why: "It's well-defined; it simply grows." },
+  ]}
+/>
+
+## Summary
+
+Scaled dot-product attention scores queries against keys via dot product, scales by `1/√d_k` to
+keep the variance of those scores constant regardless of dimension (preventing softmax
+saturation), converts scores to weights via softmax, and uses the weights to blend value
+vectors. This one formula is the computational core of every Transformer.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017), §3.2.1 — states the scaling
+  justification in one footnote-length paragraph; this lesson expands it.

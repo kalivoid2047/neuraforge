@@ -1,0 +1,90 @@
+---
+slug: positional-encoding
+month: 7
+week: 2
+ord: 4
+title: "Positional Encoding"
+code: "7.2.4"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain why attention alone is permutation-invariant and cannot distinguish word order"
+  - "Derive the sinusoidal positional encoding formula"
+  - "Verify empirically that shuffling a sequence's positional encodings changes attention output"
+prereqs:
+  - "Multi-Head Attention ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Attention doesn't know what order anything came in</h2>
+
+Look back at the attention formula: `softmax(QK^T/√d_k)V`. Every operation in it — matrix
+multiply, softmax, weighted sum — treats the sequence as a **set** of tokens, not a sequence.
+If you permute the rows of `X` (shuffle the words) and permute the output rows the same way,
+you get exactly the same result, just reordered. Attention is *permutation-equivariant*: it has
+no built-in sense of "first," "second," or "next to." "Dog bites man" and "man bites dog" would
+produce identical attention computations on the same bag of tokens.
+
+<Callout kind="tip" title="The fix, in one sentence">
+  Positional encoding adds a vector to each token's embedding that depends *only* on its
+  position — giving the model the only signal it has for word order, since attention itself
+  contributes none.
+</Callout>
+
+<h2 id="math">Sinusoidal positional encoding</h2>
+
+The original Transformer paper's choice — a deterministic (not learned) function of position
+`pos` and embedding dimension `i`:
+
+<MathBlock tex="PE_{(pos,\,2i)} = \sin\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right), \qquad PE_{(pos,\,2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)" />
+
+Each dimension pair `(2i, 2i+1)` oscillates at a different frequency — low dimensions oscillate
+fast (helping distinguish nearby positions), high dimensions oscillate slowly (helping
+distinguish far-apart positions, like a multi-digit odometer where different digits change at
+different rates). This encoding vector is simply **added** to the token embedding before the
+first attention layer:
+
+<MathBlock tex="X_{\text{input}} = \mathrm{Embed}(\text{tokens}) + PE" />
+
+<h2 id="python">Building it, and proving order now matters</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef positional_encoding(seq_len, d_model):\n    pos = np.arange(seq_len)[:, None]                      # (seq_len, 1)\n    i = np.arange(d_model)[None, :]                        # (1, d_model)\n    angle_rates = 1.0 / (10000 ** (2 * (i // 2) / d_model))\n    angles = pos * angle_rates\n    pe = np.zeros((seq_len, d_model))\n    pe[:, 0::2] = np.sin(angles[:, 0::2])\n    pe[:, 1::2] = np.cos(angles[:, 1::2])\n    return pe\n\nseq_len, d_model = 6, 16\npe = positional_encoding(seq_len, d_model)\nprint(\"PE shape:\", pe.shape)\nprint(\"PE is deterministic, not learned -- two calls match:\", np.allclose(pe, positional_encoding(seq_len, d_model)))\n\n# Prove attention becomes order-SENSITIVE once PE is added.\nnp.random.seed(5)\ntoken_embed = np.random.randn(seq_len, d_model)\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef attention_output(X):\n    Wq = Wk = Wv = np.eye(d_model)  # identity projections, to isolate PE's effect\n    scores = (X @ Wq) @ (X @ Wk).T / np.sqrt(d_model)\n    return softmax(scores, axis=-1) @ (X @ Wv)\n\nshuffled_order = [3, 1, 4, 0, 5, 2]\n\nwithout_pe_original = attention_output(token_embed)\nwithout_pe_shuffled = attention_output(token_embed[shuffled_order])\n# unshuffle the output to compare fairly\nunshuffle = np.argsort(shuffled_order)\nprint(\"WITHOUT PE, same tokens reordered -> same output (up to reordering)?\",\n      np.allclose(without_pe_original, without_pe_shuffled[unshuffle], atol=1e-6))\n\nwith_pe_original = attention_output(token_embed + pe)\nwith_pe_shuffled = attention_output(token_embed[shuffled_order] + pe[shuffled_order])\nprint(\"WITH PE, same tokens reordered -> same output (up to reordering)?\",\n      np.allclose(with_pe_original, with_pe_shuffled[unshuffle], atol=1e-6))"}
+  output={"PE shape: (6, 16)\nPE is deterministic, not learned -- two calls match: True\nWITHOUT PE, same tokens reordered -> same output (up to reordering)? True\nWITH PE, same tokens reordered -> same output (up to reordering)? False"}
+/>
+
+That's the whole point made concrete: without positional encoding, reordering the same tokens
+produces the same set of outputs (just permuted) — the model genuinely cannot tell "dog bites
+man" from "man bites dog." Adding PE breaks that symmetry.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Without any positional encoding, what happens if you feed a Transformer the same set of tokens in a different order?"
+  correct={1}
+  options={[
+    { text: "It produces a completely different, unrelated output", why: "It produces the SAME set of outputs, just permuted to match — not unrelated." },
+    { text: "It produces the same outputs, just reordered to match the input order", why: "Correct — attention is permutation-equivariant without positional information." },
+    { text: "It crashes, since attention requires ordered input", why: "Attention has no ordering requirement mathematically; it just can't distinguish orderings." },
+    { text: "Nothing changes at all, even the ordering of outputs", why: "The outputs DO reorder along with the inputs — attention is equivariant, not invariant, to permutation." },
+  ]}
+/>
+
+## Summary
+
+Attention's core operations are permutation-equivariant — they have no notion of word order on
+their own. Sinusoidal positional encoding adds a deterministic, per-position vector to each
+token embedding, using different oscillation frequencies per dimension so nearby and far-apart
+positions are both distinguishable. This is the only source of order information in the
+original Transformer architecture.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017), §3.5.
+- Kazemnejad, *"Transformer Architecture: The Positional Encoding"* — a widely-cited derivation
+  walkthrough.

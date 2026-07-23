@@ -1,0 +1,86 @@
+---
+slug: cross-attention
+month: 7
+week: 3
+ord: 5
+title: "Cross-Attention"
+code: "7.3.5"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain precisely which of Q, K, V come from which sequence in cross-attention"
+  - "Contrast cross-attention with self-attention along every dimension that differs"
+  - "Visualize and interpret a cross-attention weight matrix between two different sequences"
+prereqs:
+  - "The Decoder Block ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Same formula, different source for K and V</h2>
+
+Every attention mechanism you've built so far — including the masked self-attention inside a
+decoder block — has one thing in common: Q, K, and V are all projections of the *same*
+sequence. Cross-attention breaks that symmetry in exactly one way: **Q comes from one sequence
+(the decoder), K and V come from a different sequence (the encoder's output)**. Nothing else
+about the formula changes.
+
+<Callout kind="tip" title="The one-line distinction">
+  Self-attention: "how should this sequence attend to itself?"
+  Cross-attention: "how should sequence A attend to sequence B?" — A's tokens ask questions
+  (queries), B's tokens hold the answers (keys and values).
+</Callout>
+
+<h2 id="math">Explicit source of every term</h2>
+
+<MathBlock tex="Q = X_{\text{decoder}}W^{Q}, \qquad K = X_{\text{encoder}}W^{K}, \qquad V = X_{\text{encoder}}W^{V}" />
+<MathBlock tex="\mathrm{CrossAttention} = \mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V" />
+
+Note the resulting weight matrix has shape `(tgt_len, src_len)` — **not square**, unlike
+self-attention's `(seq_len, seq_len)`. Row `i` (a decoder position) sums to 1 across all
+`src_len` columns (encoder positions) — "given decoder position `i`, how should attention be
+distributed over the source sequence."
+
+<h2 id="python">Computing and interpreting a cross-attention matrix</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef cross_attention(X_decoder, X_encoder, Wq, Wk, Wv):\n    Q = X_decoder @ Wq\n    K = X_encoder @ Wk\n    V = X_encoder @ Wv\n    d_k = K.shape[-1]\n    scores = Q @ K.T / np.sqrt(d_k)\n    weights = softmax(scores, axis=-1)\n    return weights @ V, weights\n\n# Toy \"translation\": 3-word source, 4-word target -- DIFFERENT lengths, on purpose.\nsrc_tokens = [\"le\", \"chat\", \"noir\"]      # French: \"the black cat\"\ntgt_tokens = [\"the\", \"black\", \"cat\", \"<end>\"]\n\nnp.random.seed(4)\nd_model, d_k = 8, 6\nX_src = np.random.randn(len(src_tokens), d_model)\nX_tgt = np.random.randn(len(tgt_tokens), d_model)\nWq = np.random.randn(d_model, d_k) * 0.1\nWk = np.random.randn(d_model, d_k) * 0.1\nWv = np.random.randn(d_model, d_k) * 0.1\n\nout, weights = cross_attention(X_tgt, X_src, Wq, Wk, Wv)\nprint(\"weights shape (tgt_len, src_len):\", weights.shape, \"-- NOT square\")\nprint(\"each decoder row still sums to 1:\", weights.sum(axis=-1).round(6))\nprint()\nprint(\"cross-attention matrix (rows=target, cols=source):\")\nprint(\"        \" + \"  \".join(f'{t:>5}' for t in src_tokens))\nfor tok, row in zip(tgt_tokens, weights):\n    print(f'{tok:>7}: ' + '  '.join(f'{w:.3f}' for w in row))"}
+  output={"weights shape (tgt_len, src_len): (4, 3)  -- NOT square\neach decoder row still sums to 1: [1. 1. 1. 1.]\n\ncross-attention matrix (rows=target, cols=source):\n           le   chat   noir\n    the: 0.298  0.402  0.300\n  black: 0.361  0.278  0.361\n    cat: 0.316  0.349  0.335\n  <end>: 0.333  0.330  0.337\n"}
+/>
+
+With a trained model on real translation data, you'd see this matrix sharpen dramatically —
+"cat" would put most of its weight on "chat," "black" mostly on "noir," roughly tracing the
+word-alignment a human translator would draw by hand. With random weights it's close to
+uniform, same as every other untrained-attention example in this course — the *shape* and
+*structure* of the computation is what matters here, not the specific numbers.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In cross-attention between a 5-token decoder sequence and an 8-token encoder sequence, what is the shape of the attention weight matrix?"
+  correct={3}
+  options={[
+    { text: "(5, 5)", why: "That would be self-attention's shape — cross-attention isn't square unless the two sequences happen to be the same length." },
+    { text: "(8, 8)", why: "Also a self-attention-shaped guess, and for the wrong sequence besides." },
+    { text: "(13, 13)", why: "Sequence lengths aren't summed or concatenated into a square matrix." },
+    { text: "(5, 8) — (decoder length, encoder length)", why: "Correct — rows are queries (decoder), columns are keys (encoder); the matrix is only square if both sequences happen to share a length." },
+  ]}
+/>
+
+## Summary
+
+Cross-attention uses the exact same scaled dot-product formula as self-attention, with one
+structural change: queries come from one sequence (typically the decoder) while keys and values
+come from a different sequence (the encoder's output). This makes the resulting weight matrix
+rectangular — `(target_len, source_len)` — and lets two sequences of different lengths interact,
+which is what actually connects an encoder's understanding of the source to a decoder
+generating the target.
+
+## Further reading
+
+- Bahdanau, Cho & Bengio (2014) — the historical origin of this mechanism, predating the
+  Transformer itself by three years, in an RNN encoder-decoder context.

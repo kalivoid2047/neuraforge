@@ -1,0 +1,97 @@
+---
+slug: evaluate-bleu
+month: 7
+week: 4
+ord: 5
+title: "Evaluating with BLEU"
+code: "7.4.5"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Implement n-gram precision, the core of BLEU"
+  - "Explain what the brevity penalty corrects for and why precision alone isn't enough"
+  - "State BLEU's main limitations as a translation quality metric"
+prereqs:
+  - "Greedy vs Beam Decoding ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">How do you score a translation automatically?</h2>
+
+You've built a translation model this month — the Forge Project asks you to train and evaluate
+one. But how do you measure "good translation" without a human reading every output? BLEU
+(Bilingual Evaluation Understudy) approximates it by measuring **n-gram overlap** between the
+model's output and one or more human reference translations: what fraction of the model's
+2-word, 3-word, 4-word chunks actually appear in the reference?
+
+<Callout kind="tip" title="What BLEU is actually measuring">
+  Not "is this grammatically correct" or "does this mean the same thing" — purely, "how much
+  does this output's wording overlap with a reference." It's a crude proxy for quality, but a
+  cheap, reproducible, widely-comparable one — which is exactly why it became a standard
+  despite well-known flaws (more on those below).
+</Callout>
+
+<h2 id="math">n-gram precision and the brevity penalty</h2>
+
+For each n-gram length `n` (usually 1 through 4), precision is:
+
+<MathBlock tex="p_n = \frac{\text{count of candidate n-grams that appear in the reference (clipped)}}{\text{total candidate n-grams}}" />
+
+"Clipped" matters: if the candidate repeats a word far more than the reference does, those
+extra repeats don't count as matches — otherwise a translation that just repeats one common word
+over and over could score artificially high. BLEU combines the four precisions with a geometric
+mean, then applies a **brevity penalty (BP)**:
+
+<MathBlock tex="\mathrm{BLEU} = BP \cdot \exp\!\left(\frac{1}{4}\sum_{n=1}^{4}\log p_n\right), \qquad BP = \begin{cases} 1 & \text{if } c > r \\ e^{1-r/c} & \text{if } c \le r \end{cases}" />
+
+where `c` is the candidate's length and `r` is the reference length. Without BP, a model could
+game precision by outputting a single very-safe word ("the") — short outputs are easy to make
+100% precise but say almost nothing. BP penalizes candidates shorter than the reference.
+
+<h2 id="python">Implementing simplified BLEU</h2>
+
+<CodeCell
+  code={"import math\nfrom collections import Counter\n\ndef ngrams(tokens, n):\n    return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]\n\ndef ngram_precision(candidate, reference, n):\n    cand_ngrams = ngrams(candidate, n)\n    ref_ngrams = Counter(ngrams(reference, n))\n    if not cand_ngrams:\n        return 0.0\n    cand_counts = Counter(cand_ngrams)\n    clipped = sum(min(count, ref_ngrams[gram]) for gram, count in cand_counts.items())\n    return clipped / len(cand_ngrams)\n\ndef bleu(candidate, reference, max_n=4):\n    precisions = [ngram_precision(candidate, reference, n) for n in range(1, max_n + 1)]\n    if min(precisions) == 0:\n        return 0.0   # any zero precision -> BLEU is 0 (standard behavior)\n    log_avg = sum(math.log(p) for p in precisions) / max_n\n    c, r = len(candidate), len(reference)\n    bp = 1.0 if c > r else math.exp(1 - r / c)\n    return bp * math.exp(log_avg)\n\nreference = \"the cat sat on the mat\".split()\n\ngood_candidate = \"the cat sat on the mat\".split()       # perfect match\nok_candidate = \"a cat sat on the mat\".split()             # one word off\nshort_candidate = \"the cat\".split()                       # short, high-precision-per-word but incomplete\n\nfor name, cand in [(\"perfect\", good_candidate), (\"one word off\", ok_candidate), (\"too short\", short_candidate)]:\n    score = bleu(cand, reference)\n    print(f\"{name:>14}: BLEU = {score:.4f}\")"}
+  output={"       perfect: BLEU = 1.0000\n  one word off: BLEU = 0.0000\n     too short: BLEU = 0.0000"}
+/>
+
+<Callout kind="warning" title="Why 'one word off' scores exactly zero">
+  With `max_n=4` and only a 6-token reference, changing even one word breaks nearly every 3-gram
+  and 4-gram overlap — and BLEU returns exactly 0 the moment *any* n-gram precision is 0. This is
+  a real, well-known brittleness of sentence-level BLEU on short sequences; it's far better
+  behaved when averaged over a large corpus of many sentences, which is how it's normally
+  reported.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does BLEU include a brevity penalty rather than relying on n-gram precision alone?"
+  correct={1}
+  options={[
+    { text: "Precision alone rewards translations that are too literal", why: "Literalness isn't what BP corrects for — it's specifically about output length." },
+    { text: "Very short outputs can achieve artificially high precision while conveying far less content than the reference", why: "Correct — BP specifically counteracts the incentive to be too short." },
+    { text: "It makes BLEU computation faster", why: "BP doesn't affect computational cost — it's a correctness/incentive fix, not a performance optimization." },
+    { text: "It's required to keep the score between 0 and 1", why: "n-gram precision is already bounded in [0,1] on its own; BP serves a different purpose." },
+  ]}
+/>
+
+## Summary
+
+BLEU scores translations by n-gram overlap precision against reference translations (with
+repeated-word matches clipped), combined via geometric mean across n-gram lengths 1–4, and
+corrected by a brevity penalty that punishes overly short outputs. It's a crude, brittle metric
+at the single-sentence level — but cheap, reproducible, and standard enough that it remains the
+default first-pass metric for machine translation, including for this month's Forge Project.
+
+## Further reading
+
+- Papineni et al., *"BLEU: a Method for Automatic Evaluation of Machine Translation"* (2002) —
+  the original paper.
+- Post, *"A Call for Clarity in Reporting BLEU Scores"* (2018) — on reproducibility pitfalls in
+  how BLEU is commonly reported.

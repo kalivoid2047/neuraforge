@@ -1,0 +1,91 @@
+---
+slug: causal-masking
+month: 7
+week: 1
+ord: 5
+title: "Causal Masking"
+code: "7.1.5"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Explain why autoregressive decoders must not attend to future tokens"
+  - "Implement a causal mask and apply it correctly (before softmax, via -inf)"
+  - "Recognize the causal mask pattern in an attention weight matrix"
+prereqs:
+  - "Attention in NumPy ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">No peeking at the answer</h2>
+
+A decoder trained to predict the next word must never be allowed to *see* the next word while
+computing its prediction — that would be like grading a fill-in-the-blank test where the answer
+is already visible. During training, the whole target sequence is fed in at once for efficiency
+(teacher forcing), which means we must explicitly **block each position from attending to any
+position after it**. This is the causal — or "look-ahead" — mask.
+
+<Callout kind="tip" title="Causal = one direction only">
+  Position `i` may attend to positions `0, 1, ..., i` (itself and everything before it). It may
+  never attend to `i+1, i+2, ...`. This makes generation position-by-position consistent with
+  training on the full sequence at once.
+</Callout>
+
+<h2 id="math">The mask, precisely</h2>
+
+Recall from the scaled dot-product lesson: masking happens by setting disallowed scores to
+`-∞` **before** softmax, never by zeroing weights after. A causal mask is a `(seq_len, seq_len)`
+matrix that is 0 where attention is allowed and `-∞` where it's forbidden — added directly to
+the raw scores:
+
+<MathBlock tex="\mathrm{scores}_{ij} = \frac{q_i \cdot k_j}{\sqrt{d_k}} + M_{ij}, \qquad M_{ij} = \begin{cases} 0 & j \le i \\ -\infty & j > i \end{cases}" />
+
+Since `e^{-∞} = 0`, softmax automatically assigns exactly 0 probability to every forbidden
+position, while the allowed positions still sum to 1 among themselves — the row-sums-to-1
+invariant survives masking for free.
+
+<h2 id="python">Building and applying the mask</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef causal_mask(seq_len):\n    \"\"\"0 where allowed (j <= i), -inf where forbidden (j > i).\"\"\"\n    mask = np.triu(np.ones((seq_len, seq_len)), k=1)  # upper triangle, k=1 excludes diagonal\n    return np.where(mask == 1, -np.inf, 0.0)\n\ndef causal_attention(Q, K, V):\n    d_k = K.shape[-1]\n    scores = Q @ K.T / np.sqrt(d_k)\n    scores = scores + causal_mask(len(Q))\n    weights = softmax(scores, axis=-1)\n    return weights @ V, weights\n\nnp.random.seed(3)\nseq_len, d_k = 5, 8\nQ = np.random.randn(seq_len, d_k)\nK = np.random.randn(seq_len, d_k)\nV = np.random.randn(seq_len, d_k)\n\nout, weights = causal_attention(Q, K, V)\nprint(\"row sums (still all 1):\", weights.sum(axis=-1).round(6))\nprint(\"weights (rounded) -- upper triangle must be exactly 0:\")\nfor row in weights:\n    print('  ' + ' '.join(f'{w:.2f}' for w in row))"}
+  output={"row sums (still all 1): [1. 1. 1. 1. 1.]\nweights (rounded) -- upper triangle must be exactly 0:\n  1.00 0.00 0.00 0.00 0.00\n  0.58 0.42 0.00 0.00 0.00\n  0.30 0.35 0.35 0.00 0.00\n  0.24 0.26 0.22 0.28 0.00\n  0.19 0.22 0.18 0.19 0.22"}
+/>
+
+Row 0 can only attend to itself — weight 1.00 in column 0. Row 4 (the last position) can attend
+to all 5 positions, since nothing comes after it. That lower-triangular shape is the visual
+signature of a correctly causal-masked attention matrix.
+
+<Callout kind="danger" title="Pitfall: forgetting the mask breaks training, not inference">
+  A model trained *without* a causal mask learns to partially rely on future tokens it will
+  never have access to at actual generation time — it works suspiciously well during training
+  and then falls apart at inference. This bug is easy to miss because training loss looks fine.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why set forbidden scores to -∞ before softmax instead of setting their weights to 0 after softmax?"
+  correct={3}
+  options={[
+    { text: "It's faster to compute", why: "Speed isn't the reason — both are cheap. It's about correctness." },
+    { text: "-∞ produces more accurate gradients", why: "Not about gradient accuracy specifically." },
+    { text: "It doesn't matter, both approaches are equivalent", why: "They are NOT equivalent — zeroing after softmax breaks the row-sum-to-1 invariant." },
+    { text: "Zeroing after softmax leaves the remaining weights summing to less than 1", why: "Correct — softmax already normalized against the forbidden entries; zeroing them afterward doesn't renormalize the rest." },
+  ]}
+/>
+
+## Summary
+
+Causal masking prevents an autoregressive decoder from attending to future positions by adding
+`-∞` to forbidden scores before softmax — which is why `-∞` and not post-hoc zeroing. The
+resulting weight matrix is lower-triangular: position `i` can only ever attend to positions
+`0..i`. This is what makes training on a full sequence at once consistent with left-to-right
+generation at inference time.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017), §3.2.3 — "Masked Multi-Head Attention."

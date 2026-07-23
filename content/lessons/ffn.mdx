@@ -1,0 +1,86 @@
+---
+slug: ffn
+month: 7
+week: 3
+ord: 2
+title: "Feed-Forward Networks"
+code: "7.3.2"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Implement the position-wise feed-forward network used in every Transformer block"
+  - "Explain what the FFN contributes that attention alone cannot"
+  - "State why the FFN's hidden dimension is conventionally 4x d_model"
+prereqs:
+  - "LayerNorm & Residuals ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Attention mixes across tokens; the FFN processes each token alone</h2>
+
+Every Transformer block has exactly two sublayers: attention, and a feed-forward network (FFN).
+They do fundamentally different jobs. Attention is the *only* place information moves
+**between** token positions — it's where "context" happens. The FFN, by contrast, is applied
+**independently and identically to every position** — no token ever sees another token's
+representation inside the FFN. It's a plain two-layer MLP, applied position-wise.
+
+<Callout kind="tip" title="Division of labor">
+  Attention: *where* should I look, and what should I bring back from other positions?
+  FFN: given what I now know (after attention), transform this position's representation
+  further — this is where much of a Transformer's raw representational and "knowledge storage"
+  capacity actually lives, according to interpretability research on trained models.
+</Callout>
+
+<h2 id="math">The formula</h2>
+
+<MathBlock tex="\mathrm{FFN}(x) = \max(0,\, xW_1 + b_1)\,W_2 + b_2" />
+
+Two linear layers with a nonlinearity between them (the original paper uses ReLU; modern models
+commonly use GELU or SwiGLU instead — same role, smoother curve). The **hidden dimension** —
+the output size of `W_1` — is conventionally `4 × d_model`: it expands the representation,
+applies the nonlinearity, then projects back down to `d_model`.
+
+<h2 id="python">Implementing it, and confirming position-independence</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(x):\n    return np.maximum(0, x)\n\ndef feed_forward(x, W1, b1, W2, b2):\n    hidden = relu(x @ W1 + b1)\n    return hidden @ W2 + b2\n\nnp.random.seed(9)\nseq_len, d_model = 4, 8\nd_ff = d_model * 4   # the conventional 4x expansion\n\nW1 = np.random.randn(d_model, d_ff) * 0.1\nb1 = np.zeros(d_ff)\nW2 = np.random.randn(d_ff, d_model) * 0.1\nb2 = np.zeros(d_model)\n\nX = np.random.randn(seq_len, d_model)\nout = feed_forward(X, W1, b1, W2, b2)\nprint(\"input shape:\", X.shape, \" hidden dim:\", d_ff, \" output shape:\", out.shape)\n\n# prove position-independence: processing token 2 alone gives the SAME result\n# as processing it as part of the full sequence -- unlike attention, which would differ.\nout_token2_alone = feed_forward(X[2:3], W1, b1, W2, b2)\nprint(\"token 2 processed alone == token 2 within the full batch?\",\n      np.allclose(out_token2_alone[0], out[2]))"}
+  output={"input shape: (4, 8)  hidden dim: 32  output shape: (4, 8)\ntoken 2 processed alone == token 2 within the full batch? True"}
+/>
+
+<Callout kind="warning" title="Contrast with attention">
+  Run the equivalent check on an attention layer and it fails: token 2's attention output
+  *depends on every other token* (through K and V), so processing it alone gives a different
+  result than processing it within the full sequence. That's the concrete, checkable difference
+  between "mixes across positions" (attention) and "processes each position independently" (FFN).
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does running the FFN on token 2 alone give the exact same output as running it within the full sequence?"
+  correct={0}
+  options={[
+    { text: "The FFN is applied identically and independently to each position — no cross-token mixing happens inside it", why: "Correct — this is the FFN's defining property, in contrast to attention." },
+    { text: "Because d_ff = 4 * d_model", why: "The 4x expansion ratio is unrelated to position-independence; even a different ratio would still be position-independent." },
+    { text: "Because ReLU is applied", why: "The nonlinearity doesn't affect whether positions mix — that's about the matrix multiplications structure, not the activation function." },
+    { text: "It doesn't — this is only true for the FIRST token", why: "It's true for every token, not just the first — the FFN never looks at other positions at all." },
+  ]}
+/>
+
+## Summary
+
+The feed-forward network is a two-layer MLP with a nonlinearity, applied identically and
+independently to every sequence position — the only sublayer where no cross-token mixing
+happens. Its hidden dimension is conventionally 4x `d_model`. Together, attention (cross-token
+mixing) and the FFN (per-token transformation) form the two sublayers of every Transformer
+block.
+
+## Further reading
+
+- Geva et al., *"Transformer Feed-Forward Layers Are Key-Value Memories"* (2021) — evidence
+  that FFN layers function as a form of learned associative memory.

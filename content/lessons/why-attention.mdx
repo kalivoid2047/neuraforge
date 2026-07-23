@@ -1,0 +1,113 @@
+---
+slug: why-attention
+month: 7
+week: 1
+ord: 1
+title: "Why Attention?"
+code: "7.1.1"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Explain the fixed-size bottleneck that limited pre-attention seq2seq models"
+  - "State the core idea of attention in one sentence"
+  - "Recognize why attention lets a model use all of its input, not a compressed summary"
+prereqs:
+  - "Word2Vec ✓"
+  - "RNN/LM basics ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: history, title: History }
+  - { anchor: bottleneck, title: The Bottleneck }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Reading a paragraph vs. reading one sentence summary of it</h2>
+
+Imagine translating a 40-word sentence, but you're only allowed to read a **one-sentence
+summary** someone else wrote of it — then you must produce the full translation from that
+summary alone. You'd lose names, exact phrasing, minor clauses, anything the summarizer
+considered unimportant. This is exactly what early encoder-decoder sequence models did: the
+encoder crushed the entire input into one fixed-size vector, and the decoder generated the
+whole output from *only* that vector.
+
+<Callout kind="tip" title="The core idea, in one sentence">
+  Attention lets the decoder look back at *every* input position, each time it produces an
+  output — weighted by relevance — instead of relying on one compressed summary vector.
+</Callout>
+
+<h2 id="history">History</h2>
+
+<Callout kind="history" title="2014 — Bahdanau, Cho & Bengio">
+  Before attention, RNN encoder-decoder translation models (Sutskever et al., 2014) compressed
+  an entire source sentence into a single fixed-length vector — the final hidden state.
+  Bahdanau et al. (2014) proposed letting the decoder compute, at every output step, a weighted
+  combination of *all* encoder hidden states — the weights learned jointly with the rest of the
+  network. Translation quality on long sentences jumped immediately, because the bottleneck was
+  gone.
+</Callout>
+
+<h2 id="bottleneck">The bottleneck, concretely</h2>
+
+A vanilla encoder-decoder RNN works like this: the encoder reads the whole input and produces
+one final hidden state `h_T`. The decoder then generates the entire output conditioned only on
+`h_T` (and its own previous outputs). No matter how long the input is — 5 words or 500 — it all
+has to fit through that one vector.
+
+<MathBlock tex="h_T = \mathrm{RNN}(x_1, x_2, \ldots, x_T) \qquad \text{decoder sees only } h_T" />
+
+This is an information bottleneck in the strict sense: `h_T` has fixed dimensionality (say,
+512 numbers), but the input's information content grows with its length. Empirically, BLEU
+scores for RNN-only translation degrade sharply past ~20 words — exactly what you'd expect from
+a fixed-capacity channel.
+
+Attention removes the bottleneck by keeping **every** encoder hidden state around and letting
+the decoder learn which ones matter at each step:
+
+<MathBlock tex="c_t = \sum_{i=1}^{T} \alpha_{t,i}\, h_i \qquad \sum_i \alpha_{t,i} = 1" />
+
+`c_t` is a *different* weighted combination of all input states for every output step `t` — the
+model can attend to the start of the sentence while producing the last word, if that's what's
+relevant.
+
+<h2 id="python">Pure Python: bottleneck vs. attention, side by side</h2>
+
+You don't need a real model to see the shape of the problem. Compare how much of the input each
+approach can "see" per output step:
+
+<CodeCell
+  code={"def bottleneck_context(hidden_states):\n    \"\"\"Old way: decoder only ever sees the LAST hidden state.\"\"\"\n    return hidden_states[-1]\n\n\ndef attention_context(hidden_states, weights):\n    \"\"\"New way: decoder sees a weighted sum over ALL hidden states.\"\"\"\n    assert len(hidden_states) == len(weights)\n    assert abs(sum(weights) - 1.0) < 1e-9\n    return [sum(w * h[d] for w, h in zip(weights, hidden_states)) for d in range(len(hidden_states[0]))]\n\n\n# toy \"hidden states\" for a 4-word input, dim=3\nhidden_states = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]]\n\nprint(\"bottleneck sees only:\", bottleneck_context(hidden_states))\n\n# attention at a step that mostly cares about word 1 (\"[0,1,0]\")\nweights = [0.05, 0.85, 0.05, 0.05]\nprint(\"attention context:   \", [round(v, 3) for v in attention_context(hidden_states, weights)])"}
+  output={"bottleneck sees only: [1, 1, 1]\nattention context:    [0.15, 0.9, 0.15]"}
+/>
+
+Notice the bottleneck version threw away words 1–3 entirely — it only has the last state. The
+attention version blends in whichever states the weights point at, and those weights are
+*learned per output step*, not fixed.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What specifically does attention add that a vanilla encoder-decoder RNN lacks?"
+  correct={2}
+  options={[
+    { text: "A larger hidden state vector", why: "You could enlarge the bottleneck vector and it would still be one fixed-size summary — that's not what attention changes." },
+    { text: "More RNN layers", why: "Depth doesn't remove the single-summary-vector bottleneck." },
+    { text: "Access to every encoder state, reweighted per output step", why: "Exactly — this is the fix for the fixed-size bottleneck." },
+    { text: "A bigger vocabulary", why: "Vocabulary size is unrelated to the bottleneck problem." },
+  ]}
+/>
+
+## Summary
+
+Pre-attention encoder-decoder models forced all of an input sequence's information through one
+fixed-size vector, which degrades badly on long inputs. Attention replaces that single vector
+with a *learned, per-output-step weighted combination* of every encoder state — removing the
+bottleneck. The next lessons build the actual mechanism: queries, keys, and values.
+
+## Further reading
+
+- Bahdanau, Cho & Bengio, *"Neural Machine Translation by Jointly Learning to Align and
+  Translate"* (2014) — the original attention paper.
+- Sutskever, Vinyals & Le, *"Sequence to Sequence Learning with Neural Networks"* (2014) — the
+  bottleneck architecture attention was designed to fix.

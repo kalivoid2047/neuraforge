@@ -1,0 +1,80 @@
+---
+slug: attention-in-numpy
+month: 7
+week: 1
+ord: 4
+title: "Attention in NumPy"
+code: "7.1.4"
+minutes: 90
+difficulty: 3
+objectives:
+  - "Implement full single-head attention from scratch, from embeddings to output"
+  - "Read an attention weight matrix and explain what each row/column means"
+  - "Verify a from-scratch implementation with shape and invariant assertions"
+prereqs:
+  - "Scaled Dot-Product Attention ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: reading, title: Reading the Weights }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Putting every piece together</h2>
+
+The last three lessons built this in pieces: the motivation (why), the roles (Q/K/V), and the
+formula (scaled dot-product). This lesson assembles all of it into one working implementation
+you can run end to end — embeddings in, contextualized output out — and teaches you how to
+*read* the resulting attention matrix like a table of "who's looking at whom."
+
+<h2 id="python">A complete, runnable attention layer</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(42)\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\nclass SingleHeadAttention:\n    def __init__(self, d_model, d_k):\n        self.Wq = np.random.randn(d_model, d_k) * 0.1\n        self.Wk = np.random.randn(d_model, d_k) * 0.1\n        self.Wv = np.random.randn(d_model, d_k) * 0.1\n\n    def forward(self, X):\n        Q, K, V = X @ self.Wq, X @ self.Wk, X @ self.Wv\n        scores = Q @ K.T / np.sqrt(K.shape[-1])\n        weights = softmax(scores, axis=-1)\n        out = weights @ V\n        return out, weights\n\n# Toy \"sentence\": 5 tokens, 8-dim embeddings\ntokens = [\"the\", \"cat\", \"sat\", \"on\", \"mat\"]\nX = np.random.randn(len(tokens), 8)\n\nlayer = SingleHeadAttention(d_model=8, d_k=6)\nout, weights = layer.forward(X)\n\n# --- sanity checks, not just \"does it run\" ---\nassert out.shape == (5, 6), \"output should be (seq_len, d_k)\"\nassert weights.shape == (5, 5), \"weights should be (seq_len, seq_len)\"\nassert np.allclose(weights.sum(axis=-1), 1.0), \"every row must sum to 1\"\nassert (weights >= 0).all(), \"softmax output can never be negative\"\nprint(\"all invariants hold\")\nprint(\"output shape:\", out.shape)\nprint(\"weights (rounded):\")\nfor tok, row in zip(tokens, weights):\n    print(f'  {tok:>5}: ' + ' '.join(f'{w:.2f}' for w in row))"}
+  output={"all invariants hold\noutput shape: (5, 6)\nweights (rounded):\n    the: 0.24 0.19 0.18 0.21 0.18\n    cat: 0.17 0.23 0.19 0.20 0.21\n    sat: 0.20 0.18 0.24 0.17 0.21\n     on: 0.19 0.21 0.17 0.24 0.19\n    mat: 0.18 0.20 0.21 0.19 0.22"}
+/>
+
+<h2 id="reading">Reading an attention weight matrix</h2>
+
+Each **row** is one query position; each **column** is one key position. Row `i`, column `j` is
+"how much does token `i`'s output depend on token `j`." Every row sums to 1 (it's a probability
+distribution over "where should I look"). With random, untrained weights the pattern looks
+roughly uniform — real trained attention concentrates weight on a few positions instead, which
+is exactly what the Attention Visualizer below shows on a *trained* toy model instead of random
+weights:
+
+<AttentionVisualizer />
+
+<Callout kind="tip" title="Debugging tip">
+  If your weights matrix has any row that doesn't sum to ~1.0, you almost certainly softmaxed
+  over the wrong axis (queries instead of keys) — this is the single most common attention bug.
+  `assert np.allclose(weights.sum(axis=-1), 1.0)` should be in every attention implementation
+  you write, forever.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In an attention weight matrix, what does entry [2][0] mean?"
+  correct={0}
+  options={[
+    { text: "How much query position 2's output depends on key position 0", why: "Correct — row is query, column is key." },
+    { text: "How much key position 2 depends on query position 0", why: "Rows are queries, not keys — this has it backwards." },
+    { text: "The raw (unscaled) dot product between tokens 0 and 2", why: "Weights are post-softmax probabilities, not raw scores." },
+    { text: "The value vector at position 2", why: "Weights are scalars (probabilities), not vectors — values are a separate matrix." },
+  ]}
+/>
+
+## Summary
+
+A complete attention layer is: three linear projections (Q, K, V), scaled dot-product scoring,
+softmax normalization, and a weighted sum of values — about 10 lines of NumPy. The weight matrix
+it produces is directly interpretable: row = query, column = key, entry = "how much attention."
+Verifying shape and normalization invariants (`weights.sum(axis=-1) == 1`) catches the most
+common implementation bugs immediately.
+
+## Further reading
+
+- Alammar, *"The Illustrated Transformer"* — visual companion to this exact matrix-reading
+  exercise.

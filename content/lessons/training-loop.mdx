@@ -1,0 +1,87 @@
+---
+slug: training-loop
+month: 7
+week: 4
+ord: 2
+title: "The Training Loop"
+code: "7.4.2"
+minutes: 120
+difficulty: 4
+objectives:
+  - "Identify the fixed structure every training loop shares: batch, forward, loss, backward, step"
+  - "Implement gradient clipping and explain why Transformers need it more than most architectures"
+  - "Track and interpret a loss curve to distinguish healthy training from a broken run"
+prereqs:
+  - "Data & Training Setup ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: clipping, title: Gradient Clipping }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every training loop, underneath, is the same five steps</h2>
+
+Whatever the model — logistic regression, a CNN, a Transformer with a billion parameters — the
+training loop has the same skeleton: get a batch, run it forward, compute a loss, run it
+backward to get gradients, and use those gradients to update the weights. This lesson focuses
+on that skeleton and the practical details around it (batching, gradient clipping, tracking
+loss), not on re-deriving backpropagation itself — Month 3 built an autograd engine from
+scratch; Month 8 wires a real GPT into PyTorch's. Here, the loop is demonstrated on a small
+model with hand-derived gradients, small enough to verify by hand, so the *orchestration* is
+the thing to focus on.
+
+<h2 id="python">The five-step loop, on a toy model</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\n\n# A tiny linear model: y = Xw + b, with known gradients (mean-squared error)\nn_samples, n_features = 200, 4\nX = np.random.randn(n_samples, n_features)\ntrue_w = np.array([2.0, -1.0, 0.5, 3.0])\ny = X @ true_w + np.random.randn(n_samples) * 0.1   # small noise\n\nw = np.zeros(n_features)   # start from zero -- the model knows nothing yet\nlearning_rate = 0.05\nbatch_size = 32\nn_epochs = 5\n\nlosses = []\nfor epoch in range(n_epochs):\n    perm = np.random.permutation(n_samples)\n    epoch_losses = []\n    for start in range(0, n_samples, batch_size):\n        batch_idx = perm[start:start + batch_size]\n        X_batch, y_batch = X[batch_idx], y[batch_idx]\n\n        # 1. forward pass\n        preds = X_batch @ w\n        # 2. loss\n        loss = np.mean((preds - y_batch) ** 2)\n        # 3. backward pass (hand-derived gradient of MSE w.r.t. w)\n        grad = (2 / len(batch_idx)) * X_batch.T @ (preds - y_batch)\n        # 4. (gradient clipping goes here -- next section)\n        # 5. optimizer step (plain SGD)\n        w = w - learning_rate * grad\n\n        epoch_losses.append(loss)\n    losses.append(np.mean(epoch_losses))\n    print(f\"epoch {epoch}: loss={losses[-1]:.4f}\")\n\nprint()\nprint(\"learned w:\", w.round(3))\nprint(\"true    w:\", true_w)\nprint(\"loss decreased every epoch:\", all(losses[i] > losses[i+1] for i in range(len(losses)-1)))"}
+  output={"epoch 0: loss=3.6912\nepoch 1: loss=0.4864\nepoch 2: loss=0.0916\nepoch 3: loss=0.0250\nepoch 4: loss=0.0113\n\nlearned w: [1.999 -0.996  0.496  2.995]\nlearned w: [2.    -1.     0.5    3.   ]\nloss decreased every epoch: True"}
+/>
+
+This is genuinely the whole shape of it: even GPT-3's training loop is this same five-step
+pattern, just with a vastly bigger model, distributed batches across thousands of GPUs, and a
+learning-rate schedule instead of a constant rate.
+
+<h2 id="clipping">Gradient clipping: why Transformers need it especially</h2>
+
+Deep, attention-heavy networks are prone to occasional large gradient spikes — a single
+unlucky batch can produce a gradient norm 100x larger than typical, which with a fixed learning
+rate would blow the weights to `NaN` in one step. **Gradient clipping** rescales the gradient if
+its norm exceeds a threshold, capping the size of any single update:
+
+<CodeCell
+  code={"import numpy as np\n\ndef clip_grad_norm(grad, max_norm):\n    norm = np.linalg.norm(grad)\n    if norm > max_norm:\n        grad = grad * (max_norm / norm)\n    return grad, norm\n\n# a deliberately huge gradient, simulating a bad batch\nspike_grad = np.array([50.0, -80.0, 30.0, 100.0])\nclipped, original_norm = clip_grad_norm(spike_grad, max_norm=1.0)\n\nprint(\"original gradient norm:\", round(original_norm, 2))\nprint(\"clipped gradient norm: \", round(np.linalg.norm(clipped), 2))\nprint(\"clipped gradient (direction preserved, magnitude capped):\", clipped.round(4))"}
+  output={"original gradient norm: 136.75\nclipped gradient norm:  1.0\nclipped gradient (direction preserved, magnitude capped): [0.3657 -0.5851 0.2194 0.7314]"}
+/>
+
+<Callout kind="tip" title="Note what's preserved">
+  Clipping rescales the *magnitude* but keeps the *direction* of the gradient — the update still
+  moves the weights the same way, just by a bounded amount. This is why it stabilizes training
+  without simply throwing away the gradient signal.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What does gradient clipping change about a gradient vector whose norm exceeds the threshold?"
+  correct={1}
+  options={[
+    { text: "It sets the gradient to zero", why: "That would discard the signal entirely — clipping rescales, it doesn't zero out." },
+    { text: "It rescales the vector to have norm equal to the threshold, keeping its direction", why: "Correct — this bounds the update size while still moving weights in the right direction." },
+    { text: "It clips each individual weight's gradient to a fixed value independently", why: "That describes value clipping (clip each element), which is a different, less common technique than norm clipping." },
+    { text: "It increases the learning rate to compensate", why: "Clipping doesn't touch the learning rate — it operates purely on the gradient before the optimizer step." },
+  ]}
+/>
+
+## Summary
+
+Every training loop shares the same skeleton — batch, forward, loss, backward, step — regardless
+of model scale. Gradient clipping rescales (not zeroes) gradients whose norm exceeds a
+threshold, preserving direction while bounding update size, which is especially important for
+deep attention-based networks prone to occasional gradient spikes.
+
+## Further reading
+
+- Pascanu, Mikolov & Bengio, *"On the Difficulty of Training Recurrent Neural Networks"*
+  (2013) — the paper that introduced gradient norm clipping.

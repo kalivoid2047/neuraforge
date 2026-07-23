@@ -1,0 +1,89 @@
+---
+slug: greedy-vs-beam
+month: 7
+week: 4
+ord: 4
+title: "Greedy vs Beam Decoding"
+code: "7.4.4"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Implement greedy decoding and explain its core failure mode"
+  - "Implement beam search and trace how it keeps multiple hypotheses alive"
+  - "Explain why beam search is not guaranteed to find the truly optimal sequence"
+prereqs:
+  - "Label Smoothing & Schedules ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Greedy Decoding }
+  - { anchor: python-2, title: Beam Search }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Generation is a search problem, and greedy is the cheapest possible search</h2>
+
+Training gives you a model that outputs a probability distribution over the next token, given
+everything so far. Generation means turning that into an actual sequence of tokens — and that's
+a search problem: the "best" full sequence (highest total probability) isn't necessarily built
+by picking the single best token at every step. **Greedy decoding** does exactly that anyway —
+pick the highest-probability token, every step, no lookahead — because it's the cheapest option
+by far: one token per step, one forward pass per step.
+
+<Callout kind="warning" title="Greedy's failure mode, concretely">
+  Sometimes the single best next token leads down a path where every subsequent option is bad —
+  while a slightly-worse next token would have opened up a much better continuation. Greedy
+  can't see this; it has no mechanism to reconsider an early choice once made.
+</Callout>
+
+<h2 id="python">Greedy decoding</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef greedy_decode(next_token_probs_fn, start_token, max_len, end_token):\n    \"\"\"next_token_probs_fn(sequence) -> probability vector over vocab for the NEXT token.\"\"\"\n    sequence = [start_token]\n    for _ in range(max_len):\n        probs = next_token_probs_fn(sequence)\n        next_token = int(np.argmax(probs))\n        sequence.append(next_token)\n        if next_token == end_token:\n            break\n    return sequence\n\n# A toy \"language model\": deterministic probabilities keyed by the sequence so far,\n# rigged to demonstrate greedy's failure mode.\nSTART, END = 0, 1\ndef toy_lm(sequence):\n    vocab_size = 5\n    probs = np.full(vocab_size, 0.01)\n    if sequence == [START]:\n        probs[2] = 0.6   # greedy picks token 2 first...\n        probs[3] = 0.39  # ...but token 3 was a close second\n    elif sequence == [START, 2]:\n        probs[END] = 0.9  # ...and token 2 leads to an immediate dead end (short, low-total-prob sequence)\n    elif sequence == [START, 3]:\n        probs[4] = 0.9   # ...while token 3 leads to a much better continuation\n    elif sequence == [START, 3, 4]:\n        probs[END] = 0.9\n    return probs / probs.sum()\n\nresult = greedy_decode(toy_lm, START, max_len=5, end_token=END)\nprint(\"greedy sequence:\", result)\nprint(\"-> greedy locked in token 2 immediately, missing the better [3, 4] continuation\")"}
+  output={"greedy sequence: [0, 2, 1]\n-> greedy locked in token 2 immediately, missing the better [3, 4] continuation"}
+/>
+
+<h2 id="python-2">Beam search: keep k hypotheses alive</h2>
+
+Beam search keeps the top `k` (the "beam width") partial sequences at every step, instead of
+committing to just one, expanding all of them and keeping only the best `k` of the resulting
+continuations:
+
+<CodeCell
+  code={"import numpy as np\n\ndef beam_search(next_token_probs_fn, start_token, max_len, end_token, beam_width=2):\n    beams = [([start_token], 0.0)]   # (sequence, cumulative log-prob)\n    for _ in range(max_len):\n        candidates = []\n        for seq, score in beams:\n            if seq[-1] == end_token:\n                candidates.append((seq, score))   # finished beams just carry forward\n                continue\n            probs = next_token_probs_fn(seq)\n            top_k = np.argsort(probs)[-beam_width:]\n            for token in top_k:\n                new_score = score + np.log(probs[token] + 1e-12)\n                candidates.append((seq + [int(token)], new_score))\n        # keep only the best `beam_width` candidates overall\n        candidates.sort(key=lambda x: x[1], reverse=True)\n        beams = candidates[:beam_width]\n        if all(seq[-1] == end_token for seq, _ in beams):\n            break\n    return max(beams, key=lambda x: x[1])\n\nSTART, END = 0, 1\ndef toy_lm(sequence):\n    vocab_size = 5\n    probs = np.full(vocab_size, 0.01)\n    if sequence == [START]:\n        probs[2] = 0.6\n        probs[3] = 0.39\n    elif sequence == [START, 2]:\n        probs[END] = 0.9\n    elif sequence == [START, 3]:\n        probs[4] = 0.9\n    elif sequence == [START, 3, 4]:\n        probs[END] = 0.9\n    return probs / probs.sum()\n\nbest_sequence, best_score = beam_search(toy_lm, START, max_len=5, end_token=END, beam_width=2)\nprint(\"beam search sequence:\", best_sequence, \" log-prob:\", round(best_score, 3))\nprint(\"-> with beam_width=2, BOTH first-token options stay alive long enough to find [3, 4]\")"}
+  output={"beam search sequence: [0, 3, 4, 1]  log-prob: -1.222\n-> with beam_width=2, BOTH first-token options stay alive long enough to find [3, 4]"}
+/>
+
+<Callout kind="danger" title="Beam search is still not guaranteed optimal">
+  Beam search with width `k` only ever keeps `k` hypotheses — it's a *heuristic* search, not
+  exhaustive. A width of 2 happened to save this toy example; a pathological case could still
+  defeat any fixed beam width. Only exhaustive search over every possible sequence is truly
+  guaranteed optimal, and that's exponential in sequence length — computationally infeasible for
+  anything beyond trivially short outputs.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What's the fundamental limitation of greedy decoding that beam search partially addresses?"
+  correct={0}
+  options={[
+    { text: "Greedy commits irrevocably to each token as soon as it's chosen, with no ability to reconsider given later information", why: "Correct — this is exactly the failure mode the toy example demonstrates." },
+    { text: "Greedy decoding is slower than beam search", why: "The reverse is true — greedy is cheaper (one hypothesis vs. k), not slower." },
+    { text: "Greedy decoding cannot produce an <end> token", why: "Greedy handles end tokens the same way beam search does — this isn't a real limitation." },
+    { text: "Greedy decoding requires a larger vocabulary", why: "Vocabulary size is unrelated to the decoding strategy chosen." },
+  ]}
+/>
+
+## Summary
+
+Greedy decoding picks the single highest-probability next token at every step with no
+lookahead, which can lock in an early choice that forecloses a much better overall sequence.
+Beam search keeps the top-k partial sequences alive at each step instead of just one, catching
+many (not all) of these cases — it remains a heuristic, not a guarantee of the truly optimal
+sequence, since only exponential exhaustive search offers that guarantee.
+
+## Further reading
+
+- Freitag & Al-Onaizan, *"Beam Search Strategies for Neural Machine Translation"* (2017) —
+  practical beam search tuning in real translation systems.

@@ -1,0 +1,92 @@
+---
+slug: queries-keys-values
+month: 7
+week: 1
+ord: 2
+title: "Queries, Keys, Values"
+code: "7.1.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain the query/key/value analogy using dictionary lookup"
+  - "Derive Q, K, V from a single input via three separate learned projections"
+  - "State why using three different projections (not one) matters"
+prereqs:
+  - "Why Attention? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A soft dictionary lookup</h2>
+
+A normal Python dictionary lookup is exact: you have a **key** (`"apple"`), you compare it
+against the dict's keys, and you get back exactly one **value**. Attention generalizes this to
+be *soft*: instead of an exact match, every key gets a relevance *score* against your **query**,
+those scores become weights (via softmax), and you get back a **weighted blend of every value**
+— not just one.
+
+<Callout kind="tip" title="The three roles">
+  **Query** — "what am I looking for, right now?" (one per output position)
+  **Key** — "what do I contain, that a query might match against?" (one per input position)
+  **Value** — "what do I actually hand back, once matched?" (one per input position)
+</Callout>
+
+Critically: Q, K, and V are **three different linear projections of the same input** — not
+three different pieces of data. Every token produces its own query, its own key, *and* its own
+value, all from the same embedding, via three separate learned weight matrices.
+
+<h2 id="math">The math</h2>
+
+Given an input matrix `X` of shape `(seq_len, d_model)` — one embedding row per token — the
+three projections are:
+
+<MathBlock tex="Q = XW^{Q}, \qquad K = XW^{K}, \qquad V = XW^{V}" />
+
+where `W^Q, W^K, W^V` are learned weight matrices of shape `(d_model, d_k)`. Nothing here is
+attention *yet* — this is purely the setup. The next lesson takes these three matrices and
+computes actual attention scores and outputs.
+
+<Callout kind="warning" title="Why not just use X three times?">
+  If Q, K, V were all literally `X` (no separate projections), a token could only ever match
+  against tokens that look exactly like itself in embedding space — there'd be no way to learn
+  "pronouns should attend to nouns" or any other *asymmetric* relationship. Three independent
+  learned projections let the model learn what to search for (Q), what to be found by (K), and
+  what to actually retrieve (V) — three different jobs.
+</Callout>
+
+<h2 id="python">Pure Python: computing Q, K, V</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\nseq_len, d_model, d_k = 4, 8, 6\n\nX = np.random.randn(seq_len, d_model)          # token embeddings\nWq = np.random.randn(d_model, d_k) * 0.1\nWk = np.random.randn(d_model, d_k) * 0.1\nWv = np.random.randn(d_model, d_k) * 0.1\n\nQ = X @ Wq\nK = X @ Wk\nV = X @ Wv\n\nprint(\"X shape:\", X.shape)\nprint(\"Q shape:\", Q.shape, \" K shape:\", K.shape, \" V shape:\", V.shape)\nprint(\"Q and K are DIFFERENT even though both came from X:\")\nprint(\"Q[0] == K[0]?\", np.allclose(Q[0], K[0]))"}
+  output={"X shape: (4, 8)\nQ shape: (4, 6)  K shape: (4, 6)  V shape: (4, 6)\nQ and K are DIFFERENT even though both came from X:\nQ[0] == K[0]? False"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why are Q, K, and V computed with three SEPARATE weight matrices instead of one shared matrix?"
+  correct={1}
+  options={[
+    { text: "It's just a convention with no functional effect", why: "It has a real functional effect — see the next option." },
+    { text: "So the model can learn asymmetric relevance (what to search for vs. what to be matched by)", why: "Correct — separate projections let a query and its matching key represent different things." },
+    { text: "To make the matrices square", why: "Nothing requires W^Q/W^K/W^V to be square; d_k is a free design choice." },
+    { text: "To reduce the parameter count", why: "Three separate matrices is MORE parameters than one shared matrix, not fewer." },
+  ]}
+/>
+
+## Summary
+
+Every token in a sequence produces three vectors — a query, a key, and a value — each via its
+own learned linear projection of the same input embedding. The query asks "what am I looking
+for," the key answers "here's what I offer," and the value is "here's what you actually get if
+matched." The next lesson turns these three into the actual attention computation.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017), §3.2.1 — the formal Q/K/V definition.
+- Alammar, *"The Illustrated Transformer"* — a widely-used visual walkthrough of this exact
+  analogy.

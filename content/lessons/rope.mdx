@@ -1,0 +1,96 @@
+---
+slug: rope
+month: 7
+week: 2
+ord: 5
+title: "Rotary Embeddings (RoPE)"
+code: "7.2.5"
+minutes: 90
+difficulty: 5
+objectives:
+  - "Explain what problem RoPE solves that sinusoidal absolute PE does not"
+  - "Describe RoPE as a rotation applied to query/key vector pairs"
+  - "Verify empirically that RoPE's attention score depends only on relative position"
+prereqs:
+  - "Positional Encoding ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Encode position as a rotation, not an addition</h2>
+
+Sinusoidal PE *adds* a position-dependent vector to the embedding before attention. That works,
+but the relationship between two positions' encodings isn't directly visible to the dot product
+that attention actually computes — the model has to *learn* to extract relative position from
+the sum. Rotary Position Embeddings (RoPE), used in GPT-NeoX, LLaMA, and most modern open LLMs,
+takes a different approach: instead of adding a position vector, it **rotates** the query and
+key vectors by an angle proportional to their position, applied in pairs of dimensions.
+
+<Callout kind="tip" title="Why rotation specifically">
+  A rotation has a property addition doesn't: the dot product of two rotated vectors depends
+  only on the *difference* in their rotation angles, not their absolute angles. Rotate query at
+  position 5 and key at position 3 by their respective amounts, and their dot product ends up
+  depending only on `5 - 3 = 2` — relative position falls out automatically, without the model
+  having to learn to compute it.
+</Callout>
+
+<h2 id="math">Rotation in 2D, extended to many dimensions</h2>
+
+For a single pair of dimensions `(x, y)`, rotating by angle `θ`:
+
+<MathBlock tex="\begin{pmatrix}x'\\y'\end{pmatrix}=\begin{pmatrix}\cos\theta & -\sin\theta\\ \sin\theta & \cos\theta\end{pmatrix}\begin{pmatrix}x\\y\end{pmatrix}" />
+
+RoPE applies this to a query or key vector by splitting its `d_k` dimensions into `d_k/2` pairs,
+each rotated by an angle that depends on **both** the pair index `i` and the token's position
+`pos`:
+
+<MathBlock tex="\theta_{i} = pos \cdot 10000^{-2i/d_k}" />
+
+— the same frequency schedule idea as sinusoidal PE, but used as a rotation angle instead of an
+additive term. The key identity that makes this work: rotating query by angle `θ_m` (its
+position) and key by angle `θ_n` (its position), then dotting them, is mathematically
+equivalent to rotating by `θ_m − θ_n` — the relative offset.
+
+<h2 id="python">Rotating Q/K, then verifying relative-position-only dependence</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef rope_angles(pos, d_k):\n    i = np.arange(d_k // 2)\n    freqs = 10000 ** (-2 * i / d_k)\n    return pos * freqs               # (d_k/2,)\n\ndef apply_rope(x, pos):\n    \"\"\"x: (d_k,) vector, split into d_k/2 pairs and rotated.\"\"\"\n    d_k = len(x)\n    theta = rope_angles(pos, d_k)\n    x_pairs = x.reshape(-1, 2)                      # (d_k/2, 2)\n    cos, sin = np.cos(theta), np.sin(theta)\n    x_rot = np.empty_like(x_pairs)\n    x_rot[:, 0] = x_pairs[:, 0] * cos - x_pairs[:, 1] * sin\n    x_rot[:, 1] = x_pairs[:, 0] * sin + x_pairs[:, 1] * cos\n    return x_rot.reshape(-1)\n\nnp.random.seed(11)\nd_k = 8\nq = np.random.randn(d_k)\nk = np.random.randn(d_k)\n\ndef rope_score(q, k, pos_q, pos_k):\n    q_rot = apply_rope(q, pos_q)\n    k_rot = apply_rope(k, pos_k)\n    return q_rot @ k_rot\n\n# Same relative offset (5), different absolute positions -- scores should match.\nscore_a = rope_score(q, k, pos_q=7, pos_k=2)   # offset 5\nscore_b = rope_score(q, k, pos_q=20, pos_k=15) # offset 5\nscore_c = rope_score(q, k, pos_q=7, pos_k=3)   # offset 4 (different!)\n\nprint(\"offset=5 @ (7,2): \", round(score_a, 6))\nprint(\"offset=5 @ (20,15):\", round(score_b, 6))\nprint(\"same score for same relative offset?\", np.isclose(score_a, score_b))\nprint(\"offset=4 @ (7,3): \", round(score_c, 6), \"(different offset -> different score, as expected)\")"}
+  output={"offset=5 @ (7,2):  -0.427921\noffset=5 @ (20,15): -0.427921\nsame score for same relative offset? True\noffset=4 @ (7,3):  0.891273 (different offset -> different score, as expected)"}
+/>
+
+Two completely different absolute position pairs, same relative offset (5), same score — this
+is the property that doesn't hold for additive sinusoidal PE, and it's why RoPE-based models
+generalize better to sequence lengths not seen during training: the model only ever has to
+reason about relative offsets, which it saw plenty of at every length during training.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What does RoPE's dot-product-depends-only-on-relative-offset property directly enable, that additive absolute PE struggles with?"
+  correct={0}
+  options={[
+    { text: "Better generalization to sequence lengths longer than those seen in training", why: "Correct — relative-offset dependence means the model reasons about position gaps it has actually seen, at any absolute position." },
+    { text: "Faster training, since rotation is cheaper than addition", why: "Rotation isn't meaningfully cheaper than addition — speed isn't the motivation." },
+    { text: "The ability to use non-causal (bidirectional) attention", why: "RoPE doesn't change whether attention is causal or bidirectional — that's a separate masking choice." },
+    { text: "Removing the need for a causal mask", why: "RoPE and causal masking are unrelated / independent mechanisms." },
+  ]}
+/>
+
+## Summary
+
+RoPE encodes position as a rotation applied to query and key vectors, split into pairs of
+dimensions, rather than as an additive term. The key payoff: the resulting attention score
+between two positions depends only on their *relative* offset, not their absolute positions —
+verified directly above by matching scores for two token pairs with the same gap but different
+absolute positions. This relative-position property is a major reason RoPE-based models
+generalize better beyond their training sequence length than sinusoidal-PE models.
+
+## Further reading
+
+- Su et al., *"RoFormer: Enhanced Transformer with Rotary Position Embedding"* (2021) — the
+  original RoPE paper.
+- The LLaMA and GPT-NeoX papers, both of which adopted RoPE as their positional scheme.

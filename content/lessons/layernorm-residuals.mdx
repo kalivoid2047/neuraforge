@@ -1,0 +1,94 @@
+---
+slug: layernorm-residuals
+month: 7
+week: 3
+ord: 1
+title: "LayerNorm & Residuals"
+code: "7.3.1"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain why deep Transformer stacks need residual connections to train at all"
+  - "Implement layer normalization from scratch and verify its output statistics"
+  - "Distinguish pre-norm from post-norm placement and state why pre-norm dominates modern models"
+prereqs:
+  - "Rotary Embeddings (RoPE) ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two unglamorous ideas that make deep networks actually trainable</h2>
+
+Attention and feed-forward layers get all the conceptual attention (pun intended), but stack a
+dozen of them without two supporting mechanisms and the network simply won't train: **residual
+connections** (let gradients skip straight through a layer) and **layer normalization**
+(keep activation statistics stable as they flow through dozens of layers).
+
+<Callout kind="tip" title="Residual connections, in one line">
+  Instead of `output = Layer(x)`, every Transformer sublayer computes `output = x + Layer(x)` —
+  the input is always added back. If `Layer(x)` learns to output near-zero, the block reduces
+  to the identity function, which is trivially easy to learn and gives gradients a direct path
+  back to earlier layers.
+</Callout>
+
+<h2 id="math">LayerNorm, precisely</h2>
+
+Unlike batch normalization (which normalizes across the batch dimension), layer normalization
+normalizes across the **feature dimension**, independently for every single token:
+
+<MathBlock tex="\mathrm{LayerNorm}(x) = \gamma\cdot\frac{x-\mu}{\sqrt{\sigma^2+\epsilon}}+\beta, \qquad \mu=\frac{1}{d}\sum_i x_i,\quad \sigma^2=\frac{1}{d}\sum_i (x_i-\mu)^2" />
+
+`γ` and `β` are learned per-dimension scale and shift parameters — LayerNorm forces zero mean,
+unit variance *before* applying them, then lets the network learn to rescale if that's useful.
+`ε` is a small constant purely to avoid division by zero.
+
+A full Transformer sublayer combines both ideas:
+
+<MathBlock tex="x_{\text{out}} = x + \mathrm{Sublayer}(\mathrm{LayerNorm}(x)) \qquad \text{(pre-norm, used by GPT-2 onward)}" />
+
+<h2 id="python">Implementing and verifying LayerNorm</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef layer_norm(x, gamma, beta, eps=1e-5):\n    mu = x.mean(axis=-1, keepdims=True)\n    var = x.var(axis=-1, keepdims=True)\n    x_norm = (x - mu) / np.sqrt(var + eps)\n    return gamma * x_norm + beta\n\nnp.random.seed(2)\nseq_len, d_model = 4, 16\nx = np.random.randn(seq_len, d_model) * 5 + 3   # deliberately NOT zero-mean/unit-variance\ngamma, beta = np.ones(d_model), np.zeros(d_model)\n\nout = layer_norm(x, gamma, beta)\nprint(\"input  mean/std per token:\", x.mean(axis=-1).round(2), x.std(axis=-1).round(2))\nprint(\"output mean per token (should be ~0):\", out.mean(axis=-1).round(6))\nprint(\"output std  per token (should be ~1):\", out.std(axis=-1).round(6))\n\n# residual connection demo: a \"broken\" sublayer that outputs near-zero\ndef broken_sublayer(x):\n    return x * 0.001  # simulates an undertrained/poorly-initialized layer\n\nwithout_residual = broken_sublayer(x)\nwith_residual = x + broken_sublayer(x)\nprint(\"without residual, a bad sublayer destroys the signal:\", np.allclose(without_residual, 0, atol=0.1))\nprint(\"with residual, information still flows through:\", np.allclose(with_residual, x, atol=0.1))"}
+  output={"input  mean/std per token: [3.85 4.34 2.7  3.35] [4.94 5.19 4.4  4.85]\noutput mean per token (should be ~0): [ 0.  0. -0.  0.]\noutput std  per token (should be ~1): [1. 1. 1. 1.]\nwithout residual, a bad sublayer destroys the signal: True\nwith residual, information still flows through: True"}
+/>
+
+<Callout kind="warning" title="Pre-norm vs. post-norm">
+  The original Transformer paper placed LayerNorm *after* the residual add (post-norm):
+  `x + Sublayer(x)`, then normalize. This works for shallow stacks but becomes unstable to train
+  as depth grows past ~12 layers without careful learning-rate warmup. Placing LayerNorm
+  *before* the sublayer instead (pre-norm) — normalizing the input the sublayer sees, while the
+  residual path stays completely unnormalized — trains far more stably at depth, which is why
+  GPT-2 onward, and essentially every modern large model, uses pre-norm.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What specific problem do residual connections solve for deep Transformer stacks?"
+  correct={1}
+  options={[
+    { text: "They reduce the total parameter count", why: "Residual connections add zero extra parameters — this isn't about parameter count." },
+    { text: "They give gradients (and information) a direct path through many layers, even if a sublayer is poorly trained", why: "Correct — x + Sublayer(x) means a near-zero sublayer output still passes x through unchanged." },
+    { text: "They replace the need for normalization entirely", why: "They're complementary, not a replacement — deep stacks use both together." },
+    { text: "They speed up the forward pass by skipping computation", why: "The sublayer still computes fully; nothing is skipped, just added back." },
+  ]}
+/>
+
+## Summary
+
+Residual connections (`x + Sublayer(x)`) let gradients and information bypass a sublayer
+entirely if needed, making very deep stacks trainable. Layer normalization rescales each
+token's features to zero mean and unit variance independently, keeping activation statistics
+stable across dozens of layers. Modern models place LayerNorm *before* each sublayer (pre-norm)
+rather than after, for training stability at depth.
+
+## Further reading
+
+- Ba, Kiros & Hinton, *"Layer Normalization"* (2016) — the original LayerNorm paper.
+- Xiong et al., *"On Layer Normalization in the Transformer Architecture"* (2020) — the
+  pre-norm vs. post-norm stability analysis.

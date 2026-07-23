@@ -1,0 +1,92 @@
+---
+slug: decoder-block
+month: 7
+week: 3
+ord: 4
+title: "The Decoder Block"
+code: "7.3.4"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Identify the three sublayers of a decoder block, versus the encoder's two"
+  - "Explain at a functional level what cross-attention connects the decoder to"
+  - "Assemble a complete decoder block and verify its output shape"
+prereqs:
+  - "The Encoder Block ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Sublayers }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The encoder reads; the decoder reads, writes, and consults</h2>
+
+A decoder block does everything an encoder block does, plus one more thing: it needs to consult
+the encoder's output while generating. So it has **three** sublayers instead of two:
+
+1. **Masked self-attention** — the decoder attending to its own output so far (causally masked
+   — Week 1's causal masking lesson, applied here).
+2. **Cross-attention** — the decoder attending to the *encoder's* output (next lesson goes deep
+   on this; here, treat it functionally: queries come from the decoder, keys and values come
+   from the encoder).
+3. **Feed-forward network** — same as the encoder, unchanged.
+
+<Callout kind="tip" title="Functional summary of cross-attention, for now">
+  Self-attention: "what's relevant among the words I've generated so far?"
+  Cross-attention: "what's relevant in the *source* sentence, given what I've generated so far?"
+  Same attention formula, different source for K and V. The next lesson unpacks exactly why
+  this works and what it means for the shapes involved.
+</Callout>
+
+<h2 id="math">Three sublayers, each pre-norm + residual</h2>
+
+<MathBlock tex="x_1 = x + \mathrm{MaskedSelfAttn}(\mathrm{LayerNorm}(x))" />
+<MathBlock tex="x_2 = x_1 + \mathrm{CrossAttn}(\mathrm{LayerNorm}(x_1),\; \mathrm{encoder\_output})" />
+<MathBlock tex="x_3 = x_2 + \mathrm{FFN}(\mathrm{LayerNorm}(x_2))" />
+
+Same pattern as the encoder block throughout: normalize, transform, add residual. The only
+architectural additions are the causal mask on sublayer 1, and the encoder output feeding
+sublayer 2.
+
+<h2 id="python">A complete decoder block</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef layer_norm(x, eps=1e-5):\n    mu = x.mean(axis=-1, keepdims=True)\n    var = x.var(axis=-1, keepdims=True)\n    return (x - mu) / np.sqrt(var + eps)\n\ndef causal_mask(seq_len):\n    mask = np.triu(np.ones((seq_len, seq_len)), k=1)\n    return np.where(mask == 1, -np.inf, 0.0)\n\ndef attention(Q, K, V, mask=None):\n    d_k = Q.shape[-1]\n    scores = Q @ K.transpose(0, 2, 1) / np.sqrt(d_k)\n    if mask is not None:\n        scores = scores + mask\n    weights = softmax(scores, axis=-1)\n    return weights @ V\n\ndef split_heads(x, h):\n    seq_len, d_model = x.shape\n    d_k = d_model // h\n    return x.reshape(seq_len, h, d_k).transpose(1, 0, 2)\n\ndef merge_heads(x):\n    h, seq_len, d_k = x.shape\n    return x.transpose(1, 0, 2).reshape(seq_len, h * d_k)\n\ndef feed_forward(x, W1, b1, W2, b2):\n    return (np.maximum(0, x @ W1 + b1)) @ W2 + b2\n\nclass DecoderBlock:\n    def __init__(self, d_model, h, d_ff, seed):\n        rng = np.random.RandomState(seed)\n        s = 0.1\n        mk = lambda *shape: rng.randn(*shape) * s\n        self.h = h\n        self.self_Wq, self.self_Wk, self.self_Wv, self.self_Wo = (mk(d_model, d_model) for _ in range(4))\n        self.cross_Wq, self.cross_Wk, self.cross_Wv, self.cross_Wo = (mk(d_model, d_model) for _ in range(4))\n        self.W1, self.b1 = mk(d_model, d_ff), np.zeros(d_ff)\n        self.W2, self.b2 = mk(d_ff, d_model), np.zeros(d_model)\n\n    def forward(self, x, encoder_output):\n        seq_len = x.shape[0]\n        # 1. masked self-attention\n        normed = layer_norm(x)\n        Q, K, V = split_heads(normed @ self.self_Wq, self.h), split_heads(normed @ self.self_Wk, self.h), split_heads(normed @ self.self_Wv, self.h)\n        self_attn = merge_heads(attention(Q, K, V, mask=causal_mask(seq_len))) @ self.self_Wo\n        x = x + self_attn\n        # 2. cross-attention: Q from decoder, K/V from encoder output\n        normed = layer_norm(x)\n        Q = split_heads(normed @ self.cross_Wq, self.h)\n        K = split_heads(encoder_output @ self.cross_Wk, self.h)\n        V = split_heads(encoder_output @ self.cross_Wv, self.h)\n        cross_attn = merge_heads(attention(Q, K, V)) @ self.cross_Wo\n        x = x + cross_attn\n        # 3. feed-forward\n        x = x + feed_forward(layer_norm(x), self.W1, self.b1, self.W2, self.b2)\n        return x\n\nrng = np.random.RandomState(0)\nd_model, h, d_ff = 32, 4, 128\nsrc_len, tgt_len = 6, 4        # encoder (source) and decoder (target) can differ in length!\n\nencoder_output = rng.randn(src_len, d_model)\ndecoder_input = rng.randn(tgt_len, d_model)\n\nblock = DecoderBlock(d_model, h, d_ff, seed=1)\nout = block.forward(decoder_input, encoder_output)\nprint(\"decoder input shape: \", decoder_input.shape)\nprint(\"encoder output shape:\", encoder_output.shape, \"(different sequence length than the decoder!)\")\nprint(\"decoder output shape:\", out.shape, \"(matches decoder input, NOT encoder length)\")"}
+  output={"decoder input shape:  (4, 32)\nencoder output shape: (6, 32) (different sequence length than the decoder!)\ndecoder output shape: (4, 32) (matches decoder input, NOT encoder length)"}
+/>
+
+<Callout kind="warning" title="Pitfall: mixing up whose sequence length applies where">
+  The decoder's output length always matches the decoder's own input length — even though
+  cross-attention pulls information from an encoder sequence of a *different* length. This is
+  because cross-attention's queries (which determine the output count) come from the decoder;
+  only its keys and values come from the encoder. Confusing this is a common shape-bug source
+  when first implementing encoder-decoder models.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A decoder processes a 4-token target sequence while cross-attending to a 6-token encoder output. What's the decoder block's output sequence length?"
+  correct={0}
+  options={[
+    { text: "4 — matches the decoder's own input length", why: "Correct — cross-attention's queries come from the decoder, so output length follows the decoder, not the encoder." },
+    { text: "6 — matches the encoder's output length", why: "The encoder length affects only how many keys/values are available to attend over, not the output count." },
+    { text: "10 — the sum of both lengths", why: "Sequence lengths aren't concatenated in cross-attention." },
+    { text: "It's undefined unless the two lengths match", why: "They're explicitly allowed to differ — that's the whole point of cross-attention connecting sequences of different lengths, e.g. in translation." },
+  ]}
+/>
+
+## Summary
+
+A decoder block has three sublayers: causally-masked self-attention, cross-attention (queries
+from the decoder, keys/values from the encoder), and a feed-forward network — each wrapped in
+the same pre-norm-plus-residual pattern as the encoder. The decoder's output length always
+matches its own input length, independent of the encoder's sequence length, because
+cross-attention's query count comes from the decoder side.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017), Figure 1 (right half) — the decoder
+  stack diagram.

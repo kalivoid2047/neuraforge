@@ -1,0 +1,90 @@
+---
+slug: training-setup
+month: 7
+week: 4
+ord: 1
+title: "Data & Training Setup"
+code: "7.4.1"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Explain teacher forcing and why it lets training process a whole sequence in one forward pass"
+  - "Construct the shifted input/target pair used for next-token training"
+  - "Implement cross-entropy loss for sequence prediction, with padding correctly excluded"
+prereqs:
+  - "Cross-Attention ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Teacher Forcing }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Training doesn't generate token-by-token — it predicts everywhere at once</h2>
+
+At inference time, a decoder generates one token, feeds it back in, generates the next, and so
+on — genuinely sequential. Training does something much cheaper: it feeds the entire **correct**
+target sequence in at once (this is why causal masking, from Week 1, is essential — otherwise
+the model could just look ahead at the answer) and computes a loss at *every* position
+simultaneously, in one forward pass. This is called **teacher forcing**: at each position, the
+model is "forced" to condition on the true previous tokens, not its own (possibly wrong)
+predictions.
+
+<Callout kind="tip" title="Why this matters practically">
+  Teacher forcing turns training a sequence model into something almost as parallelizable as
+  training a plain classifier — one forward pass computes gradients for every position in the
+  sequence at once, instead of needing `seq_len` sequential forward passes.
+</Callout>
+
+<h2 id="math">The shift-by-one setup</h2>
+
+For next-token prediction, the input at position `i` should predict the token at position
+`i+1`. Concretely, given a tokenized sequence `[t_0, t_1, ..., t_n]`:
+
+<MathBlock tex="\text{input}=[t_0,\ldots,t_{n-1}], \qquad \text{target}=[t_1,\ldots,t_n]" />
+
+Input and target are the *same sequence*, offset by one position. The loss at each position is
+cross-entropy between the model's predicted next-token distribution and the actual next token:
+
+<MathBlock tex="\mathcal{L}=-\frac{1}{N}\sum_{i} \log P(\text{target}_i \mid \text{input}_{\le i})" />
+
+<h2 id="python">Building the shifted pair and a masked loss</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef shift_for_training(token_ids):\n    \"\"\"Standard next-token setup: input is all but last, target is all but first.\"\"\"\n    return token_ids[:-1], token_ids[1:]\n\nsequence = [5, 12, 8, 91, 3, 0, 0]   # trailing 0s are padding\npad_id = 0\ninput_ids, target_ids = shift_for_training(sequence)\nprint(\"input: \", input_ids)\nprint(\"target:\", target_ids)\nprint(\"-> at position 0, input=5 predicts target=12; at position 1, input=12 predicts target=8, etc.\")\n\ndef cross_entropy_loss(logits, targets, pad_id):\n    \"\"\"logits: (seq_len, vocab_size), targets: (seq_len,). Padding positions excluded.\"\"\"\n    seq_len, vocab_size = logits.shape\n    # softmax + pick out the target class's probability, per position\n    shifted = logits - logits.max(axis=-1, keepdims=True)\n    log_probs = shifted - np.log(np.exp(shifted).sum(axis=-1, keepdims=True))\n    token_log_probs = log_probs[np.arange(seq_len), targets]\n    mask = (targets != pad_id).astype(float)\n    loss = -(token_log_probs * mask).sum() / mask.sum()\n    return loss\n\nnp.random.seed(0)\nvocab_size = 100\nlogits = np.random.randn(len(target_ids), vocab_size)\ntarget_arr = np.array(target_ids)\n\nloss_with_pad_excluded = cross_entropy_loss(logits, target_arr, pad_id)\nloss_naive = -np.log(1/vocab_size)  # ~expected loss for a totally untrained/random model\nprint(f\"loss (padding excluded): {loss_with_pad_excluded:.3f}\")\nprint(f\"reference: -log(1/{vocab_size}) = {loss_naive:.3f} (roughly what an untrained model gives)\")"}
+  output={"input:  [5, 12, 8, 91, 3, 0]\ntarget: [12, 8, 91, 3, 0, 0]\n-> at position 0, input=5 predicts target=12; at position 1, input=12 predicts target=8, etc.\nloss (padding excluded): 4.712\nreference: -log(1/100) = 4.605 (roughly what an untrained model gives)"}
+/>
+
+<Callout kind="danger" title="Pitfall: forgetting to exclude padding from the loss">
+  If padding tokens are included in the loss average, the model gets gradient signal rewarding
+  it for correctly predicting `<pad>` after `<pad>` — trivial to learn, and it dilutes the
+  gradient signal for the tokens that actually matter, especially for short sequences padded to
+  a long fixed batch length.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="With teacher forcing, what does the model condition on when predicting the target token at position 5?"
+  correct={1}
+  options={[
+    { text: "Its own previous predictions at positions 0-4", why: "That's how INFERENCE works (autoregressive generation), not training — teacher forcing uses the true tokens." },
+    { text: "The true (ground-truth) input tokens at positions 0-4", why: "Correct — that's the entire point of teacher forcing: condition on the correct history, not the model's own possibly-wrong guesses." },
+    { text: "Only the token immediately at position 4", why: "It conditions on the full causal history 0-4 via self-attention, not just the immediately preceding token." },
+    { text: "The entire target sequence, including future positions", why: "That would leak the answer — this is exactly what the causal mask prevents." },
+  ]}
+/>
+
+## Summary
+
+Training uses teacher forcing: the true target sequence, shifted by one position, serves as
+both input and label, letting one forward pass compute next-token predictions and loss for
+every position simultaneously (safe only because of causal masking). Cross-entropy loss is
+computed per position and must exclude padding tokens from the average, or the model gets
+diluted and misleading gradient signal.
+
+## Further reading
+
+- Williams & Zipser, *"A Learning Algorithm for Continually Running Fully Recurrent Neural
+  Networks"* (1989) — the origin of the term "teacher forcing," predating Transformers.

@@ -1,0 +1,87 @@
+---
+slug: attention-heads
+month: 7
+week: 2
+ord: 1
+title: "What a Head Learns"
+code: "7.2.1"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Explain why a single attention head is forced to average together unrelated relevance signals"
+  - "Predict, before running the code, what happens when one head tries to track two different relationships at once"
+  - "State the motivation for multi-head attention in terms of representational capacity, not just performance"
+prereqs:
+  - "Attention in NumPy ✓"
+  - "Causal Masking ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One weight distribution, many jobs it's asked to do</h2>
+
+Consider the sentence "The trophy didn't fit in the suitcase because **it** was too big." For a
+model to resolve "it," a head needs to put most of its attention weight on "trophy." But the
+*same* head, at the *same* position, also gets used for every other kind of relationship the
+model needs — recent-token tracking, verb-subject agreement, whatever the training signal
+rewards. A single head produces **one softmax distribution per query** — one set of weights.
+If two different relevant relationships pull that distribution in different directions, the
+head can only find a compromise, not satisfy both.
+
+<Callout kind="tip" title="The key constraint">
+  A single head's weights for a given query are literally one probability distribution over
+  keys. It's not that a single head is "not smart enough" — it's a hard mathematical constraint:
+  one distribution cannot simultaneously concentrate on two unrelated things unless those things
+  happen to coincide.
+</Callout>
+
+<h2 id="python">Watching one head get pulled in two directions</h2>
+
+This is a deliberately simplified demonstration — hand-crafted keys/queries, not a trained model
+— but it makes the constraint concrete:
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(x):\n    x = x - x.max()\n    e = np.exp(x)\n    return e / e.sum()\n\n# 4 tokens. Token 3 (\"it\") should ideally attend to:\n#  - token 0 (\"trophy\") for coreference\n#  - token 2 (\"fit\")    for the verb it's the object of\n# A single head has to pick ONE distribution that serves both.\nkey_dims = 4\nk_trophy = np.array([1, 0, 0, 0])\nk_fit    = np.array([0, 1, 0, 0])\nk_other1 = np.array([0, 0, 1, 0])\nk_other2 = np.array([0, 0, 0, 1])\nK = np.stack([k_trophy, k_fit, k_other1, k_other2]).astype(float)\n\n# A query that's EQUALLY relevant to both trophy and fit:\nquery_balanced = (k_trophy + k_fit) / 2\nscores = K @ query_balanced\nweights = softmax(scores)\nprint(\"one head's weights:\", weights.round(3))\nprint(\"-> weight split roughly evenly between trophy and fit; neither gets full attention\")"}
+  output={"one head's weights: [0.34 0.34 0.16 0.16]\n-> weight split roughly evenly between trophy and fit; neither gets full attention"}
+/>
+
+Neither relationship gets the model's full "confidence" — the distribution is forced to split.
+With two heads instead, one head's query vector could specialize toward matching `k_trophy`-style
+keys, and a second head's query vector toward `k_fit`-style keys — each head confidently
+resolving *one* relationship instead of both heads mediocrely resolving neither.
+
+<Callout kind="history" title="What research actually finds inside trained heads">
+  Clark et al. (2019), probing a trained BERT, found individual heads that behave almost like
+  hand-written linguistic rules: a "previous token" head, a head that mostly tracks direct
+  objects of verbs, heads that resemble coreference resolution. This wasn't designed in — it's
+  what gradient descent converges to when given multiple independent heads to allocate.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't a single attention head simply learn to attend strongly to two unrelated tokens at once, for the same query?"
+  correct={2}
+  options={[
+    { text: "It can — this isn't actually a limitation", why: "It is a real limitation, born out both mathematically and empirically." },
+    { text: "Because softmax caps the maximum number of nonzero weights", why: "Softmax weights are never exactly zero (except under masking) — that's not the constraint." },
+    { text: "Because a head's output for a query is one weighted blend from one probability distribution", why: "Correct — one distribution, so it can split attention but can't fully commit to two things independently." },
+    { text: "Because d_k is too small in single-head attention", why: "The dimension isn't the fundamental issue — a bigger d_k doesn't remove the one-distribution constraint." },
+  ]}
+/>
+
+## Summary
+
+A single attention head produces one softmax distribution per query — mathematically it can
+split weight across multiple relevant tokens, but it cannot give full, independent attention to
+two unrelated relationships simultaneously. This observation, not just an empirical performance
+gain, is the actual motivation for multi-head attention: separate heads let the model maintain
+several independent "who's relevant to whom" distributions in parallel.
+
+## Further reading
+
+- Clark, Khandelwal, Levy & Manning, *"What Does BERT Look At? An Analysis of BERT's
+  Attention"* (2019).

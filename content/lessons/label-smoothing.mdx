@@ -1,0 +1,78 @@
+---
+slug: label-smoothing
+month: 7
+week: 4
+ord: 3
+title: "Label Smoothing & Schedules"
+code: "7.4.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain why training toward a one-hot target encourages harmful overconfidence"
+  - "Implement label smoothing and verify its effect on the target distribution"
+  - "Describe the warmup-then-decay learning rate schedule and why Transformers need warmup"
+prereqs:
+  - "The Training Loop ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two small training tricks with outsized effects</h2>
+
+Neither of these changes the model's architecture at all — they change *what target the model
+is pushed toward* (label smoothing) and *how the learning rate moves over time* (schedules).
+Both were found empirically to matter a lot for Transformer training quality, and both are used
+in essentially every serious Transformer training run.
+
+<h2 id="math">Label smoothing</h2>
+
+Standard cross-entropy trains the model to push the target class's probability toward exactly
+1.0 and everything else toward exactly 0.0 — the model is rewarded for arbitrarily extreme
+confidence, which encourages overfitting and makes the model poorly calibrated (confidently
+wrong, not just wrong). Label smoothing replaces the one-hot target with a slightly softened
+distribution:
+
+<MathBlock tex="y^{\text{smooth}}_i = (1-\epsilon)\cdot y_i + \frac{\epsilon}{K}" />
+
+where `K` is the vocabulary size and `ε` (typically 0.1) is the smoothing amount. The correct
+class still gets the highest target probability, but it's capped below 1.0, and every incorrect
+class gets a small nonzero target instead of exactly 0.
+
+<h2 id="python">Smoothing in code, and its effect on target entropy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef smooth_labels(target_idx, vocab_size, epsilon=0.1):\n    dist = np.full(vocab_size, epsilon / vocab_size)\n    dist[target_idx] = 1 - epsilon + epsilon / vocab_size\n    return dist\n\nvocab_size = 10\ntarget_idx = 3\n\nhard_target = np.zeros(vocab_size); hard_target[target_idx] = 1.0\nsoft_target = smooth_labels(target_idx, vocab_size, epsilon=0.1)\n\nprint(\"hard target:  \", hard_target)\nprint(\"smooth target:\", soft_target.round(3))\nprint(\"smooth target sums to 1:\", np.isclose(soft_target.sum(), 1.0))\n\ndef entropy(p):\n    p = p[p > 0]\n    return -(p * np.log(p)).sum()\n\nprint(f\"entropy(hard target)   = {entropy(hard_target):.4f}  (zero -- fully certain)\")\nprint(f\"entropy(smooth target) = {entropy(soft_target):.4f}  (nonzero -- the model is never asked to be THAT certain)\")"}
+  output={"hard target:   [0. 0. 0. 1. 0. 0. 0. 0. 0. 0.]\nsmooth target: [0.01  0.01  0.01  0.91  0.01  0.01  0.01  0.01  0.01  0.01]\nsmooth target sums to 1: True\nentropy(hard target)   = 0.0000  (zero -- fully certain)\nentropy(smooth target) = 0.5002  (nonzero -- the model is never asked to be THAT certain)"}
+/>
+
+<h2 id="quiz">Check yourself — learning rate schedules</h2>
+
+<QuizCard
+  question="Why do Transformers commonly use a learning-rate WARMUP phase (small then rising) at the start of training, rather than starting at the full learning rate immediately?"
+  correct={2}
+  options={[
+    { text: "Warmup isn't actually helpful — it's a superstition carried over from older architectures", why: "It's empirically load-bearing for Transformers specifically, documented in the original paper and reproduced widely since." },
+    { text: "It reduces the total number of training steps needed", why: "Warmup doesn't reduce total steps — it's about stability, not speed." },
+    { text: "Early in training, weights and Adam's moment estimates are poorly calibrated; a large step size then risks a destabilizing early update", why: "Correct — this is the standard justification, especially relevant given Adam's adaptive per-parameter scaling before its moment estimates have stabilized." },
+    { text: "It's required by the causal mask", why: "Causal masking and learning rate schedules are unrelated mechanisms." },
+  ]}
+/>
+
+## Summary
+
+Label smoothing softens the training target away from a one-hot distribution, discouraging
+overconfident predictions and improving calibration — implemented as a small reduction in the
+target class's probability, redistributed uniformly to all classes. Learning rate warmup (small
+early on, rising to a peak, then decaying) stabilizes early training when weight and optimizer
+statistics are least reliable — both are cheap, architecture-independent changes with
+consistently positive empirical effects on Transformer training.
+
+## Further reading
+
+- Szegedy et al., *"Rethinking the Inception Architecture for Computer Vision"* (2016) — label
+  smoothing's origin, predating its Transformer adoption.
+- Vaswani et al., *"Attention Is All You Need"* (2017), §5.3 — the original warmup schedule.

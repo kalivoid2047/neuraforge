@@ -1,0 +1,133 @@
+---
+slug: multi-head-attention
+month: 7
+week: 2
+ord: 3
+title: "Multi-Head Attention"
+code: "7.2.3"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Explain why multiple attention heads beat one big head"
+  - "Derive the shapes of Q, K, V under h-way head splitting"
+  - "Implement multi-head attention in pure NumPy, then PyTorch"
+  - "Inspect what individual heads learn on real text"
+prereqs:
+  - "Scaled Dot-Product Attention ✓"
+  - "Linear Projections ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: history, title: History }
+  - { anchor: math, title: The Math }
+  - { anchor: visualizer, title: Visualizer }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One head is a spotlight. You need a lighting rig.</h2>
+
+A single attention head computes *one* notion of relevance: perhaps "which earlier word does
+this pronoun refer to?" But language needs many notions *at once* — syntax, coreference,
+position, topic. Multi-head attention runs `h` small attention operations in parallel, each in
+its own learned subspace, then concatenates what they found.
+
+<Callout kind="tip" title="The core intuition">
+  Don't think "8 copies of the same thing." Think 8 *specialists*, each with a cheap,
+  low-dimensional view — a syntax head, a coreference head, a position head — whose reports are
+  stitched together.
+</Callout>
+
+<h2 id="history">History</h2>
+
+<Callout kind="history" title='2017 — "Attention Is All You Need"'>
+  Vaswani et al. found that multiple heads let the model attend to information from different
+  representation subspaces at different positions — with *the same total compute* as one big
+  head, because each head works in dimension d_model/h.
+</Callout>
+
+<h2 id="math">The math, derived</h2>
+
+Recall single-head attention. With queries Q, keys K, and values V:
+
+<MathBlock tex="\mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V" />
+
+Multi-head splits the model dimension into `h` subspaces. Head `i` gets its own learned
+projections:
+
+<MathBlock tex="\mathrm{head}_i=\mathrm{Attention}(XW_i^{Q},\,XW_i^{K},\,XW_i^{V}),\qquad W_i^{Q},W_i^{K},W_i^{V}\in\mathbb{R}^{d_{\text{model}}\times d_k}" />
+
+<MathBlock tex="\mathrm{MultiHead}(X)=\mathrm{Concat}(\mathrm{head}_1,\dots,\mathrm{head}_h)\,W^{O},\qquad d_k=\frac{d_{\text{model}}}{h}" />
+
+Every equation above is just matrix multiplication — the operation you mastered in Month 1.
+Step through one to feel the shapes:
+
+<MatrixMultiplyStepper />
+
+<h2 id="visualizer">See what the heads learn</h2>
+
+Below is attention from a small trained model. Pick a head, then click a token to see where it
+looks. Head 3 is the famous one — select `it`.
+
+<AttentionVisualizer />
+
+<h2 id="python">Pure Python first. Always.</h2>
+
+Before PyTorch does it for you, build it yourself. Edit and run — the shapes are the whole
+story:
+
+<CodeCell
+  code={`import numpy as np\n\ndef softmax(x, axis=-1):\n    x = x - x.max(axis=axis, keepdims=True)\n    e = np.exp(x)\n    return e / e.sum(axis=axis, keepdims=True)\n\ndef attention(Q, K, V):\n    d_k = K.shape[-1]\n    scores = Q @ K.T / np.sqrt(d_k)\n    weights = softmax(scores, axis=-1)\n    return weights @ V, weights\n\ndef multi_head_attention(X, Wq, Wk, Wv, Wo, h):\n    seq, d_model = X.shape\n    d_k = d_model // h\n    heads = []\n    for i in range(h):\n        Q = X @ Wq[i]; K = X @ Wk[i]; V = X @ Wv[i]\n        out, _ = attention(Q, K, V)\n        heads.append(out)\n    concat = np.concatenate(heads, axis=-1)\n    return concat @ Wo\n\nnp.random.seed(0)\nseq, d_model, h = 6, 512, 8\nd_k = d_model // h\nX = np.random.randn(seq, d_model)\nWq = np.random.randn(h, d_model, d_k) * 0.02\nWk = np.random.randn(h, d_model, d_k) * 0.02\nWv = np.random.randn(h, d_model, d_k) * 0.02\nWo = np.random.randn(d_model, d_model) * 0.02\n\nout = multi_head_attention(X, Wq, Wk, Wv, Wo, h)\nprint("input ", X.shape)\nprint("output", out.shape)`}
+  output={"input  (6, 512)\noutput (6, 512)"}
+/>
+
+<Callout kind="warning" title="Common bug">
+  If your softmax normalizes over the *query* axis instead of the *key* axis, rows won't sum to
+  1 and training silently diverges. Check `np.allclose(weights.sum(-1), 1.0)`.
+</Callout>
+
+## Implement it yourself
+
+<ExerciseCell spec={{
+  id: "7.2.3-ex1",
+  exerciseId,
+  title: "Implement softmax from scratch",
+  brief: "Pure Python, no numpy: softmax(xs) returns probabilities. Subtract the max first — the tests check numerical stability.",
+  starterCode: `import math\n\ndef softmax(xs):\n    """Return the softmax of a list of floats."""\n    # your code here\n    ...\n`,
+  tests: [
+    { name: "sums to 1", code: "assert abs(sum(softmax([2.0, 1.0, 0.1])) - 1.0) < 1e-9" },
+    { name: "order preserved", code: "p = softmax([2.0, 1.0, 0.1]); assert p[0] > p[1] > p[2]" },
+    { name: "uniform on equal logits", code: "p = softmax([3.0, 3.0]); assert abs(p[0] - 0.5) < 1e-9" },
+    { name: "numerically stable at 1000", code: "p = softmax([1000.0, 1000.0]); assert abs(sum(p) - 1.0) < 1e-9" },
+  ],
+  hints: [
+    "exp(x_i) / sum(exp(x_j)) — start with the direct translation.",
+    "exp(1000) overflows. softmax(xs) == softmax(xs - max(xs)) — prove it, then use it.",
+    "m = max(xs); es = [math.exp(x - m) for x in xs]; return [e / sum(es) for e in es]",
+  ],
+}} />
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does splitting d_model=512 into 8 heads of d_k=64 cost roughly the same FLOPs as one 512-dim head?"
+  correct={1}
+  options={[
+    { text: "Because attention is O(1) in dimension", why: "Attention scales linearly in d_k — dimension matters." },
+    { text: "Each head's QK^T is seq²×64; eight of them ≈ one seq²×512", why: "Exactly: h heads of size d/h sum to the same multiply-add count." },
+    { text: "Because the W_O projection absorbs the cost", why: "W_O adds cost; it doesn't offset the per-head attention." },
+    { text: "It doesn't — multi-head is 8× more expensive", why: "Per-head dimension shrinks by h, keeping total cost constant." },
+  ]}
+/>
+
+## Summary
+
+Multi-head attention runs `h` independent attention operations in parallel subspaces of size
+`d_model/h`, then concatenates and projects the result. It costs the same as one big head but
+lets different heads specialize — syntax, coreference, position — which a single head cannot do
+simultaneously.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* (2017) — the original Transformer paper.
+- Clark et al., *"What Does BERT Look At?"* (2019) — empirical head-specialization analysis.

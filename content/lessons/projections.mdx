@@ -1,0 +1,84 @@
+---
+slug: projections
+month: 7
+week: 2
+ord: 2
+title: "Linear Projections W_Q W_K W_V"
+code: "7.2.2"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Implement multi-head projection two equivalent ways: h small matrices, and one big matrix reshaped"
+  - "Explain why real implementations use one fused projection matrix, not a Python loop over heads"
+  - "Compute the parameter count of the projection layers for a given d_model and h"
+prereqs:
+  - "What a Head Learns ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Equivalent Views }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Same math, two implementations</h2>
+
+Conceptually, multi-head attention needs `h` separate `(d_model, d_k)` projection matrices for
+Q, for K, and for V. You could implement that as a Python loop over `h` small matrices — it's
+correct, and it's how the math is usually *written*. But essentially every real implementation
+(PyTorch, JAX, this course's later GPT-from-scratch project) instead uses **one big
+`(d_model, d_model)` matrix**, computes the projection once, and *reshapes* the result into `h`
+heads. Same result, one large matmul instead of `h` small ones — much faster on a GPU, since one
+big matmul is more hardware-efficient than a loop of small ones.
+
+<h2 id="math">Two equivalent views</h2>
+
+**View 1 — h separate matrices** (what the formula literally says):
+
+<MathBlock tex="Q_i = XW_i^{Q}, \quad W_i^{Q}\in\mathbb{R}^{d_{\text{model}}\times d_k}, \quad i=1,\ldots,h" />
+
+**View 2 — one fused matrix, then reshape:**
+
+<MathBlock tex="Q_{\text{all}} = XW^{Q}, \quad W^{Q}\in\mathbb{R}^{d_{\text{model}}\times d_{\text{model}}}, \quad Q_{\text{all}}.\text{reshape}(seq, h, d_k)" />
+
+These are mathematically identical *as long as* `W^Q`'s columns are exactly the concatenation
+of the `h` individual `W_i^Q` matrices — reshaping doesn't need to "know about" heads at all,
+it's just a view into the same numbers, sliced differently.
+
+<h2 id="python">Both implementations, checked against each other</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(7)\nseq_len, d_model, h = 4, 8, 2\nd_k = d_model // h\nX = np.random.randn(seq_len, d_model)\n\n# --- View 1: h separate small matrices ---\nWq_heads = [np.random.randn(d_model, d_k) for _ in range(h)]\nQ_separate = np.stack([X @ Wq_heads[i] for i in range(h)], axis=0)  # (h, seq, d_k)\n\n# --- View 2: one big matrix, built by concatenating the SAME small matrices ---\nWq_fused = np.concatenate(Wq_heads, axis=1)          # (d_model, d_model)\nQ_all = X @ Wq_fused                                  # (seq, d_model)\nQ_reshaped = Q_all.reshape(seq_len, h, d_k).transpose(1, 0, 2)  # (h, seq, d_k)\n\nprint(\"identical?\", np.allclose(Q_separate, Q_reshaped))\nprint(\"View 1 shape (h, seq, d_k):\", Q_separate.shape)\nprint(\"View 2 shape (h, seq, d_k):\", Q_reshaped.shape)\n\n# parameter count, either way\nparams_per_proj = d_model * d_model\nprint(f\"parameters in W^Q alone: {params_per_proj:,} (same total either way you slice it)\")"}
+  output={"identical? True\nView 1 shape (h, seq, d_k): (2, 4, 4)\nView 2 shape (h, seq, d_k): (2, 4, 4)\nparameters in W^Q alone: 64 (same total either way you slice it)"}
+/>
+
+<Callout kind="tip" title="Why this matters in practice">
+  When you read a real Transformer implementation and see one `nn.Linear(d_model, d_model)`
+  instead of a loop over heads, this is why — it's not a simplification or approximation, it's
+  the exact same computation, done as one matmul instead of `h` smaller ones.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="d_model=512, h=8 heads. What is d_k, and does the fused-matrix implementation change that?"
+  correct={1}
+  options={[
+    { text: "d_k = 512; the fused matrix has one head of size 512", why: "d_k is d_model / h = 64, not d_model itself." },
+    { text: "d_k = 64; identical result whether you use h separate matrices or one fused, reshaped matrix", why: "Correct — d_model/h = 64, and both implementations compute the same numbers." },
+    { text: "d_k = 64, but the fused version gives a mathematically different (approximate) result", why: "It's exact, not approximate — reshaping doesn't lose or change any information." },
+    { text: "d_k depends on batch size", why: "d_k depends only on d_model and h, not on batch size." },
+  ]}
+/>
+
+## Summary
+
+Multi-head projections can be implemented as `h` separate small matrices or as one large fused
+matrix that's reshaped after a single matmul — these are exactly equivalent, not approximations
+of each other. Real implementations use the fused form because one large matmul is
+computationally cheaper than a loop of small ones, especially on GPU hardware.
+
+## Further reading
+
+- The PyTorch `nn.MultiheadAttention` source is a good example of the fused-matrix pattern in
+  production code.
