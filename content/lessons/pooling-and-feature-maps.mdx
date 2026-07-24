@@ -1,0 +1,93 @@
+---
+slug: pooling-and-feature-maps
+month: 4
+week: 4
+ord: 2
+title: "Pooling and Feature Maps"
+code: "4.4.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Compute max pooling and average pooling over small feature map windows by hand"
+  - "Explain what pooling accomplishes: downsampling and a degree of translation tolerance"
+  - "Verify a pooling implementation's output shape and values against manual calculation"
+prereqs:
+  - "Convolution: The Core Operation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Max Pooling and Average Pooling }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Shrinking feature maps, deliberately</h2>
+
+Convolution produces a feature map roughly the same size as its input. Stack several
+convolutional layers without ever shrinking anything, and both the memory cost and the number
+of positions to process keep growing. **Pooling** deliberately downsamples a feature map — it
+has no learnable weights at all, unlike every layer so far — by summarizing small windows down
+to a single value, most commonly by taking the **maximum** (max pooling) within each window.
+
+<h2 id="math">Max pooling and average pooling</h2>
+
+For a `k×k` window, sliding across the feature map with some stride (step size):
+
+<MathBlock tex="\text{maxpool}(x)_{i,j} = \max_{m,n \in \text{window}} x_{i \cdot s + m,\; j \cdot s + n}" />
+
+Average pooling replaces the `max` with a mean over the same window. Max pooling in particular
+gives a useful property: if the strongest feature in a window shifts slightly (the network
+detects an edge one pixel to the left or right within that window), the max-pooled output stays
+the same — a small amount of built-in tolerance to exactly where within a small region a feature
+appeared.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+pool = nn.MaxPool2d(kernel_size=2, stride=2)   # 2x2 windows, non-overlapping (stride == window size)
+# a (1, 1, 28, 28) feature map becomes (1, 1, 14, 14) -- exactly half the height and width
+```
+
+<h2 id="python">Max and average pooling, implemented and verified by hand</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef max_pool(x, size, stride):\n    h, w = x.shape\n    oh = (h - size) // stride + 1\n    ow = (w - size) // stride + 1\n    output = np.zeros((oh, ow))\n    for i in range(oh):\n        for j in range(ow):\n            window = x[i*stride:i*stride+size, j*stride:j*stride+size]\n            output[i, j] = np.max(window)\n    return output\n\ndef avg_pool(x, size, stride):\n    h, w = x.shape\n    oh = (h - size) // stride + 1\n    ow = (w - size) // stride + 1\n    output = np.zeros((oh, ow))\n    for i in range(oh):\n        for j in range(ow):\n            window = x[i*stride:i*stride+size, j*stride:j*stride+size]\n            output[i, j] = np.mean(window)\n    return output\n\n# a 4x4 feature map with one clearly-dominant value in each quadrant\nfeature_map = np.array([\n    [1, 3, 2, 0],\n    [4, 2, 1, 1],\n    [0, 1, 5, 2],\n    [1, 2, 3, 9],\n], dtype=float)\n\nmax_out = max_pool(feature_map, size=2, stride=2)\navg_out = avg_pool(feature_map, size=2, stride=2)\n\nprint(\"input feature map (4x4):\\n\", feature_map)\nprint()\nprint(\"max pooled (2x2 windows, stride 2) -> shape\", max_out.shape, \":\\n\", max_out)\nprint()\nprint(\"avg pooled (2x2 windows, stride 2) -> shape\", avg_out.shape, \":\\n\", avg_out)\nprint()\n\n# hand-verify the top-left window: [[1,3],[4,2]] -> max=4, avg=2.5\ntop_left_window = feature_map[0:2, 0:2]\nprint(\"top-left window:\\n\", top_left_window)\nprint(f\"hand-computed max={np.max(top_left_window)}, avg={np.mean(top_left_window)}\")\nprint(f\"matches max_out[0,0]={max_out[0,0]}, avg_out[0,0]={avg_out[0,0]}\")"}
+  output={"input feature map (4x4):\n [[1. 3. 2. 0.]\n [4. 2. 1. 1.]\n [0. 1. 5. 2.]\n [1. 2. 3. 9.]]\n\nmax pooled (2x2 windows, stride 2) -> shape (2, 2) :\n [[4. 2.]\n [2. 9.]]\n\navg pooled (2x2 windows, stride 2) -> shape (2, 2) :\n [[2.5  1.  ]\n [1.   4.75]]\n\ntop-left window:\n [[1. 3.]\n [4. 2.]]\nhand-computed max=4.0, avg=2.5\nmatches max_out[0,0]=4.0, avg_out[0,0]=2.5"}
+/>
+
+<Callout kind="tip" title="Pooling has zero learnable parameters -- and that's the point">
+  Every layer covered so far (`nn.Linear`, `nn.Conv2d`, batch norm's `γ`/`β`) has weights that
+  gradient descent updates. Pooling has none — it's a fixed, deterministic summarization
+  operation. That's deliberate: pooling's job is purely to shrink the spatial size and add mild
+  positional tolerance, not to learn anything, which is also why it needs no `_backward`-style
+  gradient rule of its own beyond routing gradient back to whichever position produced the max
+  (for max pooling) or splitting it evenly across the window (for average pooling).
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does max pooling give a network some tolerance to a feature shifting by one pixel within a pooling window?"
+  correct={0}
+  options={[
+    { text: "As long as the strongest activation stays within the SAME pooling window, the max of that window is unchanged regardless of exactly where within it the peak value sits", why: "Correct — this is exactly the mechanism: max pooling only cares about the largest value in each window, not its precise position, so small shifts that don't move the peak out of the window leave the pooled output unchanged." },
+    { text: "Max pooling has learnable weights that adapt to shifted features", why: "Max pooling has NO learnable weights at all -- it's a fixed operation, unlike nn.Linear or nn.Conv2d. Its shift-tolerance comes from the max operation's structure, not from any learning." },
+    { text: "Max pooling only works on already-centered, perfectly aligned images", why: "It's the opposite -- max pooling is specifically useful because it does NOT require perfect alignment; its whole benefit is tolerating small positional shifts within each window." },
+    { text: "Shifting a feature always changes the max pooling output, so there's no real tolerance", why: "This is incorrect -- as demonstrated, the max value within a window is unaffected by WHERE within that window the peak sits, only by whether it's the largest value present." },
+  ]}
+/>
+
+## Summary
+
+Pooling summarizes small windows of a feature map down to one value — most commonly the
+maximum — deliberately shrinking spatial size with zero learnable parameters, verified above
+against hand-computed max and average values. Max pooling's shift tolerance (unaffected by
+exactly where within a window the strongest activation sits) is a useful side effect of taking
+the maximum rather than a designed feature in its own right. The next lesson stacks convolution,
+pooling, and linear layers together into an actual CNN architecture.
+
+## Further reading
+
+- Stanford CS231n, *"Convolutional Neural Networks"* course notes — the pooling section,
+  including the historical trend away from pooling in some newer architectures.

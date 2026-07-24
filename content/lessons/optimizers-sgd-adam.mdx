@@ -1,0 +1,113 @@
+---
+slug: optimizers-sgd-adam
+month: 4
+week: 2
+ord: 4
+title: "Optimizers: SGD and Adam"
+code: "4.2.4"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Recognize torch.optim.SGD as the exact gradient descent update rule from Month 3"
+  - "Explain what momentum, and separately Adam's two moment estimates, add on top of plain SGD"
+  - "Implement and verify Adam's update rule, including its bias-correction step"
+prereqs:
+  - "Loss Functions for Classification: Cross-Entropy ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: SGD, Momentum, and Adam }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">SGD is Month 3's update rule; Adam adds memory</h2>
+
+`torch.optim.SGD` is, at its plainest setting, exactly the gradient descent update rule from
+Month 3: `w ← w - η·∇w`. Real training almost always uses something a bit more sophisticated,
+because plain SGD has a real weakness — it treats every step identically, with no memory of
+past gradients, which can make it slow or unstable on the bumpy, uneven loss surfaces real
+networks actually have. **Adam** (the most widely used optimizer in practice) fixes this by
+keeping a running memory of each parameter's recent gradients, adapting both the effective step
+size and direction per parameter.
+
+<h2 id="math">SGD, momentum, and Adam</h2>
+
+**Plain SGD** (Month 3's rule exactly):
+
+<MathBlock tex="w \leftarrow w - \eta \cdot g \qquad \text{where } g = \frac{\partial L}{\partial w}" />
+
+**SGD with momentum** keeps a running average of past gradients (`v`, the "velocity"), so
+consistent gradient directions build up speed and noisy/oscillating ones partially cancel:
+
+<MathBlock tex="v \leftarrow \beta v + (1-\beta) g \qquad w \leftarrow w - \eta v" />
+
+**Adam** tracks two such running averages: `m` (mean of gradients, like momentum) and `v`
+(mean of *squared* gradients, tracking each parameter's typical gradient magnitude), then
+divides the step by `√v` — giving parameters with consistently small gradients a relatively
+*larger* effective step, and vice versa. One consequence worth previewing: because the step is
+normalized by `√v`, Adam's step size stays roughly constant in scale (governed mostly by `η`)
+rather than automatically shrinking as the gradient shrinks near a minimum, the way plain SGD's
+does — exactly why learning rate schedules (week four) matter in practice.
+
+<MathBlock tex="m \leftarrow \beta_1 m + (1-\beta_1)g \qquad v \leftarrow \beta_2 v + (1-\beta_2)g^2 \qquad w \leftarrow w - \eta\frac{\hat{m}}{\sqrt{\hat{v}}+\epsilon}" />
+
+where `m̂` and `v̂` are *bias-corrected* versions of `m` and `v` (needed because both start at
+zero, which biases their early values toward zero too).
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.optim as optim
+
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+# ... inside the training loop ...
+optimizer.zero_grad()
+loss.backward()
+optimizer.step()   # applies the Adam update rule above to every parameter
+```
+
+<h2 id="python">SGD and Adam, implemented and verified from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef f(w):\n    return (w - 3) ** 2 + 1\ndef f_prime(w):\n    return 2 * (w - 3)\n\ndef run_sgd(learning_rate=0.1, n_steps=60, w0=0.0):\n    w = w0\n    for _ in range(n_steps):\n        w -= learning_rate * f_prime(w)\n    return w\n\ndef run_adam(learning_rate=0.1, n_steps=60, w0=0.0, beta1=0.9, beta2=0.999, eps=1e-8):\n    w = w0\n    m, v = 0.0, 0.0\n    for t in range(1, n_steps + 1):\n        g = f_prime(w)\n        m = beta1 * m + (1 - beta1) * g\n        v = beta2 * v + (1 - beta2) * g**2\n        m_hat = m / (1 - beta1 ** t)   # bias correction: undoes the 'starts at 0' bias\n        v_hat = v / (1 - beta2 ** t)\n        w -= learning_rate * m_hat / (np.sqrt(v_hat) + eps)\n    return w\n\nw_sgd = run_sgd()\nw_adam = run_adam()\nprint(f\"true minimum: w=3.0, f(w)=1.0\")\nprint(f\"plain SGD  after 60 steps (lr=0.1): w={w_sgd:.4f}, f(w)={f(w_sgd):.4f}\")\nprint(f\"Adam       after 60 steps (lr=0.1): w={w_adam:.4f}, f(w)={f(w_adam):.4f}\")\nprint()\nprint(\"SGD's step size shrinks naturally as the gradient shrinks near the minimum,\")\nprint(\"so it settles almost exactly here. Adam's step stays roughly constant-sized\")\nprint(\"(scaled by lr, not by the gradient's magnitude), so with a FIXED learning\")\nprint(\"rate it can hover near the minimum without fully settling -- exactly why\")\nprint(\"learning rate schedules (week four) matter in practice.\")\nprint()\n\n# verify bias correction actually matters: without it, early steps are artificially small\nm_raw, v_raw = 0.0, 0.0\ng0 = f_prime(0.0)\nm_raw = 0.9 * m_raw + 0.1 * g0\nv_raw = 0.999 * v_raw + 0.001 * g0**2\nm_hat = m_raw / (1 - 0.9**1)\nv_hat = v_raw / (1 - 0.999**1)\nprint(f\"after step 1: raw m={m_raw:.4f} vs bias-corrected m_hat={m_hat:.4f}\")\nprint(f\"after step 1: raw v={v_raw:.6f} vs bias-corrected v_hat={v_hat:.6f}\")\nprint(\"bias correction makes the first few steps use a full-sized estimate,\")\nprint(\"instead of one artificially shrunk toward the initial value of 0.\")"}
+  output={"true minimum: w=3.0, f(w)=1.0\nplain SGD  after 60 steps (lr=0.1): w=3.0000, f(w)=1.0000\nAdam       after 60 steps (lr=0.1): w=3.1524, f(w)=1.0232\n\nSGD's step size shrinks naturally as the gradient shrinks near the minimum,\nso it settles almost exactly here. Adam's step stays roughly constant-sized\n(scaled by lr, not by the gradient's magnitude), so with a FIXED learning\nrate it can hover near the minimum without fully settling -- exactly why\nlearning rate schedules (week four) matter in practice.\n\nafter step 1: raw m=-0.6000 vs bias-corrected m_hat=-6.0000\nafter step 1: raw v=0.036000 vs bias-corrected v_hat=36.000000\nbias correction makes the first few steps use a full-sized estimate,\ninstead of one artificially shrunk toward the initial value of 0."}
+/>
+
+<Callout kind="tip" title="Why bias correction matters most at the very start">
+  At `t=1`, `m = 0.9·0 + 0.1·g = 0.1g` — only 10% of the true gradient's value, purely because
+  `m` started at `0` and hasn't had time to "warm up." Dividing by `(1 - 0.9¹) = 0.1` exactly
+  cancels that shrinkage, giving `m̂ = g` — the correct, unbiased estimate from the very first
+  step. Without this correction, Adam's early updates would be artificially tiny, slowing down
+  training right when it should be moving fastest.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What does dividing Adam's step by sqrt(v_hat) (the bias-corrected mean squared gradient) actually accomplish?"
+  correct={2}
+  options={[
+    { text: "It has no real effect -- it's purely a legacy detail from the original paper", why: "It has a real, significant effect: it's precisely what gives each parameter its own adaptive effective learning rate, based on that parameter's own gradient history." },
+    { text: "It ensures every parameter always takes exactly the same size step, removing all per-parameter variation", why: "It does the opposite -- it makes the step size DIFFERENT per parameter, specifically scaled inversely to each parameter's typical gradient magnitude, rather than forcing uniformity." },
+    { text: "It gives parameters with consistently small gradients a relatively larger effective step, and parameters with consistently large (or noisy) gradients a relatively smaller one, adapting the step size per parameter based on its own gradient history", why: "Correct — this per-parameter adaptive scaling, based on the running estimate of squared gradient magnitude, is Adam's central mechanism beyond plain SGD." },
+    { text: "It converts the gradient descent problem into a different, unrelated optimization algorithm entirely", why: "Adam is still fundamentally a gradient-descent-family method -- it still moves each parameter in the direction that reduces the loss, using the SAME gradient computed by backward(); it just rescales the effective step size adaptively." },
+  ]}
+/>
+
+## Summary
+
+`torch.optim.SGD` at its plainest is exactly Month 3's gradient descent update rule; Adam adds
+two running averages — a mean of gradients (`m`, direction memory) and a mean of squared
+gradients (`v`, magnitude memory) — giving each parameter its own adaptively-scaled step size,
+with bias correction ensuring the early steps aren't artificially shrunk by starting both
+averages at zero. Both were implemented and verified from scratch above: SGD settled almost
+exactly at the true minimum since its step naturally shrinks alongside the gradient, while Adam
+got close but hovered nearby with a fixed learning rate — a real property of Adam, not a bug,
+and exactly why learning rate schedules matter in practice. The final lesson this week assembles a complete
+training script using everything built this week: `nn.Module`, loss functions, and an
+optimizer.
+
+## Further reading
+
+- Kingma & Ba, *"Adam: A Method for Stochastic Optimization"* — the original paper introducing
+  the exact update rule and bias-correction derivation implemented above.

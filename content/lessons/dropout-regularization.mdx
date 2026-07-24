@@ -1,0 +1,100 @@
+---
+slug: dropout-regularization
+month: 4
+week: 3
+ord: 4
+title: "Regularization: Dropout"
+code: "4.3.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Explain dropout's forward-pass mechanism: randomly zeroing activations during training only"
+  - "Explain 'co-adaptation' and why forcing redundancy combats overfitting"
+  - "Implement dropout from scratch, including the inverted scaling that keeps test-time simple"
+prereqs:
+  - "Regularization: L2 Weight Decay ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Inverted Dropout }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Forcing a network not to rely on any single neuron</h2>
+
+Weight decay fights overfitting by penalizing weight *magnitude*. **Dropout** takes a
+completely different approach: during training, randomly set some fraction of a layer's
+activations to zero on every forward pass — a different random subset each time. This forces
+the network to avoid **co-adaptation**: no single neuron can become so specialized that the
+network relies on it being present, because on any given step, it might not be. The result
+tends to be more redundant, more robust internal representations, since useful information ends
+up spread across many neurons rather than concentrated in a few.
+
+<h2 id="math">Inverted dropout</h2>
+
+With dropout rate `p` (the probability of zeroing each activation), a **mask** of random 0s and
+1s is generated each forward pass and multiplied elementwise into the layer's output:
+
+<MathBlock tex="\text{mask}_i \sim \text{Bernoulli}(1-p) \qquad a_i^{\text{train}} = \frac{\text{mask}_i \cdot a_i}{1-p}" />
+
+The division by `(1-p)` — "inverted" dropout — matters: with a fraction `p` of activations
+zeroed, the *sum* of the layer's output shrinks by roughly that same fraction on average.
+Dividing the kept activations by `(1-p)` rescales them back up, so the *expected* output
+magnitude matches what it would be without dropout at all. This is specifically what lets
+inference (evaluation/test time) skip dropout entirely — no mask, no rescaling, just the plain
+forward pass — because training already corrected for the scale difference.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+model = nn.Sequential(nn.Linear(10, 20), nn.ReLU(), nn.Dropout(p=0.5), nn.Linear(20, 1))
+model.train()   # dropout is ACTIVE: random neurons zeroed each forward pass
+model.eval()    # dropout is a no-op: the full network is used, unchanged
+```
+
+<h2 id="python">Dropout's mask and inverted scaling, verified from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef dropout_forward(a, p, training, seed=None):\n    if not training or p == 0:\n        return a   # inference: no-op, exactly as nn.Dropout does in eval() mode\n    rng = np.random.default_rng(seed)\n    mask = (rng.random(a.shape) > p).astype(float)   # 1 with probability (1-p), else 0\n    return (mask * a) / (1 - p)                       # inverted scaling\n\na = np.ones(10) * 2.0   # a toy activation vector, all values = 2.0, for a clean before/after comparison\np = 0.5\n\nout_train_1 = dropout_forward(a, p, training=True, seed=0)\nout_train_2 = dropout_forward(a, p, training=True, seed=1)   # a DIFFERENT random mask\nout_eval = dropout_forward(a, p, training=False)\n\nprint(\"original activations:      \", a)\nprint(\"training, mask seed=0:     \", out_train_1)\nprint(\"training, mask seed=1:     \", out_train_2, \" (different neurons zeroed)\")\nprint(\"eval (no dropout at all):  \", out_eval)\nprint()\n\n# verify the inverted scaling keeps the EXPECTED sum roughly unchanged, averaged over many masks\nnum_trials = 20000\nsums = [dropout_forward(a, p, training=True, seed=s).sum() for s in range(num_trials)]\nprint(f\"original sum: {a.sum():.2f}\")\nprint(f\"average training-mode sum over {num_trials} random masks: {np.mean(sums):.2f}\")\nprint(\"(close to the original sum, confirming inverted scaling corrects for the zeroed fraction)\")"}
+  output={"original activations:       [2. 2. 2. 2. 2. 2. 2. 2. 2. 2.]\ntraining, mask seed=0:      [4. 0. 0. 0. 4. 4. 4. 4. 4. 4.]\ntraining, mask seed=1:      [4. 4. 0. 4. 0. 0. 4. 0. 4. 0.]  (different neurons zeroed)\neval (no dropout at all):   [2. 2. 2. 2. 2. 2. 2. 2. 2. 2.]\n\noriginal sum: 20.00\naverage training-mode sum over 20000 random masks: 20.00\n(close to the original sum, confirming inverted scaling corrects for the zeroed fraction)"}
+/>
+
+<Callout kind="tip" title="Why dropout must be OFF during evaluation">
+  Applying random dropout at evaluation time would make predictions **non-deterministic** — the
+  same input could produce different outputs on different calls, purely from randomness that has
+  nothing to do with the actual input. `model.eval()` exists specifically to disable dropout (and
+  batch normalization's training-only behavior, next lesson), guaranteeing a fixed, reproducible
+  prediction for a fixed input — exactly what's needed once a model is actually being used, not
+  trained.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does inverted dropout divide the kept activations by (1-p), rather than leaving them at their original value?"
+  correct={1}
+  options={[
+    { text: "To make the zeroed-out activations exactly cancel out mathematically", why: "The zeroed activations are simply zero -- there's no 'canceling out' happening. The division affects only the KEPT (nonzero) activations, rescaling their magnitude." },
+    { text: "Zeroing a fraction p of activations shrinks the layer's total output on average; dividing the survivors by (1-p) rescales them so the EXPECTED output magnitude matches what it would be with no dropout at all, allowing evaluation to skip dropout entirely with no rescaling needed", why: "Correct — this is exactly the 'inverted dropout' trick, and the code above verifies it: the average sum over many random training-mode masks closely matches the original (no-dropout) sum." },
+    { text: "It's an arbitrary convention with no mathematical purpose", why: "It has a specific, verifiable mathematical purpose -- keeping the expected activation magnitude consistent between training and evaluation, which the numerical average-over-many-masks check above directly confirms." },
+    { text: "To make the random number generator produce different results each time", why: "The random mask itself (not the (1-p) division) is what introduces randomness -- the division is a fixed rescaling factor, not a randomization mechanism." },
+  ]}
+/>
+
+## Summary
+
+Dropout randomly zeroes a fraction `p` of a layer's activations on each training forward pass,
+forcing the network away from relying on any single neuron (co-adaptation) and toward more
+redundant, robust representations. Inverted dropout's `/(1-p)` rescaling keeps the *expected*
+activation magnitude unchanged between training and evaluation — verified above by averaging
+over many random masks — which is exactly what lets evaluation skip dropout entirely rather
+than needing its own separate rescaling logic. The final regularization technique this week,
+batch normalization, tackles a related but distinct problem: keeping each layer's input
+distribution stable as training progresses.
+
+## Further reading
+
+- Srivastava et al., *"Dropout: A Simple Way to Prevent Neural Networks from Overfitting"* —
+  the original paper introducing dropout and the co-adaptation argument.

@@ -1,0 +1,122 @@
+---
+slug: from-value-to-tensor
+month: 4
+week: 1
+ord: 1
+title: "From Value to Tensor: Why PyTorch Exists"
+code: "4.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Explain what PyTorch automates relative to the Value engine built last month"
+  - "Map the hand-built Value class's operations onto PyTorch's torch.Tensor API"
+  - "Recognize why this platform's interactive cells illustrate PyTorch conceptually rather than running it directly"
+prereqs:
+  - "Capstone: A Backpropagation Engine, Solving XOR ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Value vs. Tensor }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 4: the same engine, industrial strength</h2>
+
+Last month built a complete reverse-mode autograd engine from scratch — a `Value` class wrapping
+scalars, recording operations, and computing gradients via a topologically-sorted
+`backward()`. **PyTorch is that same idea**, generalized and industrialized in three specific
+ways:
+
+1. **Tensors instead of scalars** — a `torch.Tensor` is an N-dimensional array (like a NumPy
+   array), so one node in the graph can represent an entire matrix or batch of data, not just
+   one number.
+2. **C++/CUDA instead of Python** — the actual arithmetic runs in compiled, GPU-accelerated
+   code, not a Python loop, making it dramatically faster at scale.
+3. **A much larger library of operations** — hundreds of pre-built, pre-differentiated
+   operations (`nn.Linear`, `nn.Conv2d`, and hundreds more), each with a hand-optimized local
+   gradient rule, saving you from writing a `_backward` closure for every operation yourself.
+
+Nothing conceptually new is being introduced. `requires_grad=True` is "start recording, like our
+`Value.__init__`." `.backward()` is "walk the graph in reverse topological order, exactly like
+last month." `.grad` is "the accumulated gradient, exactly like `Value.grad`."
+
+<Callout kind="tip" title="Why this platform's PyTorch code isn't 'Run'-able here">
+  This lesson platform runs Python entirely in your browser via Pyodide (a WebAssembly build of
+  CPython) — there is no server-side Python and no GPU. PyTorch is not, and cannot practically
+  be, compiled to WebAssembly (its core is a large C++/CUDA library, `libtorch`), so it is not
+  among Pyodide's available packages. This month's PyTorch snippets are shown as **reference
+  code** in plain, non-interactive blocks — read them, don't expect a Run button. Every
+  interactive, verified `CodeCell` instead reimplements the same computation in pure Python or
+  NumPy (which Pyodide *does* support), so you still get real, checkable execution for every
+  concept.
+</Callout>
+
+<h2 id="math">Value's API, mapped to Tensor's API</h2>
+
+<table>
+  <thead>
+    <tr><th>Month 3's <code>Value</code></th><th>PyTorch's <code>torch.Tensor</code></th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>Value(3.0)</code></td><td><code>torch.tensor(3.0, requires_grad=True)</code></td></tr>
+    <tr><td><code>.data</code></td><td><code>.data</code> / <code>.item()</code></td></tr>
+    <tr><td><code>.grad</code> (starts at <code>0.0</code>)</td><td><code>.grad</code> (starts at <code>None</code> until backward)</td></tr>
+    <tr><td><code>x + y</code>, <code>x * y</code> (operator overload)</td><td><code>x + y</code>, <code>x * y</code> (operator overload)</td></tr>
+    <tr><td><code>.backward()</code></td><td><code>.backward()</code></td></tr>
+    <tr><td>manually written <code>_backward</code> per op</td><td>pre-written, optimized backward per op</td></tr>
+  </tbody>
+</table>
+
+Reference PyTorch code for the exact expression built by hand last month, `z = (x + y) * x`:
+
+```python
+# reference only -- torch isn't available in this browser sandbox, see Callout above
+import torch
+
+x = torch.tensor(3.0, requires_grad=True)
+y = torch.tensor(4.0, requires_grad=True)
+a = x + y
+z = a * x
+z.backward()
+
+print(z.item())    # 21.0
+print(x.grad.item())  # 10.0
+print(y.grad.item())  # 3.0
+```
+
+<h2 id="python">The same computation, verified for real with last month's engine</h2>
+
+<CodeCell
+  code={"class Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None\n        self._prev = set(_children)\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n        def _backward():\n            self.grad += out.grad\n            other.grad += out.grad\n        out._backward = _backward\n        return out\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo, visited = [], set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n        self.grad = 1.0\n        for v in reversed(topo):\n            v._backward()\n\n# the exact same expression as the reference torch snippet above\nx = Value(3.0)\ny = Value(4.0)\na = x + y\nz = a * x\nz.backward()\n\nprint(\"z.data  =\", z.data, \" (torch reference: z.item() == 21.0)\")\nprint(\"x.grad  =\", x.grad, \" (torch reference: x.grad.item() == 10.0)\")\nprint(\"y.grad  =\", y.grad, \" (torch reference: y.grad.item() == 3.0)\")\nprint()\nprint(\"same numbers, same algorithm -- torch just does this in optimized C++/CUDA,\")\nprint(\"over whole tensors at once, with hundreds more pre-built operations.\")"}
+  output={"z.data  = 21.0  (torch reference: z.item() == 21.0)\nx.grad  = 10.0  (torch reference: x.grad.item() == 10.0)\ny.grad  = 3.0  (torch reference: y.grad.item() == 3.0)\n\nsame numbers, same algorithm -- torch just does this in optimized C++/CUDA,\nover whole tensors at once, with hundreds more pre-built operations."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What is the single biggest conceptual difference between PyTorch's autograd and the Value engine built last month?"
+  correct={2}
+  options={[
+    { text: "PyTorch uses forward-mode differentiation instead of reverse-mode", why: "PyTorch uses reverse-mode differentiation too -- for the same reason established in the forward-vs-reverse-mode lesson: one output (the loss), many inputs (the weights)." },
+    { text: "PyTorch's gradients are approximate, while Value's are exact", why: "Both compute exact analytical gradients via the chain rule (up to ordinary floating-point precision) -- neither is an approximation like the numerical-derivative method from early Month 3." },
+    { text: "There isn't really a conceptual difference -- PyTorch operates on N-dimensional tensors instead of single scalars, runs in optimized C++/CUDA instead of Python, and ships far more pre-built operations, but the underlying graph-building-and-backward-walking algorithm is the same one built by hand last month", why: "Correct — this is exactly the lesson's central claim: PyTorch is an industrial-strength version of the same reverse-mode autograd idea, not a different idea." },
+    { text: "PyTorch requires manually writing a _backward closure for every operation, just like Value", why: "This is backwards -- PyTorch's entire value proposition is that its hundreds of built-in operations already come with pre-written, optimized backward rules, so you do NOT have to write your own (unlike last month's from-scratch engine, where writing _backward by hand was exactly the point)." },
+  ]}
+/>
+
+## Summary
+
+PyTorch's `torch.Tensor` and `.backward()` implement exactly the reverse-mode autograd algorithm
+built by hand last month, generalized from single scalars to N-dimensional tensors and
+implemented in optimized, GPU-capable C++/CUDA rather than a Python loop. Because this lesson
+platform's interactive code runs in a browser-based Python (Pyodide) that doesn't include
+PyTorch, this month's PyTorch snippets are reference-only — every interactive `CodeCell` instead
+verifies the same underlying concept with real, runnable Python or NumPy. The next lesson looks
+at the tensor itself: shape, dtype, and the device concept that lets the same code run on a CPU
+or a GPU.
+
+## Further reading
+
+- PyTorch documentation, *"Autograd: Automatic Differentiation"* — the official tutorial
+  covering exactly the API surface mapped in this lesson.

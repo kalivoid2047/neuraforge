@@ -1,0 +1,118 @@
+---
+slug: capstone-image-classifier
+month: 4
+week: 4
+ord: 5
+title: "Capstone: Image Classifier, Built From Scratch"
+code: "4.4.5"
+minutes: 120
+difficulty: 5
+objectives:
+  - "Train a convolutional classifier end to end using nothing but concepts verified this month"
+  - "Trace the full month's arc from tensors and autograd to a working image classifier"
+  - "Explain how each piece of the from-scratch training loop maps to real PyTorch code"
+prereqs:
+  - "Learning Rate Schedules and Early Stopping ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Architecture }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The month's arc, in one training run</h2>
+
+Trace the path from the first lesson to here: `torch.Tensor` as `Value` generalized to N-
+dimensional arrays → shape/dtype/device → broadcasting → tensor-level autograd → why GPUs
+matter → `nn.Module`'s automatic parameter registration → `nn.Linear` and activations →
+cross-entropy for classification → SGD and Adam → a complete training script →
+`Dataset`/`DataLoader` → train/validation splits and overfitting → weight decay, dropout, and
+batch normalization → convolution → pooling → a full CNN architecture → learning rate schedules
+and early stopping. This lesson's single code cell uses essentially all of it: a real
+convolutional network, trained end to end with Adam and a cosine learning rate schedule, on a
+genuine (if small and synthetic) image classification task — distinguishing images containing a
+vertical line from images containing a horizontal line.
+
+<h2 id="math">The architecture</h2>
+
+<MathBlock tex="\text{image}\ (8,8) \xrightarrow{\text{conv}\ 4\times3\times3} (4,6,6) \xrightarrow{\text{ReLU}} (4,6,6) \xrightarrow{\text{maxpool}\ 2\times2} (4,3,3) \xrightarrow{\text{flatten}} (36,) \xrightarrow{\text{linear}} (2,)" />
+
+Four 3×3 kernels detect local patterns; ReLU introduces nonlinearity; 2×2 max pooling shrinks
+and adds positional tolerance; flatten bridges to a final linear layer producing 2 class
+logits, trained with cross-entropy loss.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn, torch.optim as optim
+
+class TinyCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 4, kernel_size=3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc = nn.Linear(4 * 3 * 3, 2)
+    def forward(self, x):
+        x = self.pool(torch.relu(self.conv(x)))
+        return self.fc(x.flatten(start_dim=1))
+
+model = TinyCNN()
+loss_fn = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.05)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=40)
+for epoch in range(40):
+    for x_batch, y_batch in train_loader:
+        logits = model(x_batch)
+        loss = loss_fn(logits, y_batch)
+        optimizer.zero_grad(); loss.backward(); optimizer.step()
+    scheduler.step()
+```
+
+<h2 id="python">The same network, trained from scratch, on real (synthetic) images</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef conv2d_multi(image, kernels):\n    C_out, kh, kw = kernels.shape\n    ih, iw = image.shape\n    oh, ow = ih - kh + 1, iw - kw + 1\n    out = np.zeros((C_out, oh, ow))\n    for c in range(C_out):\n        k = kernels[c]\n        for i in range(oh):\n            for j in range(ow):\n                out[c, i, j] = np.sum(image[i:i+kh, j:j+kw] * k)\n    return out\n\ndef relu(x):\n    return np.maximum(0, x)\ndef relu_grad(x):\n    return (x > 0).astype(float)\n\ndef max_pool_multi(x, size, stride):\n    C, h, w = x.shape\n    oh, ow = (h - size)//stride + 1, (w - size)//stride + 1\n    out = np.zeros((C, oh, ow))\n    argmax = np.zeros((C, oh, ow, 2), dtype=int)\n    for c in range(C):\n        for i in range(oh):\n            for j in range(ow):\n                window = x[c, i*stride:i*stride+size, j*stride:j*stride+size]\n                idx = np.unravel_index(np.argmax(window), window.shape)\n                out[c, i, j] = window[idx]\n                argmax[c, i, j] = [i*stride + idx[0], j*stride + idx[1]]\n    return out, argmax\n\ndef softmax(logits):\n    shifted = logits - np.max(logits, axis=-1, keepdims=True)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp, axis=-1, keepdims=True)\n\n# synthetic dataset: 8x8 images. class 0 = vertical line, class 1 = horizontal line, plus noise\ndef make_image(label, rng):\n    img = rng.normal(0, 0.15, size=(8, 8))\n    if label == 0:\n        col = rng.integers(1, 7)\n        img[:, col] += 1.5\n    else:\n        row = rng.integers(1, 7)\n        img[row, :] += 1.5\n    return img\n\nrng = np.random.default_rng(0)\nn_train, n_val = 24, 12\nX_train = np.array([make_image(i % 2, rng) for i in range(n_train)])\ny_train = np.array([i % 2 for i in range(n_train)])\nX_val = np.array([make_image(i % 2, rng) for i in range(n_val)])\ny_val = np.array([i % 2 for i in range(n_val)])\n\n# model: conv(1->4, 3x3) -> ReLU -> maxpool(2,2) -> flatten -> linear(->2)\nC_out, kh, kw = 4, 3, 3\nrng2 = np.random.default_rng(1)\nkernels = rng2.normal(0, 0.5, size=(C_out, kh, kw))\npool_h, pool_w = (8 - kh + 1) // 2, (8 - kw + 1) // 2\nflat_size = C_out * pool_h * pool_w\nW = rng2.normal(0, 0.3, size=(flat_size, 2))\nb = np.zeros(2)\n\nm_state = {\"kernels\": np.zeros_like(kernels), \"W\": np.zeros_like(W), \"b\": np.zeros_like(b)}\nv_state = {\"kernels\": np.zeros_like(kernels), \"W\": np.zeros_like(W), \"b\": np.zeros_like(b)}\nbeta1, beta2, eps = 0.9, 0.999, 1e-8\nlr0 = 0.05\n\ndef forward_single(x):\n    conv_out = conv2d_multi(x, kernels)\n    relu_out = relu(conv_out)\n    pooled, argmax = max_pool_multi(relu_out, 2, 2)\n    flat = pooled.flatten()\n    logits = flat @ W + b\n    return conv_out, relu_out, pooled, argmax, flat, logits\n\ndef evaluate(X, y):\n    correct, total_loss = 0, 0.0\n    for x, label in zip(X, y):\n        *_, logits = forward_single(x)\n        probs = softmax(logits)\n        total_loss += -np.log(probs[label] + 1e-12)\n        if np.argmax(logits) == label:\n            correct += 1\n    return total_loss / len(X), correct / len(X)\n\nn_epochs = 40\nfor epoch in range(1, n_epochs + 1):\n    lr = lr0 * 0.5 * (1 + np.cos(np.pi * (epoch - 1) / n_epochs))   # cosine annealing\n    grad_kernels = np.zeros_like(kernels)\n    grad_W = np.zeros_like(W)\n    grad_b = np.zeros_like(b)\n\n    for x, label in zip(X_train, y_train):\n        conv_out, relu_out, pooled, argmax, flat, logits = forward_single(x)\n        probs = softmax(logits)\n        one_hot = np.zeros(2); one_hot[label] = 1.0\n        d_logits = probs - one_hot\n\n        grad_W += np.outer(flat, d_logits)\n        grad_b += d_logits\n        d_pooled = (W @ d_logits).reshape(pooled.shape)\n\n        d_relu_out = np.zeros_like(relu_out)\n        for c in range(C_out):\n            for i in range(pool_h):\n                for j in range(pool_w):\n                    pi, pj = argmax[c, i, j]\n                    d_relu_out[c, pi, pj] += d_pooled[c, i, j]\n        d_conv_out = d_relu_out * relu_grad(conv_out)\n\n        for c in range(C_out):\n            for i in range(6):\n                for j in range(6):\n                    grad_kernels[c] += d_conv_out[c, i, j] * x[i:i+kh, j:j+kw]\n\n    n = len(X_train)\n    grad_kernels /= n; grad_W /= n; grad_b /= n\n    grads = {\"kernels\": grad_kernels, \"W\": grad_W, \"b\": grad_b}\n    params = {\"kernels\": kernels, \"W\": W, \"b\": b}\n    for k in params:\n        m_state[k] = beta1 * m_state[k] + (1 - beta1) * grads[k]\n        v_state[k] = beta2 * v_state[k] + (1 - beta2) * grads[k]**2\n        m_hat = m_state[k] / (1 - beta1**epoch)\n        v_hat = v_state[k] / (1 - beta2**epoch)\n        params[k] -= lr * m_hat / (np.sqrt(v_hat) + eps)\n    kernels, W, b = params[\"kernels\"], params[\"W\"], params[\"b\"]\n\n    if epoch % 10 == 0 or epoch == 1:\n        train_loss, train_acc = evaluate(X_train, y_train)\n        val_loss, val_acc = evaluate(X_val, y_val)\n        print(f\"epoch {epoch:3d}: lr={lr:.4f} train_loss={train_loss:.4f} train_acc={train_acc:.2f}  val_loss={val_loss:.4f} val_acc={val_acc:.2f}\")\n\nprint()\n_, final_val_acc = evaluate(X_val, y_val)\nprint(f\"final validation accuracy: {final_val_acc:.2f}\")"}
+  output={"epoch   1: lr=0.0500 train_loss=0.5358 train_acc=0.71  val_loss=0.6923 val_acc=0.58\nepoch  10: lr=0.0440 train_loss=0.0072 train_acc=1.00  val_loss=0.0181 val_acc=1.00\nepoch  20: lr=0.0270 train_loss=0.0003 train_acc=1.00  val_loss=0.0006 val_acc=1.00\nepoch  30: lr=0.0088 train_loss=0.0001 train_acc=1.00  val_loss=0.0003 val_acc=1.00\nepoch  40: lr=0.0001 train_loss=0.0001 train_acc=1.00  val_loss=0.0002 val_acc=1.00\n\nfinal validation accuracy: 1.00"}
+/>
+
+<Callout kind="tip" title="Everything here scales up, unchanged in kind, to a real classifier">
+  A production image classifier (ResNet, or any modern CNN) differs from this capstone in
+  degree, not in kind: more conv layers, more channels, larger images, batch normalization
+  between layers, dropout before the final classifier, tens of thousands of real training
+  images instead of 24 synthetic ones — but every one of those pieces was verified from scratch
+  somewhere in this month. Nothing conceptually new remains between this capstone and a real
+  production model; the rest is scale and engineering.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="This capstone's classifier reaches near-100% accuracy on both training AND validation data. Given the overfitting lesson earlier this month, is a large train/validation gap something to expect here?"
+  correct={1}
+  options={[
+    { text: "Yes, a large gap is unavoidable whenever using a convolutional network", why: "Convolutional networks are not inherently prone to a large train/val gap -- overfitting depends on the relationship between model capacity, dataset size, and task difficulty, not simply on the architecture type." },
+    { text: "Not necessarily -- this is a very easy, clearly-separable synthetic task (a vertical vs. horizontal line is an easy pattern to detect) with a small but sufficient network, so both training and validation performance can genuinely be excellent without indicating memorization of noise", why: "Correct — the overfitting lesson's warning sign was a LARGE GAP between train and validation performance, not high accuracy itself. Here, both are high and close together, which is exactly what genuine learning (not memorization) looks like." },
+    { text: "No -- validation accuracy should always be exactly zero if training accuracy is high", why: "There's no such rule -- validation accuracy tracking training accuracy closely (both high) is precisely the sign of a model that generalized well, not a sign of a broken evaluation." },
+    { text: "This result is impossible and indicates a bug in the evaluation code", why: "Nothing here indicates a bug -- for an easy, clearly-separable task with enough model capacity and enough (if synthetic) training signal, high accuracy on both splits is an entirely legitimate, expected outcome." },
+  ]}
+/>
+
+## Month 4 summary
+
+This month bridged Month 3's hand-built autograd engine to the real framework professionals
+use: PyTorch's tensor, autograd, and `nn.Module` APIs (week one and two) generalize the exact
+concepts already built by hand, verified throughout via NumPy since this platform's Python
+sandbox doesn't include PyTorch itself; datasets, splits, and three regularization techniques
+(week three) address the practical problem of learning from limited data without memorizing
+it; and convolution, pooling, and a complete CNN architecture (week four) culminate in this
+capstone — a real, trainable image classifier, built and verified entirely from first
+principles. Month 5 turns to probability, statistics, and the beginnings of natural language
+processing — the mathematical foundation behind loss functions, evaluation metrics, and
+language modeling still to come.
+
+## Further reading
+
+- PyTorch documentation, *"Training a Classifier"* (the official 60-minute blitz tutorial) —
+  the real version of this exact architecture and training loop, on real image data (CIFAR-10).
+- Stanford CS231n — the full course this month's CNN material is drawn from, covering
+  architectures far beyond this capstone's scale.

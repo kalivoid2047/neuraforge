@@ -1,0 +1,104 @@
+---
+slug: nn-module-structuring
+month: 4
+week: 2
+ord: 1
+title: "nn.Module: Structuring a Network"
+code: "4.2.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain what torch.nn.Module automates relative to the Neuron/Layer/MLP classes from Month 3"
+  - "Register parameters on a custom class and collect them automatically via a parameters() method"
+  - "Recognize __init__ (define layers) and forward (define computation) as nn.Module's two required pieces"
+prereqs:
+  - "GPUs and Why They Matter for Deep Learning ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: What nn.Module Automates }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">You already built this — nn.Module just automates the bookkeeping</h2>
+
+Month 3's `Neuron`, `Layer`, and `MLP` classes already did the real work: hold parameters,
+implement a forward computation, and expose a `parameters()` method so an optimizer can find
+every weight. `torch.nn.Module` is PyTorch's version of exactly this pattern, with one genuine
+convenience added: **any `torch.Tensor` with `requires_grad=True` assigned as an attribute is
+automatically registered**, so `.parameters()` collects every weight in the whole network —
+including nested sub-modules — without you writing the manual list-concatenation Month 3's
+`Layer.parameters()` and `MLP.parameters()` needed.
+
+<h2 id="math">What nn.Module automates</h2>
+
+Every `nn.Module` subclass follows the same two-method shape:
+
+- **`__init__`** — declare the layers this module owns (each itself an `nn.Module`, like
+  `nn.Linear`)
+- **`forward`** — define how input data flows through those layers to produce output
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+class MLP(nn.Module):
+    def __init__(self, n_in, n_hidden, n_out):
+        super().__init__()
+        self.layer1 = nn.Linear(n_in, n_hidden)   # automatically registers its weights + bias
+        self.layer2 = nn.Linear(n_hidden, n_out)  # ditto
+
+    def forward(self, x):
+        x = self.layer1(x).tanh()
+        return self.layer2(x)
+
+model = MLP(3, 4, 1)
+print(len(list(model.parameters())))  # 4: layer1's (weight, bias), layer2's (weight, bias)
+```
+
+Notice: no manual `parameters()` implementation needed, and no manual `.tanh()` bookkeeping —
+`nn.Module.__setattr__` (called automatically whenever you write `self.layer1 = ...`) is what
+does the registration, entirely behind the scenes.
+
+<h2 id="python">Reimplementing this exact registration mechanism in pure Python</h2>
+
+<CodeCell
+  code={"class Module:\n    \"\"\"A minimal stand-in for torch.nn.Module: auto-registers sub-modules assigned as attributes.\"\"\"\n    def __init__(self):\n        self._modules = {}\n\n    def __setattr__(self, name, value):\n        # this is the actual trick nn.Module uses: intercept attribute assignment,\n        # and if the value is itself a Module, remember it for later collection\n        if isinstance(value, Module):\n            self.__dict__.setdefault('_modules', {})[name] = value\n        object.__setattr__(self, name, value)\n\n    def parameters(self):\n        params = []\n        for sub_module in self._modules.values():\n            params.extend(sub_module.parameters())\n        return params\n\n\nclass Linear(Module):\n    \"\"\"A minimal stand-in for nn.Linear: owns a weight 'tensor' and a bias 'tensor'.\"\"\"\n    def __init__(self, n_in, n_out):\n        super().__init__()\n        self.weight = [[0.1] * n_in for _ in range(n_out)]   # plain nested lists standing in for a tensor\n        self.bias = [0.0] * n_out\n\n    def parameters(self):\n        return [self.weight, self.bias]\n\n\nclass MLP(Module):\n    def __init__(self, n_in, n_hidden, n_out):\n        super().__init__()\n        self.layer1 = Linear(n_in, n_hidden)   # auto-registered via __setattr__ above\n        self.layer2 = Linear(n_hidden, n_out)  # auto-registered too\n\n    def parameters(self):\n        # exactly what nn.Module gives you for free -- collected from every registered sub-module\n        return super().parameters()\n\n\nmodel = MLP(3, 4, 1)\nparams = model.parameters()\nprint(\"number of parameter GROUPS (weight+bias per layer, so 2 layers = 4 groups):\", len(params))\nprint(\"layer1 weight shape (n_hidden x n_in):\", len(model.layer1.weight), \"x\", len(model.layer1.weight[0]))\nprint(\"layer2 weight shape (n_out x n_hidden):\", len(model.layer2.weight), \"x\", len(model.layer2.weight[0]))\nprint()\nprint(\"none of this required manually listing 'layer1.weight, layer1.bias, layer2.weight, layer2.bias'\")\nprint(\"-- __setattr__ noticed each Linear being assigned and registered it automatically.\")"}
+  output={"number of parameter GROUPS (weight+bias per layer, so 2 layers = 4 groups): 4\nlayer1 weight shape (n_hidden x n_in): 4 x 3\nlayer2 weight shape (n_out x n_hidden): 1 x 4\n\nnone of this required manually listing 'layer1.weight, layer1.bias, layer2.weight, layer2.bias'\n-- __setattr__ noticed each Linear being assigned and registered it automatically."}
+/>
+
+<Callout kind="tip" title="forward() is called for you, via __call__">
+  One more thing `nn.Module` provides: calling `model(x)` actually calls `model.__call__(x)`,
+  which `nn.Module` implements to call your `forward(x)` method (plus some extra bookkeeping,
+  like hooks, not relevant here). That's why real PyTorch code writes `model(x)` rather than
+  `model.forward(x)` directly — both work, but `model(x)` is the correct, idiomatic form.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What specific mechanism lets nn.Module's parameters() automatically find weights buried in nested sub-modules, without you writing any collection code yourself?"
+  correct={1}
+  options={[
+    { text: "PyTorch scans your entire source file's text looking for weight-like variable names", why: "This isn't how it works at all -- there's no source-code text scanning involved. The mechanism operates on actual Python objects at runtime, not on the source code." },
+    { text: "nn.Module overrides __setattr__ to detect when an assigned attribute is itself an nn.Module (or a parameter), and registers it automatically at that moment", why: "Correct — this is exactly the mechanism demonstrated in the pure-Python reimplementation: intercepting attribute assignment is what lets registration happen 'for free' whenever you write self.layer1 = Linear(...)." },
+    { text: "You must call model.register(layer1) manually for every sub-module", why: "This is precisely the manual bookkeeping nn.Module is designed to AVOID -- the whole point of the __setattr__ mechanism is that simply writing self.layer1 = ... is enough, no explicit registration call needed." },
+    { text: "Every nn.Module has a hardcoded, fixed number of parameter slots", why: "There's no fixed/hardcoded slot count -- parameters() dynamically collects whatever was actually assigned as sub-modules, however many that turns out to be, exactly as demonstrated with the 2-layer vs. a hypothetical 5-layer network." },
+  ]}
+/>
+
+## Summary
+
+`torch.nn.Module` automates the exact bookkeeping Month 3's `Layer` and `MLP` classes did by
+hand: it intercepts attribute assignment (via `__setattr__`) to automatically register any
+sub-module (or parameter) assigned to `self`, so `.parameters()` can walk the whole nested
+structure without manual list-building. Every real PyTorch model follows the same two-part
+shape — `__init__` declares layers, `forward` defines the computation — and calling `model(x)`
+invokes `forward` indirectly through `__call__`. The next lesson looks at `nn.Linear` and
+activation functions in more depth, the actual building blocks assigned inside `__init__`.
+
+## Further reading
+
+- PyTorch documentation, *"torch.nn"* — the module index, and the source for `nn.Module`'s
+  actual (more elaborate) parameter-registration implementation.

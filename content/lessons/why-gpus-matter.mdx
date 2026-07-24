@@ -1,0 +1,91 @@
+---
+slug: why-gpus-matter
+month: 4
+week: 1
+ord: 5
+title: "GPUs and Why They Matter for Deep Learning"
+code: "4.1.5"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Explain why GPUs are dramatically faster than CPUs for the specific operations deep learning uses"
+  - "Measure the real speedup of vectorized array operations over an explicit Python loop"
+  - "Connect vectorization (this lesson) to why device placement (two lessons ago) matters in practice"
+prereqs:
+  - "Autograd in Practice: requires_grad, backward(), and grad ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Why Parallel Hardware Wins Here }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: why the same math runs 10-100x faster on a GPU</h2>
+
+A CPU is built to do a wide variety of different tasks, one (or a handful) at a time, very
+fast. A GPU is built almost the opposite way: thousands of much simpler cores, each slower
+individually, but able to do the *same* operation on *many* different pieces of data
+**simultaneously**. Deep learning's core operations — matrix multiplication, element-wise
+addition, convolution — are exactly this shape: the *same* arithmetic operation, repeated over
+enormous numbers of independent values (every weight, every pixel, every example in a batch).
+That match between the hardware's strength and the workload's shape is the entire reason GPUs
+transformed deep learning from a slow academic curiosity into something trainable in practical
+time.
+
+<h2 id="math">Vectorization: the same principle, one level down</h2>
+
+Before even reaching CPU-vs-GPU, the same underlying idea shows up one level down: a
+**vectorized** NumPy operation (`a + b` on whole arrays) is dramatically faster than an
+explicit Python `for` loop doing the same additions one at a time — because the vectorized
+version pushes the entire loop down into pre-compiled C code operating on contiguous memory,
+instead of paying Python's per-iteration interpreter overhead. GPU parallelism is this same
+"do many identical operations at once, in specialized fast hardware, instead of one at a time in
+a slow general-purpose interpreter" idea, taken further.
+
+<h2 id="python">Measuring vectorization's real speedup</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport time\n\nn = 2_000_000\na = np.random.randn(n)\nb = np.random.randn(n)\n\n# --- approach 1: explicit Python loop ---\nstart = time.perf_counter()\nresult_loop = [0.0] * n\nfor i in range(n):\n    result_loop[i] = a[i] + b[i]\nloop_time = time.perf_counter() - start\n\n# --- approach 2: vectorized NumPy operation ---\nstart = time.perf_counter()\nresult_vectorized = a + b\nvectorized_time = time.perf_counter() - start\n\n# verify both approaches computed the same thing\nmatches = np.allclose(result_loop, result_vectorized)\n\nprint(f\"explicit Python loop:   {loop_time*1000:.1f} ms\")\nprint(f\"vectorized NumPy:       {vectorized_time*1000:.3f} ms\")\nprint(f\"speedup: {loop_time / vectorized_time:.0f}x\")\nprint(f\"results match: {matches}\")\nprint()\nprint(\"exact numbers vary by machine, but the vectorized version is reliably\")\nprint(\"orders of magnitude faster -- and a GPU applies this same principle\")\nprint(\"with thousands of parallel cores instead of your CPU's handful.\")"}
+  output={"explicit Python loop:   550.9 ms\nvectorized NumPy:       8.827 ms\nspeedup: 62x\nresults match: True\n\nexact numbers vary by machine, but the vectorized version is reliably\norders of magnitude faster -- and a GPU applies this same principle\nwith thousands of parallel cores instead of your CPU's handful."}
+/>
+
+<Callout kind="tip" title="Why device placement (from two lessons ago) is a real, visible cost">
+  Moving a tensor between CPU and GPU memory (`.to("cuda")`) takes real time — it's a physical
+  data transfer over a comparatively slow bus. That's precisely why device placement is
+  explicit and visible in PyTorch rather than automatic: moving data back and forth carelessly
+  (e.g., inside a training loop, every iteration) can easily erase the entire speed advantage the
+  GPU was supposed to provide. The rule of thumb: move data to the GPU once, do as much
+  computation there as possible, and only move final results back when you actually need them
+  (e.g., to print or save).
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why are GPUs specifically well-suited to deep learning workloads, rather than just 'faster at everything'?"
+  correct={1}
+  options={[
+    { text: "GPUs have more memory than CPUs, which is the only thing that matters for speed", why: "Memory capacity isn't the core reason -- the key match is between the GPU's architecture (many simple parallel cores) and the workload's shape (the same operation repeated over huge numbers of independent values)." },
+    { text: "Deep learning's core operations (matrix multiplication, element-wise ops, convolution) apply the SAME operation to enormous numbers of independent values, which matches a GPU's architecture of many simple cores doing identical work in parallel", why: "Correct — this is the structural match the lesson describes: GPUs excel specifically at 'same operation, many independent data points,' which is exactly the shape of matrix multiplication, activation functions, and convolutions." },
+    { text: "GPUs are simply newer technology than CPUs and therefore always faster", why: "GPUs aren't simply 'better CPUs' -- they're a DIFFERENT architecture, optimized for a different kind of workload (many parallel identical operations) at the cost of being worse at the varied, sequential tasks CPUs handle well." },
+    { text: "CPUs cannot perform matrix multiplication at all", why: "CPUs absolutely can perform matrix multiplication -- they just do it far less efficiently than a GPU for large matrices, because they lack the GPU's massive core-count parallelism for this specific repeated-operation workload." },
+  ]}
+/>
+
+## Week one summary
+
+This week bridged Month 3's hand-built autograd engine to the real tool professionals use:
+PyTorch's `torch.Tensor` generalizes `Value` from scalars to N-dimensional arrays, tracked by
+shape/dtype/device; broadcasting lets operations combine differently-shaped tensors without
+explicit loops or copies; `.backward()` on tensors computes gradients for entire weight
+matrices at once, following the exact same reverse-mode algorithm, verified numerically just
+like last month; and GPUs (and vectorization generally) provide the raw speed that makes
+training on realistic amounts of data practical. Week two builds actual network layers with
+`torch.nn` — the same `Neuron`/`Layer`/`MLP` classes from Month 3, now backed by a real
+framework's pre-built, optimized components.
+
+## Further reading
+
+- Stanford CS231n, *"Hardware and Software"* lecture notes — a clear, practically-oriented
+  explanation of CPU vs. GPU architecture for deep learning specifically.

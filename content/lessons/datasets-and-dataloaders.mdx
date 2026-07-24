@@ -1,0 +1,102 @@
+---
+slug: datasets-and-dataloaders
+month: 4
+week: 3
+ord: 1
+title: "Datasets and DataLoaders"
+code: "4.3.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Explain the separation of concerns between a Dataset (what the data is) and a DataLoader (how it's served)"
+  - "Implement mini-batching and per-epoch shuffling from scratch"
+  - "Explain why shuffling between epochs matters for training quality"
+prereqs:
+  - "Putting It Together: A Minimal Training Script ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Dataset vs. DataLoader }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: from a toy in-memory array to real training data</h2>
+
+Every training loop this month has used one small array held entirely in memory. Real datasets
+— including this month's Image Classifier capstone's dataset — are too large for that, and need
+to be split into manageable chunks (**batches**), reshuffled each pass through the data (each
+**epoch**), and often loaded from disk on demand rather than all at once. PyTorch splits this
+concern into two classes: `Dataset` (defines *what* one example is, and how many there are) and
+`DataLoader` (defines *how* examples get batched, shuffled, and served during training) —
+matching the general software-engineering idea of separating "what the data is" from "how it's
+consumed."
+
+<h2 id="math">Dataset vs. DataLoader</h2>
+
+A `Dataset` needs exactly two things: `__len__` (how many examples exist) and `__getitem__`
+(fetch one example by index). A `DataLoader` wraps a `Dataset` and handles batching and
+shuffling — the training loop never touches individual examples directly, only whole batches.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+from torch.utils.data import Dataset, DataLoader
+
+class MyDataset(Dataset):
+    def __init__(self, X, y):
+        self.X, self.y = X, y
+    def __len__(self):
+        return len(self.X)
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+loader = DataLoader(MyDataset(X, y), batch_size=32, shuffle=True)
+for epoch in range(n_epochs):
+    for x_batch, y_batch in loader:   # DataLoader handles batching + reshuffling each epoch
+        ...
+```
+
+<h2 id="python">Batching and shuffling, implemented from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nclass SimpleDataset:\n    \"\"\"Stand-in for torch.utils.data.Dataset: just __len__ and __getitem__.\"\"\"\n    def __init__(self, X, y):\n        self.X, self.y = X, y\n    def __len__(self):\n        return len(self.X)\n    def __getitem__(self, idx):\n        return self.X[idx], self.y[idx]\n\ndef simple_dataloader(dataset, batch_size, shuffle, seed=None):\n    \"\"\"Stand-in for DataLoader: yields shuffled (if requested), batched data.\"\"\"\n    n = len(dataset)\n    indices = np.arange(n)\n    if shuffle:\n        rng = np.random.default_rng(seed)\n        rng.shuffle(indices)\n    for start in range(0, n, batch_size):\n        batch_indices = indices[start:start + batch_size]\n        X_batch = np.array([dataset[i][0] for i in batch_indices])\n        y_batch = np.array([dataset[i][1] for i in batch_indices])\n        yield X_batch, y_batch\n\n# 10 examples, batch size 3 -- 4 batches, last one smaller (10 = 3+3+3+1)\nX = np.arange(10).reshape(10, 1).astype(float)\ny = np.arange(10)\ndataset = SimpleDataset(X, y)\n\nprint(\"dataset length:\", len(dataset))\nprint()\nprint(\"epoch 1 (shuffle=True, seed=0):\")\nfor X_batch, y_batch in simple_dataloader(dataset, batch_size=3, shuffle=True, seed=0):\n    print(\"  batch y values:\", y_batch.tolist())\n\nprint()\nprint(\"epoch 2 (shuffle=True, seed=1 -- a DIFFERENT shuffle, like a real second epoch):\")\nfor X_batch, y_batch in simple_dataloader(dataset, batch_size=3, shuffle=True, seed=1):\n    print(\"  batch y values:\", y_batch.tolist())\n\nprint()\nprint(\"shuffle=False (deterministic order, useful for validation/test data):\")\nfor X_batch, y_batch in simple_dataloader(dataset, batch_size=3, shuffle=False):\n    print(\"  batch y values:\", y_batch.tolist())"}
+  output={"dataset length: 10\n\nepoch 1 (shuffle=True, seed=0):\n  batch y values: [4, 6, 2]\n  batch y values: [7, 3, 5]\n  batch y values: [9, 0, 8]\n  batch y values: [1]\n\nepoch 2 (shuffle=True, seed=1 -- a DIFFERENT shuffle, like a real second epoch):\n  batch y values: [8, 4, 7]\n  batch y values: [0, 1, 2]\n  batch y values: [5, 9, 6]\n  batch y values: [3]\n\nshuffle=False (deterministic order, useful for validation/test data):\n  batch y values: [0, 1, 2]\n  batch y values: [3, 4, 5]\n  batch y values: [6, 7, 8]\n  batch y values: [9]"}
+/>
+
+<Callout kind="tip" title="Why shuffle at all, if the data doesn't change?">
+  Without shuffling, a network sees examples in the exact same order every epoch. If the
+  dataset happens to be sorted or grouped by class (a common real-world situation — data is
+  often collected or stored in some non-random order), the network could see all of one class
+  in a row, then all of another — nudging its weights toward whatever class it saw most
+  recently, rather than learning a stable decision boundary. Reshuffling each epoch (a *new*
+  random order every time, not the same shuffle repeated) prevents the network from ever
+  learning to depend on a particular ordering.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does a real DataLoader use a DIFFERENT shuffle order each epoch, rather than shuffling once at the start and reusing that same order every epoch?"
+  correct={1}
+  options={[
+    { text: "Reusing the same shuffle order would be computationally cheaper, so it's purely a performance optimization not to", why: "Reusing one fixed order would actually be slightly CHEAPER computationally -- the choice to reshuffle every epoch isn't for speed, it's specifically to avoid the network learning any ordering-dependent pattern." },
+    { text: "A single fixed shuffle just relabels the fixed order once -- the network would still see the exact same sequence every epoch, still risking the same 'depend on ordering' issue a sorted dataset has, just with a different (but still fixed) order", why: "Correct — the actual goal is a genuinely NEW random order each epoch, so the network never has the opportunity to learn any consistent pattern tied to example ordering, fixed-shuffled or not." },
+    { text: "PyTorch requires a new shuffle order for its internal memory management", why: "There's no internal memory-management requirement forcing this -- reshuffling is a deliberate training-quality choice, not a technical necessity of how data is stored." },
+    { text: "It has no real effect either way -- shuffling once vs. every epoch produces identical training outcomes", why: "It does have a real effect -- a single fixed shuffle still presents examples in the same relative sequence every epoch, which can still let the network pick up on ordering-related patterns, unlike genuinely fresh shuffling each epoch." },
+  ]}
+/>
+
+## Summary
+
+`Dataset` and `DataLoader` separate "what the data is" (length and per-index access) from "how
+it's served during training" (batching and shuffling) — implemented from scratch above with a
+`SimpleDataset` class and a `simple_dataloader` generator. Reshuffling with a genuinely new
+random order each epoch (not the same shuffle reused) prevents a network from learning spurious
+patterns tied to data ordering. The next lesson covers a related but distinct concern: how to
+split data into train, validation, and test sets, and why that split is what actually reveals
+whether a network has learned to generalize.
+
+## Further reading
+
+- PyTorch documentation, *"Datasets & DataLoaders"* — the official tutorial covering the same
+  `Dataset`/`DataLoader` separation, plus real disk-backed dataset examples.

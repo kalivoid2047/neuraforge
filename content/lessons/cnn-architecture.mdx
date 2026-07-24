@@ -1,0 +1,102 @@
+---
+slug: cnn-architecture
+month: 4
+week: 4
+ord: 3
+title: "CNN Architecture: Stacking Conv + Pool + Linear"
+code: "4.4.3"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Assemble convolution, pooling, and linear layers into one end-to-end forward pass"
+  - "Track how a feature map's shape changes through each layer of a small CNN"
+  - "Explain why flatten is the bridge between convolutional layers and a final linear classifier"
+prereqs:
+  - "Pooling and Feature Maps ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Tracking Shapes Through the Network }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A CNN is just this month's pieces, in a specific order</h2>
+
+A typical image classifier's architecture is a straightforward recipe: alternate convolution
+(detect local patterns) and pooling (shrink and add positional tolerance) a few times, then
+**flatten** the resulting feature map into a flat vector and feed it through ordinary
+`nn.Linear` layers (exactly like every non-image network this month) to produce final class
+logits. Nothing new is being introduced here — this lesson is entirely about *composition*:
+chaining the pieces already built (convolution, pooling, linear, activation, softmax/cross-
+entropy) into one working pipeline.
+
+<h2 id="math">Tracking shapes through the network</h2>
+
+<MathBlock tex="\text{image}\ (1,28,28) \xrightarrow{\text{conv}} (8,26,26) \xrightarrow{\text{pool}} (8,13,13) \xrightarrow{\text{flatten}} (1352,) \xrightarrow{\text{linear}} (10,)" />
+
+Each arrow is a layer; the numbers in parentheses are the shape flowing through it. **Flatten**
+does no computation at all — it just reinterprets a multi-dimensional feature map as one long
+vector (a `reshape`, from the very first Month 4 lesson), because `nn.Linear` only knows how to
+operate on flat vectors, not 3D feature maps.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+class SimpleCNN(nn.Module):
+    def __init__(self, n_classes):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 8, kernel_size=3)     # (1,28,28) -> (8,26,26)
+        self.pool = nn.MaxPool2d(2, 2)                 # (8,26,26) -> (8,13,13)
+        self.fc = nn.Linear(8 * 13 * 13, n_classes)    # flatten -> linear -> logits
+
+    def forward(self, x):
+        x = self.pool(torch.relu(self.conv(x)))
+        x = x.flatten(start_dim=1)   # keep the batch dimension, flatten the rest
+        return self.fc(x)
+```
+
+<h2 id="python">A complete conv -> pool -> linear forward pass, verified with NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef conv2d(image, kernel):\n    kh, kw = kernel.shape\n    ih, iw = image.shape\n    oh, ow = ih - kh + 1, iw - kw + 1\n    output = np.zeros((oh, ow))\n    for i in range(oh):\n        for j in range(ow):\n            output[i, j] = np.sum(image[i:i+kh, j:j+kw] * kernel)\n    return output\n\ndef relu(x):\n    return np.maximum(0, x)\n\ndef max_pool(x, size, stride):\n    h, w = x.shape\n    oh, ow = (h - size)//stride + 1, (w - size)//stride + 1\n    output = np.zeros((oh, ow))\n    for i in range(oh):\n        for j in range(ow):\n            output[i, j] = np.max(x[i*stride:i*stride+size, j*stride:j*stride+size])\n    return output\n\ndef linear(x, W, b):\n    return x @ W + b\n\n# a toy 8x8 'image'\nnp.random.seed(0)\nimage = np.random.randn(8, 8)\nprint(\"input image shape:\", image.shape)\n\n# two 3x3 kernels -- this layer produces 2 feature maps (2 output 'channels')\nkernels = [np.random.randn(3, 3) * 0.5 for _ in range(2)]\nfeature_maps = [relu(conv2d(image, k)) for k in kernels]\nprint(\"after conv (2 kernels) + ReLU: each feature map shape:\", feature_maps[0].shape, \" x\", len(feature_maps), \"maps\")\n\npooled_maps = [max_pool(fm, size=2, stride=2) for fm in feature_maps]\nprint(\"after 2x2 max pool: each feature map shape:\", pooled_maps[0].shape, \" x\", len(pooled_maps), \"maps\")\n\n# flatten: concatenate every pooled feature map into one long vector\nflattened = np.concatenate([fm.flatten() for fm in pooled_maps])\nprint(\"after flatten: shape\", flattened.shape)\n\n# final linear layer -> 3 class logits\nW = np.random.randn(flattened.shape[0], 3) * 0.1\nb = np.zeros(3)\nlogits = linear(flattened, W, b)\nprint(\"after final linear layer: logits =\", logits.round(4), \" shape\", logits.shape)"}
+  output={"input image shape: (8, 8)\nafter conv (2 kernels) + ReLU: each feature map shape: (6, 6)  x 2 maps\nafter 2x2 max pool: each feature map shape: (3, 3)  x 2 maps\nafter flatten: shape (18,)\nafter final linear layer: logits = [1.3392 0.9385 0.6203]  shape (3,)"}
+/>
+
+<Callout kind="tip" title="Multiple kernels = multiple 'channels' of feature maps">
+  A real conv layer almost never uses just one kernel — `nn.Conv2d(in_channels, out_channels,
+  ...)`'s `out_channels` is exactly how many independent kernels it learns, each looking for a
+  *different* pattern (one might respond to vertical edges, another to a particular texture).
+  Each kernel produces its own feature map, and all of them get pooled and flattened together —
+  exactly what the two kernels above demonstrate, doubling the channel count from 1 to 2.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is a 'flatten' step needed between the convolutional/pooling layers and the final linear layer?"
+  correct={1}
+  options={[
+    { text: "Flatten performs an important computation that improves the network's accuracy", why: "Flatten performs NO computation at all -- it's purely a reshape, reinterpreting the same values in a different shape. It's a structural bridge, not a learned or computed transformation." },
+    { text: "nn.Linear only knows how to operate on flat (1D, per-example) vectors, while conv/pool layers produce multi-dimensional feature maps (channels x height x width) -- flatten reshapes one into the other with no data loss or computation", why: "Correct — this is exactly the role flatten plays: a pure reshape operation bridging the multi-dimensional output of conv/pool layers to the flat-vector input nn.Linear requires." },
+    { text: "Flatten is only needed when using more than one convolutional kernel", why: "Flatten is needed regardless of kernel count -- even a single-channel feature map is still 2D (height x width) and needs flattening to become the 1D vector nn.Linear expects." },
+    { text: "Flatten randomly shuffles the order of the feature map's values", why: "Flatten preserves the exact values and a fixed, deterministic ordering -- there's no randomness or shuffling involved, just a reshape into one dimension." },
+  ]}
+/>
+
+## Summary
+
+A CNN architecture is a composition, not a new concept: convolution and ReLU detect and
+activate local patterns, pooling shrinks the resulting feature maps, flatten bridges the
+multi-dimensional feature maps into a flat vector, and a final linear layer (exactly like every
+non-image network this month) produces class logits — verified end to end above with two
+kernels producing two feature maps, pooled, flattened, and classified. The next lesson covers
+learning rate schedules and early stopping — two practical training techniques the capstone
+will use. The lesson after that assembles everything from this entire month into the Image
+Classifier capstone.
+
+## Further reading
+
+- Stanford CS231n, *"Convolutional Neural Networks"* course notes — worked examples of full
+  CNN architectures (LeNet, AlexNet) with their layer-by-layer shape progressions.

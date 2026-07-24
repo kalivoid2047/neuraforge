@@ -1,0 +1,104 @@
+---
+slug: lr-schedules-early-stopping
+month: 4
+week: 4
+ord: 4
+title: "Learning Rate Schedules and Early Stopping"
+code: "4.4.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Implement step decay and cosine annealing learning rate schedules"
+  - "Explain why decaying the learning rate over training helps settle near a minimum"
+  - "Implement early stopping based on validation loss, and explain what it protects against"
+prereqs:
+  - "CNN Architecture: Stacking Conv + Pool + Linear ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Schedules, One Stopping Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Solving Adam's fixed-step problem, and knowing when to stop</h2>
+
+Recall from this month's optimizer lesson: Adam's step size stays roughly constant under a
+fixed learning rate, which can leave it hovering near a minimum rather than settling exactly —
+unlike plain SGD, whose step naturally shrinks as the gradient shrinks. A **learning rate
+schedule** fixes this directly: deliberately shrink `η` over the course of training, so *any*
+optimizer's steps get smaller as training progresses, encouraging fine settling late rather than
+large jumps forever. **Early stopping** solves a related but separate problem: knowing *when*
+to stop training at all, using validation loss (not training loss) as the signal, since
+training loss can keep falling long after the model has started overfitting.
+
+<h2 id="math">Two schedules, one stopping rule</h2>
+
+**Step decay** — multiply the learning rate by a fixed factor every few epochs:
+
+<MathBlock tex="\eta_t = \eta_0 \cdot \gamma^{\lfloor t / s \rfloor}" />
+
+**Cosine annealing** — smoothly decrease from `η₀` to (near) zero following a cosine curve,
+rather than in discrete jumps:
+
+<MathBlock tex="\eta_t = \eta_0 \cdot \frac{1}{2}\left(1 + \cos\left(\frac{t}{T}\pi\right)\right)" />
+
+**Early stopping**: track validation loss every epoch; if it hasn't improved for `patience`
+consecutive epochs, stop training and keep the weights from the best epoch seen (not the last
+one) — because after that point, further training is fitting noise, not signal, exactly the
+overfitting pattern demonstrated two lessons ago.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.optim as optim
+
+optimizer = optim.Adam(model.parameters(), lr=0.01)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100)
+for epoch in range(100):
+    train_one_epoch(...)
+    scheduler.step()   # updates optimizer's learning rate for the NEXT epoch
+```
+
+<h2 id="python">Both schedules, plus early stopping, implemented and verified</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef step_decay(lr0, epoch, drop_every=10, factor=0.5):\n    return lr0 * (factor ** (epoch // drop_every))\n\ndef cosine_annealing(lr0, epoch, total_epochs):\n    return lr0 * 0.5 * (1 + np.cos(np.pi * epoch / total_epochs))\n\nlr0 = 0.1\nprint(f\"{'epoch':>6} {'step decay':>12} {'cosine':>12}\")\nfor epoch in [0, 5, 10, 15, 20, 25, 29]:\n    sd = step_decay(lr0, epoch)\n    ca = cosine_annealing(lr0, epoch, total_epochs=30)\n    print(f\"{epoch:>6} {sd:>12.5f} {ca:>12.5f}\")\n\nprint()\n\n# early stopping: simulate a validation loss curve that improves, then overfits (rises again)\nval_losses = [0.90, 0.60, 0.42, 0.35, 0.31, 0.29, 0.28, 0.29, 0.31, 0.34, 0.38, 0.43]\n\ndef early_stopping(val_losses, patience=3):\n    best_loss = float('inf')\n    best_epoch = -1\n    epochs_without_improvement = 0\n    for epoch, loss in enumerate(val_losses):\n        if loss < best_loss:\n            best_loss = loss\n            best_epoch = epoch\n            epochs_without_improvement = 0\n        else:\n            epochs_without_improvement += 1\n            if epochs_without_improvement >= patience:\n                return best_epoch, best_loss, epoch   # epoch = when we actually stopped\n    return best_epoch, best_loss, len(val_losses) - 1\n\nbest_epoch, best_loss, stopped_at = early_stopping(val_losses, patience=3)\nprint(\"validation losses per epoch:\", val_losses)\nprint(f\"best epoch: {best_epoch} (val_loss={best_loss}) -- weights from HERE are kept\")\nprint(f\"training actually stopped at epoch: {stopped_at} (after {stopped_at - best_epoch} epochs with no improvement)\")"}
+  output={" epoch   step decay       cosine\n     0      0.10000      0.10000\n     5      0.10000      0.09330\n    10      0.05000      0.07500\n    15      0.05000      0.05000\n    20      0.02500      0.02500\n    25      0.02500      0.00670\n    29      0.02500      0.00027\n\nvalidation losses per epoch: [0.9, 0.6, 0.42, 0.35, 0.31, 0.29, 0.28, 0.29, 0.31, 0.34, 0.38, 0.43]\nbest epoch: 6 (val_loss=0.28) -- weights from HERE are kept\ntraining actually stopped at epoch: 9 (after 3 epochs with no improvement)"}
+/>
+
+<Callout kind="tip" title="Why keep the BEST epoch's weights, not the LAST epoch's">
+  By the time early stopping actually triggers, several epochs have already passed with rising
+  validation loss — the weights at the *stopping* epoch are already somewhat overfit. That's
+  exactly why a real early-stopping implementation checkpoints (saves) the model's weights every
+  time validation loss improves, and restores that saved checkpoint at the end — using the
+  *best* epoch's weights, not whatever the last epoch happened to leave behind.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does early stopping use VALIDATION loss as its signal, rather than training loss?"
+  correct={1}
+  options={[
+    { text: "Training loss isn't available during training, so there's no alternative", why: "Training loss is always directly available during training (it's what backward() is computed from) -- it's not a matter of availability, but of what signal actually reveals overfitting." },
+    { text: "Training loss can keep decreasing even after the model has started overfitting (memorizing training-set-specific noise), while validation loss reveals the point where genuine generalization stops improving", why: "Correct — this is exactly the train/val gap demonstrated in the overfitting lesson: training loss alone cannot detect the point where a model stops learning general patterns and starts memorizing noise." },
+    { text: "Validation loss is always numerically smaller than training loss, making it easier to work with", why: "Validation loss is not generally smaller than training loss -- in the overfitting case demonstrated earlier this month, validation loss was noticeably LARGER than training loss, which is exactly the signal early stopping needs to catch." },
+    { text: "There's no real difference -- either loss works equally well for this purpose", why: "There's a crucial difference -- training loss is exactly the signal that can mislead you here, since a memorizing model can keep improving on it. Validation loss is what actually reveals when to stop." },
+  ]}
+/>
+
+## Summary
+
+Learning rate schedules (step decay, cosine annealing) deliberately shrink the learning rate
+over training, letting any optimizer's steps get finer and settle more precisely as training
+progresses — addressing the fixed-step-size limitation of optimizers like Adam. Early stopping
+tracks validation loss (not training loss, since that can keep improving even as the model
+overfits) and halts training once it stops improving for `patience` epochs, keeping the best
+checkpoint rather than the last one. Both are practical techniques the final lesson's capstone
+puts to use. The capstone assembles this entire month — tensors, autograd, `nn.Module`,
+optimizers, regularization, and convolution — into one complete Image Classifier.
+
+## Further reading
+
+- PyTorch documentation, *"torch.optim.lr_scheduler"* — the reference for `StepLR`,
+  `CosineAnnealingLR`, and other built-in schedules matching the two implemented above.

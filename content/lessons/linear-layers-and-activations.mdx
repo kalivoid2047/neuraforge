@@ -1,0 +1,99 @@
+---
+slug: linear-layers-and-activations
+month: 4
+week: 2
+ord: 2
+title: "nn.Linear, Activations, and nn.Sequential"
+code: "4.2.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Compute nn.Linear's forward pass by hand and verify it with NumPy"
+  - "Compare ReLU, tanh, and sigmoid as drop-in activation functions"
+  - "Explain what nn.Sequential automates for a simple layer-after-layer network"
+prereqs:
+  - "nn.Module: Structuring a Network ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Linear + Activation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The two building blocks of almost every network</h2>
+
+`nn.Linear` computes exactly the `y = xW + b` operation from two lessons ago — one call
+replacing the manual matrix multiply and bias add. An **activation function** applied right
+after it introduces the nonlinearity that Month 3's `capstone-backprop-engine` lesson showed is
+*required* for a network to represent anything beyond a straight line (recall: stacked linear
+operations, with no nonlinearity between them, always collapse into a single linear operation).
+`nn.ReLU`, `nn.Tanh`, and `nn.Sigmoid` are PyTorch's pre-built activation modules — the
+`torch.tanh` used throughout Month 3, now packaged as a layer you can drop into a network
+alongside `nn.Linear`.
+
+<h2 id="math">Linear layer, then activation</h2>
+
+<MathBlock tex="y = xW + b \qquad a = \text{activation}(y)" />
+
+Three common activation choices and their formulas:
+
+<MathBlock tex="\text{ReLU}(y) = \max(0, y) \qquad \tanh(y) = \frac{e^{y}-e^{-y}}{e^{y}+e^{-y}} \qquad \sigma(y) = \frac{1}{1+e^{-y}}" />
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+model = nn.Sequential(
+    nn.Linear(3, 4),
+    nn.ReLU(),
+    nn.Linear(4, 1),
+)
+# nn.Sequential just chains forward() calls: linear -> relu -> linear, in order
+```
+
+<h2 id="python">Linear + activation forward pass, verified with NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef linear(x, W, b):\n    return x @ W + b\n\ndef relu(y):\n    return np.maximum(0, y)\n\ndef tanh(y):\n    return np.tanh(y)\n\ndef sigmoid(y):\n    return 1 / (1 + np.exp(-y))\n\nnp.random.seed(0)\nx = np.random.randn(2, 3)   # batch of 2 examples, 3 features\nW = np.random.randn(3, 4)   # 3 in -> 4 out\nb = np.zeros(4)\n\ny = linear(x, W, b)\nprint(\"linear output y:\\n\", y.round(4))\nprint()\nprint(\"ReLU(y):\\n\", relu(y).round(4), \"  (negatives clipped to 0)\")\nprint(\"tanh(y):\\n\", tanh(y).round(4), \"  (squashed to (-1, 1))\")\nprint(\"sigmoid(y):\\n\", sigmoid(y).round(4), \"  (squashed to (0, 1))\")\n\n# a tiny 'nn.Sequential' -- just chain the calls in order\ndef sequential(x, layers):\n    for layer in layers:\n        x = layer(x)\n    return x\n\nW2 = np.random.randn(4, 1)\nb2 = np.zeros(1)\noutput = sequential(x, [\n    lambda x: linear(x, W, b),\n    relu,\n    lambda x: linear(x, W2, b2),\n])\nprint()\nprint(\"full Linear -> ReLU -> Linear output:\\n\", output.round(4))"}
+  output={"linear output y:\n [[ 2.1681  0.6415  1.5848  0.5722]\n [ 1.9643  2.0507 -0.2702  1.3478]]\n\nReLU(y):\n [[2.1681 0.6415 1.5848 0.5722]\n [1.9643 2.0507 0.     1.3478]]   (negatives clipped to 0)\ntanh(y):\n [[ 0.9742  0.5659  0.9193  0.517 ]\n [ 0.9614  0.9674 -0.2638  0.8735]]   (squashed to (-1, 1))\nsigmoid(y):\n [[0.8973 0.6551 0.8299 0.6393]\n [0.877  0.886  0.4329 0.7938]]   (squashed to (0, 1))\n\nfull Linear -> ReLU -> Linear output:\n [[-3.541 ]\n [-0.2555]]"}
+/>
+
+<Callout kind="tip" title="Why ReLU won out over tanh/sigmoid for hidden layers">
+  Both `tanh` and `sigmoid` **saturate** — for large positive or negative inputs, their output
+  flattens out and their derivative shrinks toward zero (recall `tanh`'s derivative,
+  `1 - tanh(x)²`, which is nearly `0` once `|x|` is large). Stack many such layers, and
+  gradients shrink multiplicatively at every layer on the way back (the "vanishing gradient"
+  problem). `ReLU`'s derivative is exactly `1` for any positive input, no matter how large — it
+  doesn't saturate on that side, which is a major practical reason it became the default choice
+  for hidden layers in deep networks.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why do tanh and sigmoid risk a 'vanishing gradient' problem in deep networks, while ReLU largely avoids it (for positive inputs)?"
+  correct={3}
+  options={[
+    { text: "tanh and sigmoid are simply computed incorrectly by most libraries", why: "There's no computational error involved -- both functions are computed correctly. The issue is a genuine mathematical property of their derivatives, not an implementation bug." },
+    { text: "ReLU has no derivative at all, so gradients can't vanish through it", why: "ReLU DOES have a derivative (1 for positive inputs, 0 for negative, undefined exactly at 0) -- it's not gradient-free. Its derivative existing and being exactly 1 (not shrinking) for positive inputs is precisely why it helps." },
+    { text: "Vanishing gradients only happen with the MSE loss function, not with these activation functions", why: "Vanishing gradients are a property of the ACTIVATION functions and how they compose across layers, not of any particular loss function -- this issue is unrelated to loss function choice." },
+    { text: "tanh and sigmoid saturate for large-magnitude inputs, making their derivative shrink toward zero there, and multiplying many such small derivatives together (once per layer, via the chain rule) shrinks the gradient exponentially with depth -- ReLU's derivative is exactly 1 for any positive input, avoiding this shrinkage on that side", why: "Correct — this is exactly the mechanism: saturating activations contribute a near-zero factor at each layer, and the chain rule MULTIPLIES these factors across layers, compounding the shrinkage with depth." },
+  ]}
+/>
+
+## Summary
+
+`nn.Linear` implements the `y = xW + b` operation verified two lessons ago; activation functions
+(`ReLU`, `tanh`, `sigmoid`) introduce the nonlinearity a network needs to represent anything
+beyond a straight line, exactly as Month 3's XOR capstone demonstrated. `nn.Sequential` is just
+syntactic convenience for chaining layers in order — verified above with a plain Python
+function doing the identical chaining. ReLU's non-saturating derivative for positive inputs is
+a major practical reason it's the default choice for hidden layers in deep networks. The next
+lesson covers loss functions beyond MSE — specifically cross-entropy, needed for classification
+tasks like this month's capstone.
+
+## Further reading
+
+- PyTorch documentation, *"torch.nn"* — the reference for `nn.Linear`, `nn.ReLU`, `nn.Tanh`,
+  `nn.Sigmoid`, and `nn.Sequential`.

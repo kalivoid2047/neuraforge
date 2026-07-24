@@ -1,0 +1,87 @@
+---
+slug: broadcasting-rules
+month: 4
+week: 1
+ord: 3
+title: "Broadcasting Rules"
+code: "4.1.3"
+minutes: 60
+difficulty: 3
+objectives:
+  - "State the two broadcasting compatibility rules for combining differently-shaped arrays"
+  - "Predict the output shape of an operation between two arrays before running it"
+  - "Explain broadcasting's practical value: applying one bias vector across a whole batch at once"
+prereqs:
+  - "Tensors: Shape, dtype, and Device ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Two Rules }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Combining a batch of examples with one shared vector</h2>
+
+A very common situation in deep learning: you have a *batch* of examples — say, 32 examples,
+each with 10 features, shape `(32, 10)` — and you want to add the same 10-element bias vector,
+shape `(10,)`, to every one of the 32 rows. Writing an explicit loop over all 32 rows would
+work, but it's slow and verbose. **Broadcasting** is the rule set that lets `batch + bias` just
+work directly, as if the smaller array were automatically "stretched" to match — without
+actually copying any data.
+
+<h2 id="math">The two broadcasting rules</h2>
+
+Comparing two shapes from the **right**, dimension by dimension, two dimensions are compatible
+if:
+
+1. **They're equal**, or
+2. **One of them is `1`** (or missing entirely, treated as `1`)
+
+If every pair of dimensions satisfies one of these, the shapes are broadcast-compatible, and the
+result takes the larger size in each dimension. If neither holds for some dimension, the
+operation raises an error.
+
+<MathBlock tex="(32,\ 10) \quad \text{and} \quad (10,) \;\rightarrow\; (32,\ 10)\ \text{and}\ (1,\ 10) \;\rightarrow\; \text{compatible, result shape } (32, 10)" />
+
+<h2 id="python">Predicting shapes, then verifying them with NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# batch of 4 examples, 3 features each\nbatch = np.array([\n    [1.0, 2.0, 3.0],\n    [4.0, 5.0, 6.0],\n    [7.0, 8.0, 9.0],\n    [10.0, 11.0, 12.0],\n])\nprint(\"batch.shape:\", batch.shape)\n\n# a single bias vector, one value per feature\nbias = np.array([100.0, 200.0, 300.0])\nprint(\"bias.shape: \", bias.shape)\n\nresult = batch + bias   # broadcasting: bias is treated as if repeated across all 4 rows\nprint()\nprint(\"batch + bias =\")\nprint(result)\nprint(\"result.shape:\", result.shape, \" (matches batch's shape, NOT bias's)\")\n\n# a genuinely incompatible shape, to see the failure mode\nprint()\nbad_shape = np.array([1.0, 2.0])   # only 2 elements -- doesn't match batch's 3 features\ntry:\n    batch + bad_shape\nexcept ValueError as e:\n    print(\"expected failure for incompatible shapes:\")\n    print(\" \", e)"}
+  output={"batch.shape: (4, 3)\nbias.shape:  (3,)\n\nbatch + bias =\n[[101. 202. 303.]\n [104. 205. 306.]\n [107. 208. 309.]\n [110. 211. 312.]]\nresult.shape: (4, 3)  (matches batch's shape, NOT bias's)\n\nexpected failure for incompatible shapes:\n  operands could not be broadcast together with shapes (4,3) (2,) "}
+/>
+
+<Callout kind="tip" title="Broadcasting is why a bias term is just one line">
+  Every linear layer computes `output = input @ weights + bias`, where `input` is a whole batch
+  (shape `(batch_size, in_features)`) and `bias` is a single vector (shape `(out_features,)`).
+  Broadcasting is precisely what makes `+ bias` correct and efficient here — the same bias
+  values apply to every example in the batch, with no explicit loop and no wasted memory copying
+  the bias vector 32 (or however many) times.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="An array of shape (5, 1) is added to an array of shape (1, 4). What is the resulting shape?"
+  correct={2}
+  options={[
+    { text: "This raises an error -- the shapes don't match", why: "They DO satisfy the broadcasting rules -- comparing from the right, dimension 2 is (1 vs 4): compatible since one side is 1. Dimension 1 is (5 vs 1): also compatible since one side is 1." },
+    { text: "(5, 1), since the first array is listed first", why: "The result isn't determined by which array is 'listed first' -- each dimension independently takes the larger of the two compatible sizes, which combines information from BOTH arrays here." },
+    { text: "(5, 4) -- each dimension independently takes the larger size where the other array has a 1", why: "Correct — this is actually broadcasting used to build a full outer-product-like grid: the (5,1) array's rows get repeated across 4 columns, and the (1,4) array's columns get repeated across 5 rows, producing a (5,4) result." },
+    { text: "(1, 1), the smallest possible shape both arrays could share", why: "Broadcasting expands to the LARGER compatible size in each dimension, not the smaller one -- this describes the opposite of how broadcasting actually works." },
+  ]}
+/>
+
+## Summary
+
+Broadcasting lets operations combine arrays of different (but compatible) shapes without an
+explicit loop or a real memory copy, by comparing shapes from the right and treating any
+dimension of size `1` as stretchable to match the other array's size. This is exactly the
+mechanism that makes adding a single bias vector across an entire batch of examples work as one
+line of code. The next lesson returns to autograd, working through `requires_grad` and
+`.backward()` end to end on tensors rather than the single scalars from Month 3.
+
+## Further reading
+
+- NumPy documentation, *"Broadcasting"* — the canonical explanation, with several worked
+  examples of compatible and incompatible shape pairs.

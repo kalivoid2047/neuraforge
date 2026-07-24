@@ -1,0 +1,86 @@
+---
+slug: train-val-test-splits
+month: 4
+week: 3
+ord: 2
+title: "Train/Validation/Test Splits"
+code: "4.3.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why a model's training-set performance alone cannot reveal whether it generalizes"
+  - "Split data into train, validation, and test sets, and state each split's distinct purpose"
+  - "Demonstrate overfitting directly: a model with low training error but high validation error"
+prereqs:
+  - "Datasets and DataLoaders ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Splits, Three Purposes }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Training error lies to you about generalization</h2>
+
+A sufficiently flexible model can achieve near-zero error on its training data without having
+learned anything generalizable at all — it can simply memorize the training examples,
+essentially becoming a lookup table. This is **overfitting**, and training error alone cannot
+detect it, because training error measures performance on data the model has already seen and
+directly adjusted itself to fit. Detecting overfitting requires evaluating on data the model
+*never* trained on.
+
+<h2 id="math">Three splits, three purposes</h2>
+
+- **Train** — the data the model actually learns from (its weights are updated to fit this data)
+- **Validation** — held out from training, used to check generalization *during* development —
+  comparing architectures, tuning hyperparameters like learning rate, and deciding when to stop
+  training
+- **Test** — held out from *everything* until the very end, used exactly once to report a final,
+  honest performance number — because repeatedly checking (and reacting to) the same held-out
+  set during development lets information about it leak into your choices, the same problem
+  training error has, just one step removed
+
+<Callout kind="tip" title="Why not just use the validation set as the final number?">
+  Every time you look at validation performance and make a decision based on it (try a different
+  architecture, adjust a hyperparameter), you're indirectly fitting *to* the validation set —
+  not as directly as training does, but the effect is real over many iterations. The test set,
+  checked only once at the very end, is what protects against this slower, subtler form of
+  overfitting to your own development process.
+</Callout>
+
+<h2 id="python">Overfitting, demonstrated directly with polynomial regression</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\n\n# ground truth: a simple quadratic, plus noise -- only 12 training points (deliberately small)\ndef true_function(x):\n    return 0.5 * x**2 - x + 1\n\nx_train = np.linspace(-3, 3, 12)\ny_train = true_function(x_train) + np.random.normal(0, 0.3, size=12)\n\n# a SEPARATE validation set, drawn from the same true function, never used for fitting\nx_val = np.linspace(-3, 3, 30)\ny_val = true_function(x_val) + np.random.normal(0, 0.3, size=30)\n\ndef fit_and_evaluate(degree):\n    coeffs = np.polyfit(x_train, y_train, degree)   # least-squares polynomial fit\n    train_pred = np.polyval(coeffs, x_train)\n    val_pred = np.polyval(coeffs, x_val)\n    train_mse = np.mean((train_pred - y_train) ** 2)\n    val_mse = np.mean((val_pred - y_val) ** 2)\n    return train_mse, val_mse\n\nprint(f\"{'degree':>7} {'train MSE':>12} {'val MSE':>12}\")\nfor degree in [1, 2, 5, 11]:\n    train_mse, val_mse = fit_and_evaluate(degree)\n    print(f\"{degree:>7} {train_mse:>12.4f} {val_mse:>12.4f}\")\n\nprint()\nprint(\"degree 11 (as many free parameters as training points) drives train MSE\")\nprint(\"toward zero -- but look at its validation MSE: memorizing noise in the\")\nprint(\"12 training points, not the underlying quadratic, hurts badly on new data.\")"}
+  output={" degree    train MSE      val MSE\n      1       2.7943       2.2259\n      2       0.0609       0.1548\n      5       0.0440       0.1836\n     11       0.0000       4.2847\n\ndegree 11 (as many free parameters as training points) drives train MSE\ntoward zero -- but look at its validation MSE: memorizing noise in the\n12 training points, not the underlying quadratic, hurts badly on new data."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A degree-11 polynomial fit to 12 training points achieves near-zero training error but much higher validation error than a simpler degree-2 fit. What does this pattern indicate?"
+  correct={2}
+  options={[
+    { text: "The degree-11 model is strictly better, since it fits the training data almost perfectly", why: "Training-set fit alone doesn't indicate quality -- the validation performance is what reveals whether the model generalizes, and here it's clearly worse for degree 11." },
+    { text: "The validation set must contain a labeling error, since a well-fit model shouldn't perform worse on it", why: "There's no reason to suspect a labeling error -- both sets were generated the same way from the same true function plus noise. The pattern is a genuine sign of overfitting, not a data quality issue." },
+    { text: "The degree-11 model has overfit -- it has enough free parameters to fit the noise in the 12 training points almost exactly, rather than the true underlying pattern, so it fails to generalize to the new validation points", why: "Correct — this is the textbook overfitting signature: near-zero training error alongside much higher error on held-out data, caused by the model having enough capacity to memorize training-set-specific noise." },
+    { text: "This pattern is expected and identical for every polynomial degree, with no meaningful difference between degree 2 and degree 11", why: "The pattern is specifically NOT the same across degrees -- the gap between train and validation error is what changes (and grows) with model flexibility, which is exactly the point being demonstrated." },
+  ]}
+/>
+
+## Summary
+
+Training error cannot reveal overfitting because it measures fit to data the model directly
+adjusted itself against; a validation set (never trained on) reveals the gap between fitting
+training data and genuinely generalizing, and a test set (checked only once, at the very end)
+protects against overfitting to the development process itself. The polynomial example above
+made this concrete: a high-degree fit achieves near-zero training error while performing far
+worse than a simpler model on held-out validation data. The next three lessons cover specific
+techniques — weight decay, dropout, and batch normalization — that directly combat this
+overfitting gap.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, Ch. 5.3 — the formal treatment of
+  generalization, overfitting, and the train/validation/test methodology.

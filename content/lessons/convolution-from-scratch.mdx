@@ -1,0 +1,95 @@
+---
+slug: convolution-from-scratch
+month: 4
+week: 4
+ord: 1
+title: "Convolution: The Core Operation"
+code: "4.4.1"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Compute a 2D convolution by hand: sliding a kernel and taking a dot product at each position"
+  - "Implement 2D convolution from scratch and verify it against a hand-computed example"
+  - "Explain why convolution needs far fewer parameters than a fully-connected layer would, for image input"
+prereqs:
+  - "Regularization: Batch Normalization ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Sliding, Multiplying, Summing }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: a layer designed specifically for image-shaped data</h2>
+
+Every layer so far (`nn.Linear`) treats its input as a flat vector, with no notion of "nearby"
+pixels being related. For images, that throws away enormously useful structure — a cat's ear
+looks like a cat's ear regardless of *where* in the image it appears, and nearby pixels are far
+more related to each other than distant ones. **Convolution** is a layer designed around
+exactly this: a small learnable **kernel** (a tiny grid of weights, e.g. 3×3) slides across the
+whole image, computing a dot product at every position — the *same* small set of weights,
+reused at every location, looking for the *same* pattern wherever it appears.
+
+<h2 id="math">Sliding, multiplying, summing</h2>
+
+At each position, take the dot product of the kernel with the corresponding patch of the input:
+
+<MathBlock tex="\text{output}_{i,j} = \sum_{m}\sum_{n} \text{kernel}_{m,n} \cdot \text{input}_{i+m,\,j+n}" />
+
+Slide the kernel across every valid position, and the collection of these dot products forms
+the output — called a **feature map**, because each value measures how strongly the kernel's
+pattern matched that location.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3)
+# conv.weight has shape (1, 1, 3, 3) -- just 9 learnable numbers, reused at every position
+```
+
+<h2 id="python">2D convolution, implemented and verified by hand</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef conv2d(image, kernel):\n    kh, kw = kernel.shape\n    ih, iw = image.shape\n    oh, ow = ih - kh + 1, iw - kw + 1   # 'valid' convolution: no padding\n    output = np.zeros((oh, ow))\n    for i in range(oh):\n        for j in range(ow):\n            patch = image[i:i+kh, j:j+kw]\n            output[i, j] = np.sum(patch * kernel)   # elementwise multiply, then sum -- the dot product\n    return output\n\n# a small 5x5 'image' with a bright vertical edge down the middle\nimage = np.array([\n    [0, 0, 1, 1, 1],\n    [0, 0, 1, 1, 1],\n    [0, 0, 1, 1, 1],\n    [0, 0, 1, 1, 1],\n    [0, 0, 1, 1, 1],\n], dtype=float)\n\n# a classic vertical-edge-detector kernel\nkernel = np.array([\n    [-1, 0, 1],\n    [-1, 0, 1],\n    [-1, 0, 1],\n], dtype=float)\n\noutput = conv2d(image, kernel)\nprint(\"input image (5x5):\\n\", image)\nprint()\nprint(\"kernel (3x3, vertical edge detector):\\n\", kernel)\nprint()\nprint(\"output feature map (3x3):\\n\", output)\nprint()\n\n# hand-verify ONE output position: top-left (i=0, j=0)\npatch_00 = image[0:3, 0:3]\nhand_computed = np.sum(patch_00 * kernel)\nprint(\"patch at (0,0):\\n\", patch_00)\nprint(f\"hand-computed dot product: {hand_computed}  (matches output[0,0] = {output[0, 0]})\")\nprint()\nprint(\"notice the output stays large (3) in columns 0-1, where the kernel's 3-wide window still\")\nprint(\"overlaps the image's edge (between columns 1 and 2), and drops to 0 in column 2, where the\")\nprint(\"window has moved entirely past the edge into the uniform region.\")"}
+  output={"input image (5x5):\n [[0. 0. 1. 1. 1.]\n [0. 0. 1. 1. 1.]\n [0. 0. 1. 1. 1.]\n [0. 0. 1. 1. 1.]\n [0. 0. 1. 1. 1.]]\n\nkernel (3x3, vertical edge detector):\n [[-1.  0.  1.]\n [-1.  0.  1.]\n [-1.  0.  1.]]\n\noutput feature map (3x3):\n [[3. 3. 0.]\n [3. 3. 0.]\n [3. 3. 0.]]\n\npatch at (0,0):\n [[0. 0. 1.]\n [0. 0. 1.]\n [0. 0. 1.]]\nhand-computed dot product: 3.0  (matches output[0,0] = 3.0)\n\nnotice the output stays large (3) in columns 0-1, where the kernel's 3-wide window still\noverlaps the image's edge (between columns 1 and 2), and drops to 0 in column 2, where the\nwindow has moved entirely past the edge into the uniform region."}
+/>
+
+<Callout kind="tip" title="Why this needs far fewer parameters than a fully-connected layer">
+  A fully-connected (`nn.Linear`) layer mapping a 28×28 image (784 pixels) to another 28×28
+  output would need 784×784 ≈ 614,000 weights. A 3×3 convolution needs just **9** weights,
+  reused at every position — because the same small pattern-detector is applied everywhere,
+  rather than learning an entirely separate weight for every possible pixel-to-pixel
+  connection. This isn't just a memory saving: it directly encodes the assumption that useful
+  patterns (edges, textures) look the same regardless of where they appear in the image.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does convolution use dramatically fewer parameters than a fully-connected layer would for the same image input?"
+  correct={1}
+  options={[
+    { text: "Convolution simply throws away most of the image's pixels before processing", why: "Convolution doesn't discard pixels -- every position in the (valid) output is computed from a real patch of input pixels. The parameter savings come from weight REUSE, not from ignoring data." },
+    { text: "The same small kernel (a fixed, small number of weights) is reused at every position across the entire image, rather than learning a separate independent weight for every possible input-output pixel pair", why: "Correct — this weight-sharing across positions is exactly why a 3x3 kernel needs only 9 parameters regardless of image size, versus a fully-connected layer's parameter count scaling with the SQUARE of the image size." },
+    { text: "Convolution only works on grayscale images, which have less data than color images", why: "The parameter-count argument holds regardless of color channels -- it's about weight SHARING across spatial positions, not about the number of color channels in the input." },
+    { text: "Fully-connected layers are actually a special, more efficient case of convolution", why: "This has the relationship backwards -- a fully-connected layer is the one with vastly MORE parameters here; convolution's weight sharing is what makes it the more parameter-efficient of the two." },
+  ]}
+/>
+
+## Summary
+
+Convolution slides a small learnable kernel across an input, computing a dot product (multiply
+elementwise, then sum) at every position, producing a feature map that responds strongly
+wherever the kernel's pattern is present — verified above with a hand-checked vertical-edge
+detector. Because the same small kernel is reused at every position, convolution needs
+dramatically fewer parameters than a fully-connected layer would for image-sized input, while
+directly encoding the assumption that useful visual patterns look the same regardless of
+location. The next lesson covers pooling, the operation typically paired with convolution to
+progressively shrink feature maps.
+
+## Further reading
+
+- Stanford CS231n, *"Convolutional Neural Networks"* course notes — the standard reference
+  derivation of convolution, feature maps, and the parameter-sharing argument.

@@ -1,0 +1,100 @@
+---
+slug: l2-weight-decay
+month: 4
+week: 3
+ord: 3
+title: "Regularization: L2 Weight Decay"
+code: "4.3.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Derive the gradient of an L2-penalized loss and show it directly produces a 'decay' term"
+  - "Explain why penalizing large weights specifically discourages memorizing noise"
+  - "Demonstrate weight decay reducing the overfitting gap from the previous lesson's degree-11 fit"
+prereqs:
+  - "Train/Validation/Test Splits ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The L2 Penalty and Its Gradient }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Punishing large weights directly, not just fitting the data</h2>
+
+Last lesson's degree-11 polynomial overfit by finding huge, wildly-oscillating coefficients that
+happened to thread perfectly through 12 noisy training points. **L2 weight decay** fights this
+directly: add a penalty to the loss that grows with the *size* of the weights, so the optimizer
+has to trade off "fit the training data exactly" against "keep the weights small" — discouraging
+exactly the kind of huge, unstable coefficients an overfit model relies on.
+
+<h2 id="math">The L2 penalty and its gradient</h2>
+
+<MathBlock tex="L_{\text{reg}} = L_{\text{data}} + \frac{\lambda}{2}\sum_i w_i^2" />
+
+`λ` (lambda) controls the trade-off's strength — `λ=0` recovers ordinary unregularized training;
+larger `λ` penalizes large weights more aggressively. Taking the gradient (the penalty term's
+derivative with respect to `w_i` is just `λw_i`, via the power rule from Month 3):
+
+<MathBlock tex="\frac{\partial L_{\text{reg}}}{\partial w_i} = \frac{\partial L_{\text{data}}}{\partial w_i} + \lambda w_i" />
+
+Substituting into the gradient descent update rule shows exactly where the name "weight decay"
+comes from:
+
+<MathBlock tex="w_i \leftarrow w_i - \eta\left(\frac{\partial L_{\text{data}}}{\partial w_i} + \lambda w_i\right) = (1 - \eta\lambda)\,w_i - \eta\frac{\partial L_{\text{data}}}{\partial w_i}" />
+
+Every step, `w_i` is multiplied by `(1 - ηλ)` — a factor slightly less than `1` — *before*
+the ordinary gradient step is applied. Left alone (zero data gradient), the weight would simply
+shrink toward zero every step. That's the "decay."
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.optim as optim
+
+# weight_decay IS lambda from the formula above -- PyTorch bakes it directly into the optimizer
+optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-3)
+```
+
+<h2 id="python">Weight decay reducing the degree-11 overfit, verified numerically</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\ndef true_function(x):\n    return 0.5 * x**2 - x + 1\n\nx_train = np.linspace(-3, 3, 12)\ny_train = true_function(x_train) + np.random.normal(0, 0.3, size=12)\nx_val = np.linspace(-3, 3, 30)\ny_val = true_function(x_val) + np.random.normal(0, 0.3, size=30)\n\ndegree = 11\n# build polynomial feature matrices (Vandermonde), scaled for numerical stability\nscale = 3.0\nX_train = np.vander(x_train / scale, degree + 1)\nX_val = np.vander(x_val / scale, degree + 1)\n\ndef train(weight_decay, n_steps=20000, lr=0.05):\n    w = np.zeros(degree + 1)\n    n = len(x_train)\n    for _ in range(n_steps):\n        pred = X_train @ w\n        grad_data = (2.0 / n) * (X_train.T @ (pred - y_train))\n        grad = grad_data + weight_decay * w\n        w -= lr * grad\n    return w\n\ndef mse(w, X, y):\n    return np.mean((X @ w - y) ** 2)\n\nfor wd in [0.0, 0.01, 0.1, 1.0]:\n    w = train(weight_decay=wd)\n    train_mse = mse(w, X_train, y_train)\n    val_mse = mse(w, X_val, y_val)\n    max_weight = np.max(np.abs(w))\n    print(f\"weight_decay={wd:>5}: train MSE={train_mse:.4f}  val MSE={val_mse:.4f}  max|weight|={max_weight:.2f}\")"}
+  output={"weight_decay=  0.0: train MSE=0.0323  val MSE=0.1914  max|weight|=5.43\nweight_decay= 0.01: train MSE=0.0652  val MSE=0.1641  max|weight|=3.32\nweight_decay=  0.1: train MSE=0.2668  val MSE=0.2632  max|weight|=2.30\nweight_decay=  1.0: train MSE=1.7528  val MSE=1.4030  max|weight|=1.39"}
+/>
+
+<Callout kind="tip" title="The largest weight shrinks right alongside validation error">
+  Watch `max|weight|` fall as `weight_decay` increases — direct confirmation that the penalty is
+  doing exactly what its gradient says it should: discouraging large weights. Validation error
+  improves alongside it, up to a point; push `weight_decay` too far and the model becomes too
+  constrained to fit even the true underlying pattern (underfitting) — `λ` is a real trade-off to
+  tune, not a "bigger is always better" knob.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In the update rule w <- (1 - eta*lambda)*w - eta*(dL_data/dw), what happens to a weight if its data gradient is exactly zero for several consecutive steps?"
+  correct={3}
+  options={[
+    { text: "The weight stays exactly the same, since there's no gradient pushing it anywhere", why: "This ignores the (1 - eta*lambda) factor, which still multiplies w every step regardless of the data gradient -- as long as weight_decay (lambda) is nonzero, the weight keeps shrinking even with zero data gradient." },
+    { text: "The weight grows, since removing the data gradient removes the only force acting on it", why: "The weight decay term ALSO acts on it, and specifically shrinks it (multiplies by a factor less than 1) -- it doesn't cause growth in the absence of a data gradient." },
+    { text: "The weight immediately jumps to zero in a single step", why: "The shrinkage is multiplicative and gradual ((1 - eta*lambda) each step, not immediate) -- it takes many steps of pure decay to approach zero, not a single jump." },
+    { text: "The weight keeps shrinking toward zero, multiplied by (1 - eta*lambda) every step, purely from the weight decay term -- this is exactly the 'decay' the name describes", why: "Correct — with zero data gradient, the update rule reduces to w <- (1 - eta*lambda)*w, a pure exponential decay toward zero, which is literally where the technique's name comes from." },
+  ]}
+/>
+
+## Summary
+
+L2 weight decay adds a `(λ/2)Σwᵢ²` penalty to the loss, whose gradient (`λwᵢ`) combines with the
+ordinary gradient step to multiply every weight by a factor slightly less than `1` each
+iteration — literal decay toward zero, resisted only by the data gradient's pull. Verified
+above: applying weight decay to the previous lesson's overfit degree-11 polynomial shrinks its
+largest coefficients and measurably improves validation error. The next lesson covers a very
+different regularization technique, dropout, which fights overfitting by randomly disabling
+neurons during training rather than penalizing weight magnitude directly.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, Ch. 7.1 — the general framework of parameter
+  norm penalties, including L2 (weight decay) and L1 regularization.

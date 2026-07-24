@@ -1,0 +1,103 @@
+---
+slug: autograd-in-practice
+month: 4
+week: 1
+ord: 4
+title: "Autograd in Practice: requires_grad, backward(), and grad"
+code: "4.1.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Trace requires_grad through a small computation graph built from tensors, not scalars"
+  - "Derive the gradient of a linear layer's weights and bias with respect to a loss, by hand"
+  - "Verify a hand-derived tensor gradient numerically, the same discipline used all last month"
+prereqs:
+  - "Broadcasting Rules ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Gradients of a Linear Layer }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The same three ideas, now applied to whole matrices</h2>
+
+Everything from Month 3's autograd engine still applies here, just at the tensor level:
+`requires_grad=True` marks a tensor as "track operations on this" (like `Value.__init__`
+always did implicitly); `.backward()` walks the recorded graph in reverse topological order; and
+`.grad` accumulates the result. The only real difference worth calling out: because tensors can
+hold whole matrices, a single `.backward()` call now computes the gradient of the loss with
+respect to an *entire weight matrix* at once — not one scalar at a time.
+
+<h2 id="math">Gradients of a linear layer</h2>
+
+For a linear layer `y = xW + b` (a batch `x` of shape `(n, d_in)`, weights `W` of shape
+`(d_in, d_out)`, bias `b` of shape `(d_out,)`), with a scalar loss `L` computed from `y`, the
+gradients needed to update `W` and `b` are:
+
+<MathBlock tex="\frac{\partial L}{\partial W} = x^\top \frac{\partial L}{\partial y} \qquad \frac{\partial L}{\partial b} = \sum_{i=1}^{n} \frac{\partial L}{\partial y_i}" />
+
+These follow from the multivariable chain rule (Month 3, week 2) applied to matrix
+multiplication and broadcasting — `∂L/∂b` sums over the batch dimension precisely because
+broadcasting (last lesson) *used* the same `b` for every row, so every row's gradient
+contribution flows back into that one shared `b`, exactly the "multi-use value sums its
+gradient" rule from Month 3.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch
+
+x = torch.randn(4, 3, requires_grad=False)      # a batch of 4 examples, 3 features each
+W = torch.randn(3, 2, requires_grad=True)        # weights: 3 in-features -> 2 out-features
+b = torch.zeros(2, requires_grad=True)
+
+y = x @ W + b                # linear layer forward pass, broadcasting b across the batch
+loss = (y ** 2).sum()         # a toy scalar loss
+loss.backward()
+
+print(W.grad.shape)  # torch.Size([3, 2]) -- one gradient value per weight
+print(b.grad.shape)  # torch.Size([2])
+```
+
+<h2 id="python">The same gradients, hand-derived and verified numerically</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\nx = np.random.randn(4, 3)          # batch of 4 examples, 3 features\nW = np.random.randn(3, 2)          # weights: 3 in -> 2 out\nb = np.zeros(2)\n\ndef forward(x, W, b):\n    return x @ W + b               # linear layer, broadcasting b across the batch\n\ndef loss_fn(y):\n    return np.sum(y ** 2)          # toy scalar loss, matches the reference torch snippet\n\ny = forward(x, W, b)\nloss = loss_fn(y)\n\n# hand-derived gradients (dL/dy = 2y, then the chain rule through x @ W + b)\ndL_dy = 2 * y\ndL_dW_analytical = x.T @ dL_dy\ndL_db_analytical = dL_dy.sum(axis=0)\n\n# numerical gradient check, the same discipline from all of Month 3\ndef numerical_grad_W(i, j, h=1e-5):\n    W_plus = W.copy(); W_plus[i, j] += h\n    return (loss_fn(forward(x, W_plus, b)) - loss_fn(forward(x, W, b))) / h\n\ndef numerical_grad_b(k, h=1e-5):\n    b_plus = b.copy(); b_plus[k] += h\n    return (loss_fn(forward(x, W, b_plus)) - loss_fn(forward(x, W, b))) / h\n\nnumerical_W = np.array([[numerical_grad_W(i, j) for j in range(W.shape[1])] for i in range(W.shape[0])])\nnumerical_b = np.array([numerical_grad_b(k) for k in range(b.shape[0])])\n\nprint(\"analytical dL/dW:\\n\", dL_dW_analytical.round(4))\nprint(\"numerical  dL/dW:\\n\", numerical_W.round(4))\nprint(\"match?\", np.allclose(dL_dW_analytical, numerical_W, atol=1e-2))\nprint()\nprint(\"analytical dL/db:\", dL_db_analytical.round(4))\nprint(\"numerical  dL/db:\", numerical_b.round(4))\nprint(\"match?\", np.allclose(dL_db_analytical, numerical_b, atol=1e-2))"}
+  output={"analytical dL/dW:\n [[18.3834  5.4328]\n [ 6.9817  4.129 ]\n [11.0494 -2.4548]]\nnumerical  dL/dW:\n [[18.3835  5.4329]\n [ 6.9818  4.129 ]\n [11.0494 -2.4548]]\nmatch? True\n\nanalytical dL/db: [14.215   2.2592]\nnumerical  dL/db: [14.2151  2.2593]\nmatch? True"}
+/>
+
+<Callout kind="tip" title="This is what nn.Linear + .backward() do for you automatically">
+  Every step above — the forward matrix multiply, the analytical gradient derivation, applying
+  the chain rule through broadcasting — is exactly what `torch.nn.Linear` plus `.backward()`
+  perform automatically, for layers of any size, in one line each. Deriving it by hand once, and
+  verifying it numerically, is what makes trusting the automated version reasonable — the same
+  reason Month 3 insisted on numerical gradient checks for the hand-built engine.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does dL/db need to SUM the gradient contributions over the batch dimension, rather than just using one row's contribution?"
+  correct={0}
+  options={[
+    { text: "Because broadcasting used the SAME bias vector b for every row in the batch, so b is a multi-use value whose total gradient (per the Month 3 rule) is the sum of its contributions from every place it was used -- once per row", why: "Correct — this is a direct application of the 'sum over paths' rule from Month 3's multivariable chain rule lesson: b feeds into every row's output, so every row contributes to b's total gradient." },
+    { text: "Summing is just a convention with no mathematical justification", why: "It's not arbitrary -- it's the exact consequence of b being reused across every row via broadcasting, following directly from the multivariable chain rule established in Month 3." },
+    { text: "Because b has fewer elements than W", why: "b's shape doesn't determine whether summing is needed -- what matters is that broadcasting caused b to be used multiple times (once per batch row), which is what requires summing its gradient contributions." },
+    { text: "To normalize the gradient's scale to match W's gradient", why: "This isn't a normalization or scaling adjustment -- the sum is the mathematically exact result of applying the chain rule to a value used repeatedly via broadcasting, not a rescaling choice." },
+  ]}
+/>
+
+## Summary
+
+Tensor-level autograd applies exactly the same reverse-mode mechanism from Month 3, just to
+whole matrices at once: `∂L/∂W = xᵀ(∂L/∂y)` and `∂L/∂b = Σ(∂L/∂y)`, with the sum in the bias
+gradient arising directly from broadcasting reusing `b` across every row in the batch — the
+same "multi-use value sums its gradient" rule from Month 3's chain rule lessons. Verifying these
+analytical gradients numerically is the same discipline used throughout last month, now applied
+at the matrix level. The final lesson this week explains why any of this needs a GPU at all.
+
+## Further reading
+
+- PyTorch documentation, *"A Gentle Introduction to torch.autograd"* — walks through this exact
+  linear-layer gradient derivation using real tensors.

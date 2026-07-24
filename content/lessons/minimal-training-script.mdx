@@ -1,0 +1,101 @@
+---
+slug: minimal-training-script
+month: 4
+week: 2
+ord: 5
+title: "Putting It Together: A Minimal Training Script"
+code: "4.2.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Assemble nn.Module-style structure, cross-entropy loss, and Adam into one training script"
+  - "Train a small classifier on a toy dataset and watch both loss and accuracy improve"
+  - "Recognize this five-step loop as the exact structure every real PyTorch training script follows"
+prereqs:
+  - "Optimizers: SGD and Adam ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Real PyTorch Version }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: every piece, assembled</h2>
+
+Month 3 closed its training-loop lesson with a five-step loop: forward pass, compute loss, zero
+gradients, backward pass, update weights. Nothing about that structure has changed — what's
+changed this week is *which tools* fill each step: `nn.Module`-style layers instead of hand-
+written `Neuron`/`Layer` classes, cross-entropy instead of MSE (because this is a
+classification problem now), and Adam instead of plain gradient descent. This lesson assembles
+all of it into one script and trains a real (if small) classifier.
+
+<h2 id="math">The real PyTorch version</h2>
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+model = nn.Sequential(nn.Linear(2, 8), nn.ReLU(), nn.Linear(8, 2))
+loss_fn = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+for epoch in range(200):
+    logits = model(x_batch)              # 1. forward pass
+    loss = loss_fn(logits, y_batch)      # 2. compute loss
+    optimizer.zero_grad()                # 3. zero gradients
+    loss.backward()                      # 4. backward pass
+    optimizer.step()                     # 5. update weights (Adam's rule, applied automatically)
+```
+
+Every line maps directly onto a concept already verified from scratch this week: `nn.Sequential`
+chains layers (week 2, lesson 2); `CrossEntropyLoss` is softmax + `-log(p)` (lesson 3);
+`optim.Adam` is the bias-corrected update rule (lesson 4); `.zero_grad()`/`.backward()` are
+exactly Month 3's accumulation-reset and reverse-mode walk.
+
+<h2 id="python">Training a small classifier, end to end, with NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(y):\n    return np.maximum(0, y)\ndef relu_grad(y):\n    return (y > 0).astype(float)\n\ndef softmax(logits):\n    shifted = logits - np.max(logits, axis=-1, keepdims=True)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp, axis=-1, keepdims=True)\n\n# toy 2-class dataset: class 0 clusters near (-1,-1), class 1 clusters near (1,1)\nnp.random.seed(0)\nn_per_class = 20\nX0 = np.random.randn(n_per_class, 2) * 0.4 + np.array([-1, -1])\nX1 = np.random.randn(n_per_class, 2) * 0.4 + np.array([1, 1])\nX = np.vstack([X0, X1])\ny = np.array([0] * n_per_class + [1] * n_per_class)\n\n# a tiny 2 -> 8 -> 2 network, Adam-optimized, trained with cross-entropy\nrng = np.random.default_rng(1)\nW1 = rng.normal(0, 0.5, (2, 8)); b1 = np.zeros(8)\nW2 = rng.normal(0, 0.5, (8, 2)); b2 = np.zeros(2)\nparams = {\"W1\": W1, \"b1\": b1, \"W2\": W2, \"b2\": b2}\nm_state = {k: np.zeros_like(v) for k, v in params.items()}\nv_state = {k: np.zeros_like(v) for k, v in params.items()}\nlr, beta1, beta2, eps = 0.05, 0.9, 0.999, 1e-8\n\ndef forward(X):\n    z1 = X @ params[\"W1\"] + params[\"b1\"]\n    a1 = relu(z1)\n    logits = a1 @ params[\"W2\"] + params[\"b2\"]\n    return z1, a1, logits\n\nn = X.shape[0]\nfor epoch in range(1, 201):\n    z1, a1, logits = forward(X)                 # 1. forward pass\n    probs = softmax(logits)\n    loss = -np.mean(np.log(probs[np.arange(n), y] + 1e-12))   # 2. cross-entropy loss\n\n    one_hot = np.zeros_like(probs); one_hot[np.arange(n), y] = 1.0\n    d_logits = (probs - one_hot) / n             # dL/dlogits, averaged over the batch\n    dW2 = a1.T @ d_logits\n    db2 = d_logits.sum(axis=0)\n    d_a1 = d_logits @ params[\"W2\"].T\n    d_z1 = d_a1 * relu_grad(z1)\n    dW1 = X.T @ d_z1\n    db1 = d_z1.sum(axis=0)\n    grads = {\"W1\": dW1, \"b1\": db1, \"W2\": dW2, \"b2\": db2}   # 3/4: 'zero_grad' is implicit (fresh dict each step)\n\n    for k in params:                              # 5. Adam update, per parameter\n        m_state[k] = beta1 * m_state[k] + (1 - beta1) * grads[k]\n        v_state[k] = beta2 * v_state[k] + (1 - beta2) * grads[k]**2\n        m_hat = m_state[k] / (1 - beta1**epoch)\n        v_hat = v_state[k] / (1 - beta2**epoch)\n        params[k] -= lr * m_hat / (np.sqrt(v_hat) + eps)\n\n    if epoch % 40 == 0 or epoch == 1:\n        preds = np.argmax(logits, axis=1)\n        accuracy = np.mean(preds == y)\n        print(f\"epoch {epoch:3d}: loss={loss:.4f}  accuracy={accuracy:.2f}\")\n\n_, _, final_logits = forward(X)\nfinal_preds = np.argmax(final_logits, axis=1)\nprint()\nprint(\"final accuracy:\", np.mean(final_preds == y))"}
+  output={"epoch   1: loss=0.9133  accuracy=0.33\nepoch  40: loss=0.0001  accuracy=1.00\nepoch  80: loss=0.0000  accuracy=1.00\nepoch 120: loss=0.0000  accuracy=1.00\nepoch 160: loss=0.0000  accuracy=1.00\nepoch 200: loss=0.0000  accuracy=1.00\n\nfinal accuracy: 1.0"}
+/>
+
+<Callout kind="tip" title="Every line here has a name in the reference PyTorch script above">
+  `forward(X)` is `model(x_batch)`. The cross-entropy computation is `loss_fn(logits, y_batch)`.
+  Building a fresh `grads` dict each iteration is what `optimizer.zero_grad()` +
+  `loss.backward()` do together (compute fresh gradients, with nothing left over from the
+  previous step). The Adam update loop over `params` is exactly `optimizer.step()`. Nothing here
+  is a simplification of the *algorithm* — only of *who writes the derivative code*: PyTorch
+  writes it once, correctly, for every operation, so you never have to.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In the reference PyTorch script, what does optimizer.zero_grad() correspond to in the from-scratch NumPy version?"
+  correct={1}
+  options={[
+    { text: "The relu_grad(z1) function call", why: "relu_grad computes ReLU's local derivative -- that's part of computing gradients (the backward pass), not the reset step that precedes it." },
+    { text: "Building a fresh grads dictionary each iteration, so no leftover gradient values from the previous epoch ever get added into the current step's update", why: "Correct — this is exactly the purpose zero_grad() serves in PyTorch: without it (per the Month 3 accumulation-bug lesson), gradients would silently accumulate across steps. Building a brand new dict each epoch achieves the same reset." },
+    { text: "The softmax(logits) call", why: "softmax is part of the forward pass (converting logits to probabilities) -- it has nothing to do with resetting gradients between steps." },
+    { text: "The line computing 'accuracy'", why: "Accuracy is just a diagnostic metric for printing progress -- it plays no role in the gradient computation or reset at all." },
+  ]}
+/>
+
+## Week two summary
+
+This week replaced Month 3's hand-written pieces with the real tools PyTorch provides:
+`nn.Module`'s automatic parameter registration, `nn.Linear`/activation layers, cross-entropy
+loss for classification, and the Adam optimizer — each verified from scratch, then assembled
+into a complete training script that actually learns to separate two classes. The underlying
+five-step loop from Month 3 never changed; only the building blocks filling each step did. Week
+three turns to the practical concerns of *using data* responsibly: datasets, train/validation
+splits, and regularization techniques that prevent a network from simply memorizing its
+training data.
+
+## Further reading
+
+- PyTorch documentation, *"Training a Classifier"* (the official 60-minute blitz tutorial) —
+  the real version of this exact training loop, on real image data.

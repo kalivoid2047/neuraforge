@@ -1,0 +1,103 @@
+---
+slug: tensor-shape-dtype-device
+month: 4
+week: 1
+ord: 2
+title: "Tensors: Shape, dtype, and Device"
+code: "4.1.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Describe a tensor by its shape, dtype, and device, and explain what each controls"
+  - "Reshape, index, and slice an array without copying its underlying data"
+  - "Explain why 'device' has no NumPy equivalent, and what problem it solves"
+prereqs:
+  - "From Value to Tensor: Why PyTorch Exists ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Properties of Every Tensor }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every tensor answers three questions</h2>
+
+Before any operation runs, every tensor (in PyTorch, or the NumPy array standing in for it here)
+answers three questions: **what shape is it** (how many dimensions, how big is each one),
+**what dtype does it hold** (32-bit floats? 64-bit? integers?), and **where does it live** (CPU
+memory, or GPU memory)? Getting any of these wrong is one of the most common sources of bugs
+when working with real deep learning code — a shape mismatch or a CPU/GPU mismatch produces an
+immediate, specific error, which is actually the friendly outcome; the unfriendly outcome is a
+silent dtype mismatch that runs but produces subtly wrong results.
+
+<h2 id="math">Shape, dtype, device</h2>
+
+**Shape** is a tuple describing the size along each dimension — `(3,)` is a 1D vector of 3
+elements, `(28, 28)` is a 28×28 matrix (e.g. one grayscale image), `(64, 28, 28)` is a batch of
+64 such images.
+
+**dtype** controls precision and memory: `float32` is the deep learning default (a good
+balance of precision and speed/memory); `float64` is higher precision but rarely needed;
+integer dtypes hold labels or indices, not continuous values.
+
+**Device** (CPU vs. GPU) has no equivalent concept in plain NumPy, because NumPy only ever runs
+on the CPU. PyTorch tensors carry a `.device` attribute specifically because the *same* tensor
+type can live in CPU memory or GPU memory, and an operation between two tensors requires them to
+be on the *same* device — moving data with `.to(device)` is an explicit, visible cost, which
+matters a great deal once GPUs are actually being used.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch
+
+x = torch.zeros((64, 28, 28), dtype=torch.float32)
+print(x.shape)    # torch.Size([64, 28, 28])
+print(x.dtype)    # torch.float32
+print(x.device)   # cpu (until .to("cuda") moves it)
+
+x_gpu = x.to("cuda")   # explicit, visible data transfer -- would error if no GPU is present
+```
+
+<h2 id="python">Shape, dtype, and reshaping, verified with NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# shape: describes the array's dimensions\nbatch = np.zeros((4, 3, 2))   # e.g. 4 examples, each a 3x2 grid\nprint(\"shape:\", batch.shape)\nprint(\"ndim: \", batch.ndim)\nprint(\"size (total elements):\", batch.size)\n\n# dtype: controls precision\nints = np.array([1, 2, 3])\nfloats32 = np.array([1.0, 2.0, 3.0], dtype=np.float32)\nfloats64 = np.array([1.0, 2.0, 3.0], dtype=np.float64)\nprint()\nprint(\"ints.dtype:    \", ints.dtype)\nprint(\"floats32.dtype:\", floats32.dtype, \" itemsize:\", floats32.itemsize, \"bytes/element\")\nprint(\"floats64.dtype:\", floats64.dtype, \" itemsize:\", floats64.itemsize, \"bytes/element\")\n\n# reshape: same underlying data, different shape -- no copy, verified via shared memory\nflat = np.arange(12)\nreshaped = flat.reshape(3, 4)\nprint()\nprint(\"flat:    \", flat)\nprint(\"reshaped:\\n\", reshaped)\nreshaped[0, 0] = 999   # mutate the reshaped view...\nprint(\"...and flat changed too (same underlying buffer):\", flat[0] == 999)"}
+  output={"shape: (4, 3, 2)\nndim:  3\nsize (total elements): 24\n\nints.dtype:     int64\nfloats32.dtype: float32  itemsize: 4 bytes/element\nfloats64.dtype: float64  itemsize: 8 bytes/element\n\nflat:     [ 0  1  2  3  4  5  6  7  8  9 10 11]\nreshaped:\n [[ 0  1  2  3]\n [ 4  5  6  7]\n [ 8  9 10 11]]\n...and flat changed too (same underlying buffer): True"}
+/>
+
+<Callout kind="tip" title="reshape is (usually) free -- it doesn't copy data">
+  `reshape` just reinterprets the same block of memory with a different shape, which is why it's
+  effectively instant even for huge arrays — and why mutating a reshaped view mutates the
+  original array too, as shown above. This exact behavior is why PyTorch has both `.reshape()`
+  and `.view()` (nearly identical, `.view()` requires the data to already be memory-contiguous)
+  — the underlying idea is the same one demonstrated here with NumPy.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does 'device' (CPU vs GPU) have no equivalent in plain NumPy, while PyTorch tensors track it explicitly?"
+  correct={1}
+  options={[
+    { text: "NumPy arrays are always faster than GPU tensors, so device tracking would be pointless", why: "GPU tensors are typically FAR faster for the large parallel operations deep learning requires -- that's the entire reason GPU support exists. This isn't why NumPy lacks the concept." },
+    { text: "NumPy only ever executes on the CPU, so there's nothing to track -- PyTorch tensors can live in either CPU or GPU memory, and operations require both operands to be on the same device, making 'where is this data' a meaningful, trackable property", why: "Correct — device tracking exists specifically because PyTorch tensors have more than one possible location, unlike a NumPy array which is always in ordinary CPU memory." },
+    { text: "dtype and device are actually the same concept with different names", why: "They control entirely different things -- dtype controls numeric precision/type (float32 vs int64), while device controls WHERE the data physically resides (CPU RAM vs GPU memory). A tensor has both simultaneously." },
+    { text: "GPUs cannot store floating point numbers, only integers", why: "GPUs handle floating-point numbers extremely well -- in fact most deep learning GPU computation is specifically floating-point (float32) arithmetic. This isn't a real constraint." },
+  ]}
+/>
+
+## Summary
+
+Every tensor (or NumPy array standing in for one) is fully described by its shape, dtype, and
+— for PyTorch specifically — device. Shape and dtype have direct NumPy equivalents verified
+above; device is PyTorch-specific, tracking whether the data lives in CPU or GPU memory, since
+operations require matching devices. Reshaping doesn't copy data, just reinterprets the same
+memory — a detail worth knowing because it explains both a performance benefit and a subtle
+aliasing gotcha. The next lesson covers broadcasting: the rules for how operations apply to
+tensors of different (but compatible) shapes.
+
+## Further reading
+
+- PyTorch documentation, *"Tensor Attributes"* — the official reference for `torch.dtype`,
+  `torch.device`, and `torch.layout`.

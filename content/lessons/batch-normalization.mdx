@@ -1,0 +1,98 @@
+---
+slug: batch-normalization
+month: 4
+week: 3
+ord: 5
+title: "Batch Normalization"
+code: "4.3.5"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Compute batch normalization's forward pass: normalize, then learnably rescale and shift"
+  - "Explain why keeping each layer's input distribution stable helps training, not just accuracy"
+  - "Verify a normalized batch has zero mean and unit variance, and see what the learned scale/shift restore"
+prereqs:
+  - "Regularization: Dropout ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Normalize, Then Rescale }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: stabilizing what each layer actually sees</h2>
+
+As a network trains, every layer's *input* distribution keeps shifting — earlier layers'
+weights are changing too, on every step, so a layer that was seeing roughly zero-centered
+inputs last epoch might see something quite differently-scaled this epoch. This forces every
+layer to constantly re-adapt to a moving target, which slows training. **Batch normalization**
+stabilizes this: within each batch, force every layer's input to have zero mean and unit
+variance, then let the network learn its own preferred scale and shift back on top of that
+stable baseline.
+
+<h2 id="math">Normalize, then rescale</h2>
+
+For a batch of activations, per feature (across the batch dimension):
+
+<MathBlock tex="\hat{x} = \frac{x - \mu_{\text{batch}}}{\sqrt{\sigma^2_{\text{batch}} + \epsilon}} \qquad y = \gamma \hat{x} + \beta" />
+
+`μ` and `σ²` are the batch's own mean and variance (computed fresh each batch); `ε` is a tiny
+constant preventing division by zero. `γ` and `β` are **learned parameters** — not fixed at `1`
+and `0` — because forcing every layer's output to *exactly* zero mean and unit variance forever
+would actually limit what the network can represent. Letting the network learn its own `γ`
+(scale) and `β` (shift) means it can recover the original distribution *if that turns out to be
+useful*, while still starting from a stable, well-behaved baseline every step.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+model = nn.Sequential(nn.Linear(10, 20), nn.BatchNorm1d(20), nn.ReLU(), nn.Linear(20, 1))
+# BatchNorm1d owns two learned parameter vectors: weight (gamma) and bias (beta), one value each per feature
+```
+
+<h2 id="python">Batch normalization's forward pass, verified from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef batch_norm_forward(x, gamma, beta, eps=1e-5):\n    mu = x.mean(axis=0)            # per-feature mean, across the batch\n    var = x.var(axis=0)            # per-feature variance, across the batch\n    x_hat = (x - mu) / np.sqrt(var + eps)\n    y = gamma * x_hat + beta\n    return y, x_hat, mu, var\n\nnp.random.seed(0)\n# a batch of 6 examples, 3 features, DELIBERATELY not zero-centered or unit-scaled\nx = np.random.randn(6, 3) * np.array([10.0, 0.1, 5.0]) + np.array([100.0, -3.0, 0.0])\nprint(\"raw batch mean per feature:\", x.mean(axis=0).round(3))\nprint(\"raw batch std  per feature:\", x.std(axis=0).round(3))\nprint()\n\n# case 1: gamma=1, beta=0 -- pure normalization, no learned rescaling yet\ngamma = np.ones(3)\nbeta = np.zeros(3)\ny, x_hat, mu, var = batch_norm_forward(x, gamma, beta)\nprint(\"normalized (gamma=1, beta=0) mean per feature:\", y.mean(axis=0).round(6), \" (should be ~0)\")\nprint(\"normalized (gamma=1, beta=0) std  per feature:\", y.std(axis=0).round(6), \" (should be ~1)\")\nprint()\n\n# case 2: a network that LEARNED to recover something close to the original scale\ngamma_learned = np.array([10.0, 0.1, 5.0])\nbeta_learned = np.array([100.0, -3.0, 0.0])\ny2, _, _, _ = batch_norm_forward(x, gamma_learned, beta_learned)\nprint(\"with learned gamma/beta matching the ORIGINAL scale/shift:\")\nprint(\"  recovered mean per feature:\", y2.mean(axis=0).round(2), \" (close to original mean)\")\nprint(\"  recovered std  per feature:\", y2.std(axis=0).round(2), \" (close to original std)\")"}
+  output={"raw batch mean per feature: [110.767  -2.935   1.326]\nraw batch std  per feature: [6.999 0.076 4.008]\n\nnormalized (gamma=1, beta=0) mean per feature: [ 0. -0.  0.]  (should be ~0)\nnormalized (gamma=1, beta=0) std  per feature: [1.       0.999128 1.      ]  (should be ~1)\n\nwith learned gamma/beta matching the ORIGINAL scale/shift:\n  recovered mean per feature: [100.  -3.  -0.]  (close to original mean)\n  recovered std  per feature: [10.   0.1  5. ]  (close to original std)"}
+/>
+
+<Callout kind="tip" title="Why gamma/beta being learnable matters">
+  If `γ` and `β` were fixed forever at `1` and `0`, every batch-normalized layer's output would
+  be *forced* to zero mean and unit variance, permanently — even in cases where a different
+  scale would represent the data better. Making them learned parameters (updated by the exact
+  same gradient descent + backward pass as every other weight) means the network can recover
+  whatever scale and shift is actually useful, as verified above, while still benefiting from
+  the stable, well-behaved starting point normalization provides every single batch.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does batch normalization include learnable gamma (scale) and beta (shift) parameters, instead of just leaving every layer's output at exactly zero mean and unit variance?"
+  correct={2}
+  options={[
+    { text: "gamma and beta are only there for backward compatibility with older architectures", why: "They serve a real, current functional purpose (letting the network recover a useful scale/shift), not a legacy/compatibility role." },
+    { text: "Without them, batch normalization would be mathematically undefined", why: "Batch normalization (the pure normalize step) is perfectly well-defined mathematically without gamma/beta -- they're an additional design choice, not a mathematical necessity for the normalization itself to work." },
+    { text: "Permanently forcing every layer's output to exactly zero mean and unit variance could limit what the network is able to represent; learnable gamma and beta let the network recover a different, more useful scale and shift if the training data calls for it, while still benefiting from a stable normalized baseline", why: "Correct — this is exactly the trade-off the lesson describes, and the code demonstrates it directly: learned gamma/beta can recover something close to the original (pre-normalization) distribution when that's advantageous." },
+    { text: "gamma and beta control the batch size used during training", why: "Batch size is a separate hyperparameter set by the DataLoader (two lessons ago) -- gamma and beta are per-feature scale/shift parameters learned during training, unrelated to how many examples are in a batch." },
+  ]}
+/>
+
+## Week three summary
+
+This week covered the practical machinery around training a real network responsibly: `Dataset`
+and `DataLoader` separate what data is from how it's served, with per-epoch reshuffling
+preventing order-dependent learning; train/validation/test splits reveal (and guard against)
+overfitting that training accuracy alone would hide; and three regularization techniques —
+weight decay (penalizing large weights), dropout (forcing redundancy via random deactivation),
+and batch normalization (stabilizing each layer's input distribution) — each verified from
+scratch to do exactly what their math claims. Week four builds convolutional layers and
+assembles everything from this month into the Image Classifier capstone.
+
+## Further reading
+
+- Ioffe & Szegedy, *"Batch Normalization: Accelerating Deep Network Training by Reducing
+  Internal Covariate Shift"* — the original paper introducing the technique verified above.

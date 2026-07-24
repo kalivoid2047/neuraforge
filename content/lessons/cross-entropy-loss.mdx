@@ -1,0 +1,98 @@
+---
+slug: cross-entropy-loss
+month: 4
+week: 2
+ord: 3
+title: "Loss Functions for Classification: Cross-Entropy"
+code: "4.2.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Convert raw network outputs (logits) into a probability distribution using softmax"
+  - "Compute cross-entropy loss and explain what it measures, in contrast to MSE"
+  - "Verify cross-entropy's gradient with respect to the logits numerically"
+prereqs:
+  - "nn.Linear, Activations, and nn.Sequential ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Softmax and Cross-Entropy }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">MSE measures distance; classification needs to measure confidence</h2>
+
+Month 3's MSE loss fits naturally when predicting a continuous number. This month's capstone is
+an **image classifier** — predicting *which* of several discrete categories an image belongs
+to, not a continuous value. That needs a different loss: **cross-entropy**, which measures how
+confidently and correctly a network's predicted probability distribution matches the true
+category, rather than the distance between two numbers.
+
+<h2 id="math">Softmax and cross-entropy</h2>
+
+A classification network's raw output (before any probability conversion) is called **logits**
+— one real number per class, with no constraint that they sum to anything meaningful.
+**Softmax** converts logits into a genuine probability distribution:
+
+<MathBlock tex="\text{softmax}(z)_i = \frac{e^{z_i}}{\sum_{j} e^{z_j}}" />
+
+Every output is positive and the whole vector sums to `1` — a valid probability distribution.
+**Cross-entropy loss** then measures how much probability the network assigned to the *correct*
+class:
+
+<MathBlock tex="L = -\log(\hat{p}_{\text{correct class}})" />
+
+<Callout kind="tip" title="Why the negative log, and not just 1 - probability?">
+  The negative log grows **very** large as the assigned probability for the correct class
+  approaches `0` — the loss punishes confident *wrong* predictions severely, while `1 - p` would
+  only ever range over `[0, 1]`, punishing them only mildly. This makes cross-entropy a much
+  sharper training signal: predicting the correct class with 1% confidence is treated as a much
+  bigger mistake than predicting it with 40% confidence, even though both are "wrong" in the
+  sense of not being the top prediction.
+</Callout>
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+loss_fn = nn.CrossEntropyLoss()   # combines softmax + negative-log-likelihood in one call
+logits = ...    # raw network output, shape (batch_size, n_classes)
+targets = ...   # true class indices, shape (batch_size,)
+loss = loss_fn(logits, targets)
+```
+
+<h2 id="python">Softmax and cross-entropy, computed and verified by hand</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(logits):\n    # subtract the max for numerical stability -- doesn't change the result,\n    # since softmax(z) == softmax(z - c) for any constant c\n    shifted = logits - np.max(logits, axis=-1, keepdims=True)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp, axis=-1, keepdims=True)\n\ndef cross_entropy(logits, true_class_index):\n    probs = softmax(logits)\n    return -np.log(probs[true_class_index])\n\n# a 3-class classification example: raw logits for one example\nlogits = np.array([2.0, 1.0, 0.1])\ntrue_class = 0   # the correct class is index 0\n\nprobs = softmax(logits)\nprint(\"logits:\", logits)\nprint(\"softmax probabilities:\", probs.round(4), \" (sums to\", round(probs.sum(), 6), \")\")\nprint()\n\nloss_confident_correct = cross_entropy(logits, true_class_index=0)   # correct class has highest prob\nloss_confident_wrong = cross_entropy(logits, true_class_index=2)     # 'correct' class has lowest prob\nprint(f\"loss when correct class (0) got the HIGHEST probability: {loss_confident_correct:.4f}\")\nprint(f\"loss when correct class (2) got the LOWEST probability:  {loss_confident_wrong:.4f}\")\nprint()\n\n# gradient of cross-entropy w.r.t. the logits, verified numerically\n# (the well-known analytical result: d(loss)/d(logits) = softmax(logits) - one_hot(true_class))\none_hot = np.zeros(3); one_hot[true_class] = 1.0\nanalytical_grad = probs - one_hot\n\ndef numerical_grad(i, h=1e-6):\n    logits_plus = logits.copy(); logits_plus[i] += h\n    return (cross_entropy(logits_plus, true_class) - cross_entropy(logits, true_class)) / h\n\nnumerical_grad_vec = np.array([numerical_grad(i) for i in range(3)])\nprint(\"analytical dL/dlogits:\", analytical_grad.round(4))\nprint(\"numerical  dL/dlogits:\", numerical_grad_vec.round(4))\nprint(\"match?\", np.allclose(analytical_grad, numerical_grad_vec, atol=1e-3))"}
+  output={"logits: [2.  1.  0.1]\nsoftmax probabilities: [0.659  0.2424 0.0986]  (sums to 1.0 )\n\nloss when correct class (0) got the HIGHEST probability: 0.4170\nloss when correct class (2) got the LOWEST probability:  2.3170\n\nanalytical dL/dlogits: [-0.341   0.2424  0.0986]\nnumerical  dL/dlogits: [-0.341   0.2424  0.0986]\nmatch? True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A network assigns the TRUE class only 1% probability in one example, and 40% probability in another (still not the top prediction, but closer). How does cross-entropy loss compare between these two cases?"
+  correct={0}
+  options={[
+    { text: "The 1%-confidence case has a MUCH larger loss than the 40%-confidence case, because -log(p) grows sharply as p approaches 0", why: "Correct — -log(0.01) ≈ 4.6 versus -log(0.40) ≈ 0.92: roughly 5x larger, illustrating exactly how sharply cross-entropy penalizes very low assigned probability for the true class." },
+    { text: "Both cases have exactly the same loss, since neither predicted the correct class as the top choice", why: "Cross-entropy is sensitive to the EXACT probability assigned to the true class, not just whether it was the top prediction -- 1% and 40% produce very different loss values, as computed above." },
+    { text: "The 40%-confidence case has a larger loss, because the network was 'more wrong' about its ranking", why: "It's the opposite -- LOWER assigned probability for the true class produces a LARGER loss. 40% confidence in the true class is a smaller mistake (lower loss) than 1% confidence." },
+    { text: "Cross-entropy loss cannot be computed unless the true class receives the highest probability", why: "Cross-entropy is well-defined and computable regardless of which class received the highest probability -- it's simply -log of whatever probability was assigned to the TRUE class, as demonstrated with true_class=2 above." },
+  ]}
+/>
+
+## Summary
+
+Softmax converts raw logits into a valid probability distribution; cross-entropy loss,
+`-log(p_correct)`, measures how much probability that distribution assigns to the true class,
+punishing confident wrong predictions far more sharply than a plain `1-p` measure would. Its
+gradient with respect to the logits has an elegantly simple closed form,
+`softmax(logits) - one_hot(true_class)`, verified numerically above. This is the loss function
+this month's Image Classifier capstone will actually use. The next lesson covers the optimizers
+(SGD and Adam) that turn any loss's gradient into an actual parameter update.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, Ch. 6.2 — the softmax and cross-entropy
+  derivation, including the closed-form gradient verified above.
