@@ -1,0 +1,84 @@
+---
+slug: forward-vs-reverse-mode
+month: 3
+week: 2
+ord: 5
+title: "Forward-Mode vs. Reverse-Mode Differentiation"
+code: "3.2.5"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Distinguish forward-mode and reverse-mode automatic differentiation"
+  - "Explain why reverse mode is the efficient choice for neural network training"
+  - "Count operations for both modes on a small example to see the asymmetry directly"
+prereqs:
+  - "Computational Graphs ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Ways to Walk the Graph }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: why backprop walks the graph backward</h2>
+
+A computational graph can be traversed in two directions to compute derivatives, and the choice
+has enormous practical consequences. This lesson explains both directions and why neural
+network training exclusively uses one of them.
+
+<h2 id="math">Two ways to walk the graph</h2>
+
+**Forward mode**: alongside each node's *value*, also carry its derivative with respect to one
+chosen input, computed left-to-right (in the same order as the forward pass). One forward-mode
+pass gives you `∂(every output)/∂(one input)` — the derivative of everything with respect to a
+single input variable.
+
+**Reverse mode**: first run the forward pass to get all values, then walk the graph
+*backward* from the output, accumulating `∂(one output)/∂(every node)` using the chain rule at
+each step. One reverse-mode pass gives you `∂(one output)/∂(every input)` — the derivative of a
+single output with respect to everything.
+
+<Callout kind="tip" title="The asymmetry that decides everything">
+  A neural network has **millions of inputs** (the weights) and typically **one output** (the
+  scalar loss). Forward mode would need one full pass *per weight* to get the full gradient —
+  millions of passes. Reverse mode needs exactly **one** pass, regardless of how many weights
+  there are, because it computes the derivative of the one output with respect to everything
+  simultaneously. This is precisely why backpropagation — reverse-mode automatic
+  differentiation — is the only viable choice for training networks with millions or billions
+  of parameters.
+</Callout>
+
+<h2 id="python">Counting passes needed, for a function with many inputs and one output</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# f(x1, x2, x3, x4, x5) = x1*x2 + x2*x3 + x3*x4 + x4*x5  (5 inputs, 1 output)\ndef f(x):\n    return x[0]*x[1] + x[1]*x[2] + x[2]*x[3] + x[3]*x[4]\n\ndef gradient_via_n_forward_passes(f, x, h=1e-6):\n    \"\"\"Simulates forward mode: one pass gives d(output)/d(one input). Needs n passes for n inputs.\"\"\"\n    n = len(x)\n    grad = np.zeros(n)\n    passes_used = 0\n    for i in range(n):\n        x_plus = x.copy()\n        x_plus[i] += h\n        grad[i] = (f(x_plus) - f(x)) / h\n        passes_used += 1   # one pass per input, to get d(output)/d(x_i)\n    return grad, passes_used\n\ndef gradient_via_reverse_mode(x):\n    \"\"\"Hand-derived reverse-mode gradient: ONE pass gives d(output)/d(every input).\"\"\"\n    x1, x2, x3, x4, x5 = x\n    # partials of f = x1*x2 + x2*x3 + x3*x4 + x4*x5\n    grad = np.array([x2, x1 + x3, x2 + x4, x3 + x5, x4])\n    passes_used = 1\n    return grad, passes_used\n\nx = np.array([1.0, 2.0, 3.0, 4.0, 5.0])\ngrad_fwd, passes_fwd = gradient_via_n_forward_passes(f, x)\ngrad_rev, passes_rev = gradient_via_reverse_mode(x)\n\nprint(\"forward-mode-style gradient:\", grad_fwd.round(4), \" passes needed:\", passes_fwd)\nprint(\"reverse-mode-style gradient:\", grad_rev, \" passes needed:\", passes_rev)\nprint(\"agree?\", np.allclose(grad_fwd, grad_rev, atol=1e-3))\nprint()\nprint(\"with only 5 inputs the gap is small -- but scale x1..x5 to 1 MILLION inputs,\")\nprint(\"and forward mode needs 1,000,000 passes while reverse mode still needs exactly 1.\")"}
+  output={"forward-mode-style gradient: [2. 4. 6. 8. 4.]  passes needed: 5\nreverse-mode-style gradient: [2. 4. 6. 8. 4.]  passes needed: 1\nagree? True\n\nwith only 5 inputs the gap is small -- but scale x1..x5 to 1 MILLION inputs,\nand forward mode needs 1,000,000 passes while reverse mode still needs exactly 1."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A network has 50 million weights and one scalar loss output. Why does training use reverse-mode (backprop) rather than forward-mode differentiation?"
+  correct={1}
+  options={[
+    { text: "Forward mode is mathematically incorrect for this case", why: "Forward mode is not incorrect -- it computes valid derivatives. It's simply far too expensive here, not wrong." },
+    { text: "Forward mode would need one pass per weight (50 million passes) to get the full gradient, while reverse mode needs exactly one pass regardless of weight count", why: "Correct — this is exactly the asymmetry the lesson demonstrates: reverse mode's cost depends on the number of OUTPUTS (1, here), while forward mode's cost depends on the number of INPUTS (50 million, here)." },
+    { text: "Reverse mode gives a more accurate gradient", why: "Both modes compute the same mathematically exact gradient (up to floating-point error) -- the difference is computational cost, not accuracy." },
+    { text: "Forward mode only works for functions with a single input variable", why: "Forward mode works for any number of inputs -- it's just that its cost SCALES with the number of inputs, one full pass per input, which is what makes it impractical here." },
+  ]}
+/>
+
+## Summary
+
+Forward-mode differentiation computes one input's effect on every output in a single pass;
+reverse-mode computes every input's effect on one output in a single pass. Because neural
+networks have millions of weights (inputs) and one scalar loss (output), reverse mode's cost —
+independent of input count — is the only practical choice, which is exactly what backpropagation
+is: reverse-mode automatic differentiation over a computational graph. Week three builds a real
+autograd engine that implements this.
+
+## Further reading
+
+- Baydin et al., *"Automatic Differentiation in Machine Learning: a Survey"* — the canonical
+  reference distinguishing forward-mode and reverse-mode AD and their complexity trade-offs.

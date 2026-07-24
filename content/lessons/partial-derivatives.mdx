@@ -1,0 +1,86 @@
+---
+slug: partial-derivatives
+month: 3
+week: 1
+ord: 3
+title: "Partial Derivatives"
+code: "3.1.3"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Compute a partial derivative by treating all other variables as constants"
+  - "Explain what a partial derivative measures geometrically, for a multi-input function"
+  - "Recognize why neural network training needs partial derivatives, not single-variable ones"
+prereqs:
+  - "Rules of Differentiation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Holding Everything Else Fixed }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Why one derivative isn't enough for a neural network</h2>
+
+Every derivative so far has been for a function of *one* variable. A neural network's loss
+depends on potentially millions of weights simultaneously — you need to know how the loss
+changes with respect to *each individual weight*, holding all the others fixed. That's exactly
+what a **partial derivative** measures.
+
+<Callout kind="tip" title="The one-sentence rule">
+  To compute `∂f/∂x` (the partial derivative of `f` with respect to `x`), treat every other
+  variable as a constant and differentiate normally with respect to `x` alone.
+</Callout>
+
+<h2 id="math">Holding everything else fixed</h2>
+
+For `f(x, y) = x^2 y + y^3`:
+
+<MathBlock tex="\frac{\partial f}{\partial x} = 2xy \qquad \text{(treat } y \text{ as a constant multiplier)}" />
+<MathBlock tex="\frac{\partial f}{\partial y} = x^2 + 3y^2 \qquad \text{(treat } x^2 \text{ as a constant multiplier)}" />
+
+Geometrically, if `f(x, y)` is a surface in 3D, `∂f/∂x` at a point is the slope of the curve you
+get by slicing that surface with a plane at fixed `y` — how steep the surface is if you walk
+purely in the `x` direction, ignoring any change in `y`.
+
+<h2 id="python">Computing partials symbolically and numerically</h2>
+
+<CodeCell
+  code={"def f(x, y):\n    return x**2 * y + y**3\n\ndef df_dx_symbolic(x, y):\n    return 2 * x * y\n\ndef df_dy_symbolic(x, y):\n    return x**2 + 3 * y**2\n\ndef partial_x_numerical(f, x, y, h=1e-6):\n    return (f(x + h, y) - f(x, y)) / h\n\ndef partial_y_numerical(f, x, y, h=1e-6):\n    return (f(x, y + h) - f(x, y)) / h\n\nx0, y0 = 2.0, 3.0\nprint(f\"f({x0}, {y0}) =\", f(x0, y0))\nprint()\nprint(\"df/dx:\")\nprint(\"  symbolic: \", df_dx_symbolic(x0, y0))\nprint(\"  numerical:\", round(partial_x_numerical(f, x0, y0), 4))\nprint()\nprint(\"df/dy:\")\nprint(\"  symbolic: \", df_dy_symbolic(x0, y0))\nprint(\"  numerical:\", round(partial_y_numerical(f, x0, y0), 4))"}
+  output={"f(2.0, 3.0) = 39.0\n\ndf/dx:\n  symbolic:  12.0\n  numerical: 12.0\n\ndf/dy:\n  symbolic:  31.0\n  numerical: 31.0"}
+/>
+
+<Callout kind="tip" title="Direct preview: neural network weights">
+  A network's loss `L` depends on every weight `w_1, w_2, ..., w_n` — training needs
+  `∂L/∂w_i` for every single one, holding all the *other* weights fixed while asking "how would
+  the loss change if just this one weight moved slightly?" Computing all of these efficiently,
+  for potentially millions of weights at once, is exactly what backpropagation (week three)
+  does — and it's built entirely from partial derivatives and the chain rule (next lesson).
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="For f(x, y) = 3x^2y + 5y, what is df/dx?"
+  correct={0}
+  options={[
+    { text: "6xy", why: "Correct — treat y as a constant: d/dx[3x^2 y] = 3y * d/dx[x^2] = 3y * 2x = 6xy. The 5y term vanishes since it has no x." },
+    { text: "6xy + 5", why: "The +5 term is wrong here — d/dx of 5y (with y held constant) is 0, not 5, since 5y is being treated as a CONSTANT with respect to x." },
+    { text: "3x^2 + 5", why: "This looks like a derivative with respect to y, not x." },
+    { text: "6x", why: "This drops the y factor entirely — y is held constant, not treated as if it weren't there." },
+  ]}
+/>
+
+## Summary
+
+A partial derivative `∂f/∂x` treats every variable except `x` as a constant, then differentiates
+normally — the multi-variable generalization of the single-variable derivative from the last two
+lessons. This is precisely what neural network training needs: the loss depends on many weights
+simultaneously, and training requires the partial derivative of the loss with respect to each
+one individually.
+
+## Further reading
+
+- Strang, *Calculus*, multivariable chapter — partial derivatives and their geometric
+  interpretation as tangent-plane slopes.

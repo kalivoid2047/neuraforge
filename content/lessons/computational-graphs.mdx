@@ -1,0 +1,85 @@
+---
+slug: computational-graphs
+month: 3
+week: 2
+ord: 4
+title: "Computational Graphs"
+code: "3.2.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Represent an arithmetic expression as a directed acyclic graph of operations"
+  - "Explain why this representation is what autograd engines actually operate on"
+  - "Trace a forward pass through a graph by hand and match it against code"
+prereqs:
+  - "The Jacobian Matrix ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Building the Graph }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The data structure that makes the chain rule automatable</h2>
+
+Every expression you compute — even something as simple as `z = (x + y) * x` — is secretly a
+sequence of tiny, individual operations: an addition, then a multiplication. A **computational
+graph** makes this explicit: each node is one primitive operation, and edges show which values
+feed into which operations. This is the data structure that PyTorch, TensorFlow, and every
+other autograd system builds internally, and it's exactly what you'll implement by hand next
+week.
+
+<h2 id="math">Building the graph for z = (x + y) * x</h2>
+
+Break the expression into primitive steps, naming each intermediate result:
+
+<MathBlock tex="a = x + y \qquad z = a \cdot x" />
+
+This gives two nodes: `a` (an addition of `x` and `y`) and `z` (a multiplication of `a` and
+`x` — note `x` is used *twice*, feeding into both nodes). Drawn as a graph, `x` and `y` are
+leaf nodes (no inputs), `a` is an intermediate node depending on `x` and `y`, and `z` is the
+final output node depending on `a` and `x`.
+
+<Callout kind="tip" title="Why bother building an explicit graph?">
+  Because the chain rule needs to know exactly which quantities depend on which other
+  quantities, and through which paths. The graph makes every dependency and every path
+  explicit and traversable by an algorithm — instead of a human working out by hand which
+  terms to add (like the multivariable chain rule two lessons ago), the graph lets a program
+  walk the dependency structure automatically. That automated walk, done backward from the
+  output, is exactly what backpropagation is.
+</Callout>
+
+<h2 id="python">Representing the graph as objects, and running a forward pass</h2>
+
+<CodeCell
+  code={"class Node:\n    \"\"\"A node in a computational graph: holds a value and the operation that produced it.\"\"\"\n    def __init__(self, value, op=None, inputs=None):\n        self.value = value\n        self.op = op              # e.g. 'add', 'mul', or None for a leaf\n        self.inputs = inputs or []  # parent Node objects\n\n    def __repr__(self):\n        return f\"Node({self.value}, op={self.op})\"\n\ndef add(a: Node, b: Node) -> Node:\n    return Node(a.value + b.value, op='add', inputs=[a, b])\n\ndef mul(a: Node, b: Node) -> Node:\n    return Node(a.value * b.value, op='mul', inputs=[a, b])\n\n# build the graph for z = (x + y) * x, forward pass, with x=3, y=4\nx = Node(3.0)\ny = Node(4.0)\na = add(x, y)       # a = x + y\nz = mul(a, x)       # z = a * x\n\nprint(\"x =\", x)\nprint(\"y =\", y)\nprint(\"a = x + y =\", a)\nprint(\"z = a * x =\", z)\nprint()\nprint(\"expected: z = (3+4)*3 =\", (3+4)*3)\nprint(\"graph gives z.value =\", z.value)\n\n# walk the graph backward from z, printing the dependency structure\ndef print_graph(node, depth=0):\n    indent = \"  \" * depth\n    print(f\"{indent}{node}\")\n    for parent in node.inputs:\n        print_graph(parent, depth + 1)\n\nprint()\nprint(\"graph structure, walked from z back to its leaves:\")\nprint_graph(z)"}
+  output={"x = Node(3.0, op=None)\ny = Node(4.0, op=None)\na = x + y = Node(7.0, op=add)\nz = a * x = Node(21.0, op=mul)\n\nexpected: z = (3+4)*3 = 21\ngraph gives z.value = 21.0\n\ngraph structure, walked from z back to its leaves:\nNode(21.0, op=mul)\n  Node(7.0, op=add)\n    Node(3.0, op=None)\n    Node(4.0, op=None)\n  Node(3.0, op=None)"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In the graph for z = (x + y) * x, why does x appear as an input to TWO different nodes (both 'a' and 'z')?"
+  correct={0}
+  options={[
+    { text: "Because x is genuinely used twice in the expression -- once inside (x+y), and again as the second factor in the multiplication", why: "Correct — the graph structure directly mirrors how many times each variable is actually used in the expression. This matters a lot next week: when a value is used more than once, its gradient contributions from every use must be summed." },
+    { text: "It's a bug -- a well-formed graph should never reuse a leaf node", why: "Reusing a leaf (or any node) is completely normal and common -- it's exactly what happens whenever a variable appears more than once in an expression." },
+    { text: "Because addition and multiplication always share their first input", why: "There's no such rule -- which nodes share inputs depends entirely on the specific expression being represented, not on the operation types involved." },
+    { text: "To make the graph symmetric", why: "Graph structure follows directly from the expression's actual data dependencies, not from any symmetry requirement." },
+  ]}
+/>
+
+## Summary
+
+A computational graph breaks an expression into primitive operations as nodes, with edges
+showing which values feed into which operations — exactly the structure that autograd engines
+build and traverse. A variable used multiple times appears as an input to multiple nodes, which
+matters directly for the next lesson: computing gradients requires summing contributions from
+every node that used a given value, mirroring the "sum over paths" idea from the multivariable
+chain rule.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — builds exactly this kind of graph, then extends it to full backprop next week.

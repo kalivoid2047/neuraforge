@@ -1,0 +1,87 @@
+---
+slug: training-loop-from-scratch
+month: 3
+week: 4
+ord: 4
+title: "A Complete Training Loop"
+code: "3.4.4"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Assemble forward pass, loss computation, zero_grad, backward pass, and weight update into one loop"
+  - "Train the MLP from week three on a tiny dataset and watch the loss decrease"
+  - "Recognize each line of the loop as a concept from a specific earlier lesson this month"
+prereqs:
+  - "Learning Rate and Convergence ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Five-Step Loop }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every piece from this month, in five lines</h2>
+
+Every single concept from this month's four weeks comes together in one short loop, repeated
+many times:
+
+1. **Forward pass** — run the network on inputs, get predictions (week 3's `MLP`)
+2. **Compute loss** — compare predictions to targets with MSE (last week)
+3. **Zero gradients** — reset every parameter's `.grad` to `0` (week 3, gradient accumulation)
+4. **Backward pass** — call `.backward()` on the loss, computing every weight's gradient at once
+   (week 3, reverse-mode autodiff)
+5. **Update weights** — subtract a learning-rate-scaled gradient from every weight (this week's
+   gradient descent)
+
+This five-step loop, run hundreds or thousands of times, *is* how every neural network you will
+ever train gets trained — from the tiny MLP built here to a full production language model. The
+scale changes; this loop does not.
+
+<h2 id="math">The five-step loop</h2>
+
+<MathBlock tex="\hat{y} = \text{MLP}(x) \qquad L = \text{MSE}(\hat{y}, y) \qquad \frac{\partial L}{\partial w_i}\ \forall i \qquad w_i \leftarrow w_i - \eta\frac{\partial L}{\partial w_i}" />
+
+<h2 id="python">Training the week-3 MLP on a tiny regression dataset</h2>
+
+<CodeCell
+  code={"import math, random\n\nclass Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None\n        self._prev = set(_children)\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other))\n        def _backward():\n            self.grad += out.grad\n            other.grad += out.grad\n        out._backward = _backward\n        return out\n\n    def __radd__(self, other):\n        return self + other\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other))\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def __sub__(self, other):\n        return self + (-other if isinstance(other, Value) else Value(-other))\n\n    def __neg__(self):\n        return self * -1\n\n    def __truediv__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        return self * other ** -1\n\n    def __pow__(self, n):\n        out = Value(self.data ** n, (self,))\n        def _backward():\n            self.grad += (n * self.data ** (n - 1)) * out.grad\n        out._backward = _backward\n        return out\n\n    def tanh(self):\n        t = math.tanh(self.data)\n        out = Value(t, (self,))\n        def _backward():\n            self.grad += (1 - t**2) * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo, visited = [], set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n        self.grad = 1.0\n        for v in reversed(topo):\n            v._backward()\n\n\nclass Neuron:\n    def __init__(self, n_inputs, seed):\n        rng = random.Random(seed)\n        self.w = [Value(rng.uniform(-1, 1)) for _ in range(n_inputs)]\n        self.b = Value(0.0)\n    def __call__(self, x):\n        act = sum((wi * xi for wi, xi in zip(self.w, x)), self.b)\n        return act.tanh()\n    def parameters(self):\n        return self.w + [self.b]\n\nclass Layer:\n    def __init__(self, n_inputs, n_neurons, seed):\n        self.neurons = [Neuron(n_inputs, seed=seed + i) for i in range(n_neurons)]\n    def __call__(self, x):\n        return [n(x) for n in self.neurons]\n    def parameters(self):\n        return [p for n in self.neurons for p in n.parameters()]\n\nclass MLP:\n    def __init__(self, n_inputs, layer_sizes, seed=0):\n        sizes = [n_inputs] + layer_sizes\n        self.layers = [Layer(sizes[i], sizes[i+1], seed=seed + i*100) for i in range(len(layer_sizes))]\n    def __call__(self, x):\n        for layer in self.layers:\n            x = layer(x)\n        return x\n    def parameters(self):\n        return [p for layer in self.layers for p in layer.parameters()]\n\n\n# tiny dataset: 4 examples, 3 inputs each, targets in [-1, 1] (tanh's range)\nxs = [[2.0, 3.0, -1.0], [3.0, -1.0, 0.5], [0.5, 1.0, 1.0], [1.0, 1.0, -1.0]]\nys = [1.0, -1.0, -1.0, 1.0]\n\nmlp = MLP(n_inputs=3, layer_sizes=[4, 1], seed=1)\nlearning_rate = 0.05\n\nfor epoch in range(50):\n    # 1. forward pass\n    y_preds = [mlp([Value(xi) for xi in x])[0] for x in xs]\n\n    # 2. compute loss (MSE)\n    loss = sum((yp - Value(yt)) ** 2 for yp, yt in zip(y_preds, ys)) / Value(len(ys))\n\n    # 3. zero gradients\n    for p in mlp.parameters():\n        p.grad = 0.0\n\n    # 4. backward pass\n    loss.backward()\n\n    # 5. update weights\n    for p in mlp.parameters():\n        p.data -= learning_rate * p.grad\n\n    if epoch % 10 == 0 or epoch == 49:\n        print(f\"epoch {epoch:2d}: loss = {loss.data:.4f}\")\n\nprint()\nfinal_preds = [mlp([Value(xi) for xi in x])[0].data for x in xs]\nprint(\"final predictions:\", [round(p, 3) for p in final_preds])\nprint(\"targets:          \", ys)"}
+  output={"epoch  0: loss = 1.8742\nepoch 10: loss = 0.3356\nepoch 20: loss = 0.1219\nepoch 30: loss = 0.0691\nepoch 40: loss = 0.0474\nepoch 49: loss = 0.0367\n\nfinal predictions: [0.8, -0.883, -0.767, 0.813]\ntargets:           [1.0, -1.0, -1.0, 1.0]"}
+/>
+
+<Callout kind="tip" title="Every line traces back to a specific earlier lesson">
+  `mlp([Value(xi)...])` is the computational graph (week 2) built automatically by `Value`'s
+  operator overloads (week 3). `loss = sum((yp-yt)**2...)` is MSE (last lesson). Zeroing
+  `.grad` before `backward()` is the accumulation-bug fix (week 3). `loss.backward()` is
+  reverse-mode autodiff (week 2 and 3) walking the topologically-sorted graph. And
+  `p.data -= learning_rate * p.grad` is the gradient descent update rule (this week) — applied
+  simultaneously to all 21 parameters, because `backward()` already computed every one of their
+  gradients in that single call.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="If you swapped steps 3 and 4 (called backward() BEFORE zeroing gradients) on every epoch after the first, what would happen?"
+  correct={0}
+  options={[
+    { text: "Gradients would silently accumulate across epochs, corrupting every weight update after the first epoch -- exactly the bug from the gradient-accumulation lesson", why: "Correct — this is precisely the ordering the zero_grad lesson warned about: zeroing must happen before backward() computes and adds the new gradients, or old gradients leak into the current step's update." },
+    { text: "Nothing would change -- the order of steps 3 and 4 doesn't matter", why: "The order matters a great deal -- reversing it reproduces exactly the accumulation bug demonstrated earlier this week, corrupting the gradients used for every subsequent weight update." },
+    { text: "The program would crash with an error", why: "It would not crash -- like the original accumulation bug, this fails silently, producing wrong (over-accumulated) gradients without ever raising an exception." },
+    { text: "It would only affect the loss value, not the gradients", why: "It's specifically the GRADIENTS that would be corrupted (via leftover accumulation) -- the loss value itself is computed fully in step 2, before this ordering issue could affect it." },
+  ]}
+/>
+
+## Summary
+
+The five-step training loop — forward pass, compute loss, zero gradients, backward pass, update
+weights — assembles every concept from this month into the exact algorithm used to train real
+neural networks at any scale. Watching the loss decrease over epochs is watching gradient
+descent, powered by reverse-mode autodiff, actually work. The final lesson this month is the
+capstone: a clean, complete write-up of the whole engine as a reference implementation.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — the training loop in the final part of this lecture matches this lesson's
+  structure closely.

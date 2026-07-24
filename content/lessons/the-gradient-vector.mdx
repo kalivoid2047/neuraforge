@@ -1,0 +1,77 @@
+---
+slug: the-gradient-vector
+month: 3
+week: 1
+ord: 4
+title: "The Gradient Vector"
+code: "3.1.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Assemble a function's partial derivatives into its gradient vector"
+  - "Explain why the gradient points in the direction of steepest ascent"
+  - "Compute a gradient in NumPy and verify each component numerically"
+prereqs:
+  - "Partial Derivatives ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Gradient, Defined }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">All the partial derivatives, collected into one vector</h2>
+
+The **gradient** of a multi-input function is simply all of its partial derivatives, stacked
+into a single vector — one entry per input variable. For a neural network with a million
+weights, the gradient of the loss is a million-entry vector, one number per weight, each saying
+"how much would the loss change if I nudged just this weight." This single vector is what
+gradient descent (week four) uses to update every weight at once.
+
+<h2 id="math">The gradient, defined</h2>
+
+<MathBlock tex="\nabla f(x_1,\ldots,x_n) = \begin{pmatrix}\dfrac{\partial f}{\partial x_1}\\[4pt] \vdots \\[4pt] \dfrac{\partial f}{\partial x_n}\end{pmatrix}" />
+
+<Callout kind="tip" title="Why the gradient points 'uphill'">
+  The gradient vector points in the direction of **steepest ascent** — the direction you'd move
+  in to increase `f` as fast as possible, from your current position. This isn't obvious from
+  the definition alone, but it follows directly from how the dot product measures alignment
+  (Month 1): moving in the gradient's own direction maximizes the dot product between your
+  movement direction and the gradient, which is exactly what determines how fast `f` increases.
+  Moving in the *opposite* direction (negative gradient) decreases `f` fastest — exactly what
+  gradient descent exploits to *minimize* a loss function.
+</Callout>
+
+<h2 id="python">Computing a gradient, verified component by component</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef f(v):\n    \"\"\"f(x, y, z) = x^2 + y^3 + xz\"\"\"\n    x, y, z = v\n    return x**2 + y**3 + x*z\n\ndef gradient_symbolic(v):\n    x, y, z = v\n    df_dx = 2*x + z\n    df_dy = 3*y**2\n    df_dz = x\n    return np.array([df_dx, df_dy, df_dz])\n\ndef gradient_numerical(f, v, h=1e-6):\n    grad = np.zeros(len(v))\n    for i in range(len(v)):\n        v_plus = v.copy()\n        v_plus[i] += h\n        grad[i] = (f(v_plus) - f(v)) / h\n    return grad\n\nv0 = np.array([2.0, 3.0, 1.0])\nprint(\"f(v0) =\", f(v0))\nprint()\ngrad_sym = gradient_symbolic(v0)\ngrad_num = gradient_numerical(f, v0)\nprint(\"symbolic gradient: \", grad_sym)\nprint(\"numerical gradient:\", grad_num.round(4))\nprint(\"match?\", np.allclose(grad_sym, grad_num, atol=1e-3))"}
+  output={"f(v0) = 33.0\n\nsymbolic gradient:  [ 5. 27.  2.]\nnumerical gradient: [ 5. 27.  2.]\nmatch? True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A loss function has gradient [2.0, -3.0, 0.5] with respect to weights [w1, w2, w3]. Which single weight, changed alone, would increase the loss fastest?"
+  correct={1}
+  options={[
+    { text: "w3, since its gradient component (0.5) is closest to zero", why: "A gradient component near zero means the loss is nearly INSENSITIVE to that weight, not maximally sensitive." },
+    { text: "w2, since its gradient component (-3.0) has the largest magnitude", why: "Correct — the largest-magnitude gradient component identifies the direction of steepest change (increasing w2 in the negative-gradient direction, i.e. decreasing w2, would increase the loss fastest here)." },
+    { text: "w1, since it's listed first", why: "Order in the list has no significance — only the gradient's magnitude per component matters." },
+    { text: "All three would increase the loss equally", why: "They would NOT increase the loss equally — the gradient components have clearly different magnitudes (2.0, -3.0, 0.5), meaning clearly different sensitivities." },
+  ]}
+/>
+
+## Summary
+
+The gradient stacks a function's partial derivatives into one vector, and points in the
+direction of steepest ascent — the negative gradient points in the direction of steepest
+descent, which is exactly what training exploits to minimize a loss function. This closes
+week one's calculus foundations; week two builds the chain rule, the mechanism that makes
+computing gradients through deeply composed functions (like a multi-layer network) tractable.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Calculus"* — the gradient descent / steepest ascent episode
+  visualizes this directly.

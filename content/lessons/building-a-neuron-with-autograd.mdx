@@ -1,0 +1,90 @@
+---
+slug: building-a-neuron-with-autograd
+month: 3
+week: 3
+ord: 5
+title: "Building a Neuron, Layer, and MLP with Autograd"
+code: "3.3.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Compose Value objects into a Neuron class implementing a weighted sum plus tanh"
+  - "Stack neurons into a Layer, and layers into a multi-layer perceptron (MLP)"
+  - "Run a full forward and backward pass through a real, tiny neural network"
+prereqs:
+  - "Gradient Accumulation and Zeroing ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Neuron, Layer, MLP }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: a real, trainable neural network</h2>
+
+Every piece is now in place: `Value` objects that build a computational graph automatically,
+local gradient rules for `+`, `*`, `pow`, `exp`, and `tanh`, and a working `backward()` that
+correctly walks the whole graph. This lesson composes those pieces into something recognizable —
+a **Neuron**, then a **Layer** of neurons, then a full **multi-layer perceptron (MLP)** — the
+same architecture built forward-pass-only back in Month 2, except now every single weight
+automatically gets a correct gradient just by calling `.backward()`.
+
+<h2 id="math">Neuron, Layer, MLP</h2>
+
+A single neuron with `n` inputs (from Month 2): a weighted sum of inputs plus a bias, passed
+through a nonlinearity.
+
+<MathBlock tex="\text{neuron}(x) = \tanh\left(\sum_{i=1}^{n} w_i x_i + b\right)" />
+
+A **Layer** is simply several neurons run on the same input, each with its own independent
+weights. An **MLP** is several layers chained end to end, each layer's output feeding the next
+layer's input — exactly the composition structure from the computational-graphs lesson, just at
+a larger scale. Every weight (`w_i`) and bias (`b`) in every neuron in every layer is itself a
+`Value` — meaning the *entire network*, from input to final loss, is one giant computational
+graph, and one call to `.backward()` computes the gradient of the loss with respect to every
+single weight simultaneously.
+
+<h2 id="python">Neuron, Layer, and MLP, built entirely from Value</h2>
+
+<CodeCell
+  code={"import math, random\n\nclass Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None\n        self._prev = set(_children)\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n        def _backward():\n            self.grad += out.grad\n            other.grad += out.grad\n        out._backward = _backward\n        return out\n\n    def __radd__(self, other):   # supports sum([...]) starting from plain 0\n        return self + other\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def tanh(self):\n        t = math.tanh(self.data)\n        out = Value(t, (self,), 'tanh')\n        def _backward():\n            self.grad += (1 - t**2) * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo, visited = [], set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n        self.grad = 1.0\n        for v in reversed(topo):\n            v._backward()\n\n\nclass Neuron:\n    def __init__(self, n_inputs, seed):\n        rng = random.Random(seed)\n        self.w = [Value(rng.uniform(-1, 1)) for _ in range(n_inputs)]\n        self.b = Value(0.0)\n\n    def __call__(self, x):\n        act = sum((wi * xi for wi, xi in zip(self.w, x)), self.b)\n        return act.tanh()\n\n    def parameters(self):\n        return self.w + [self.b]\n\n\nclass Layer:\n    def __init__(self, n_inputs, n_neurons, seed):\n        self.neurons = [Neuron(n_inputs, seed=seed + i) for i in range(n_neurons)]\n\n    def __call__(self, x):\n        return [n(x) for n in self.neurons]\n\n    def parameters(self):\n        return [p for n in self.neurons for p in n.parameters()]\n\n\nclass MLP:\n    def __init__(self, n_inputs, layer_sizes, seed=0):\n        sizes = [n_inputs] + layer_sizes\n        self.layers = [Layer(sizes[i], sizes[i+1], seed=seed + i*100) for i in range(len(layer_sizes))]\n\n    def __call__(self, x):\n        for layer in self.layers:\n            x = layer(x)\n        return x\n\n    def parameters(self):\n        return [p for layer in self.layers for p in layer.parameters()]\n\n\n# a tiny MLP: 3 inputs -> hidden layer of 4 -> 1 output\nmlp = MLP(n_inputs=3, layer_sizes=[4, 1], seed=42)\nprint(\"total parameters:\", len(mlp.parameters()))\n\nx = [Value(1.0), Value(-2.0), Value(0.5)]\nout = mlp(x)[0]\nprint(\"forward pass output:\", round(out.data, 4))\n\n# backward pass: compute the gradient of the output w.r.t. EVERY weight and bias\nout.backward()\nn_nonzero = sum(1 for p in mlp.parameters() if abs(p.grad) > 1e-12)\nprint(\"parameters with a nonzero gradient after ONE backward() call:\", n_nonzero, \"/\", len(mlp.parameters()))\nprint(\"first layer, first neuron's weight gradients:\", [round(w.grad, 4) for w in mlp.layers[0].neurons[0].w])"}
+  output={"total parameters: 21\nforward pass output: -0.1699\nparameters with a nonzero gradient after ONE backward() call: 21 / 21\nfirst layer, first neuron's weight gradients: [0.0124, -0.0248, 0.0062]"}
+/>
+
+<Callout kind="tip" title="This is a real, working neural network">
+  It's small (3 inputs, one hidden layer of 4, one output), but it is not a toy in the
+  dismissive sense — the exact same `Value`, `Neuron`, `Layer`, `MLP` classes, scaled up, is a
+  complete description of how frameworks like PyTorch work internally (they use tensors instead
+  of scalars for speed, but the graph-building-and-backward-walking idea is identical). Next
+  week adds the last missing piece: using these gradients to actually update the weights and
+  reduce a loss — gradient descent.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="After calling out.backward() once on the MLP's output, every single weight in every layer ends up with a gradient. Why does ONE backward() call reach ALL of them?"
+  correct={2}
+  options={[
+    { text: "It doesn't really -- most of them are actually still zero", why: "The code explicitly checks and confirms all parameters have a nonzero gradient -- this is exactly what reverse-mode autodiff guarantees for a single scalar output, per the forward-vs-reverse-mode lesson." },
+    { text: "MLP has special code that loops over every parameter and calls backward() on each one individually", why: "There's no such loop in the MLP class -- MLP never calls backward() at all. Only the final output Value's single .backward() call is used." },
+    { text: "Every weight and bias is a Value that participates in the SAME computational graph feeding into the final output, so one reverse-mode backward pass naturally reaches every node in that graph, including every weight", why: "Correct — this is exactly the reverse-mode advantage from the forward-vs-reverse-mode lesson: one backward pass from a single scalar output reaches every input that contributed to it, no matter how many there are." },
+    { text: "Because tanh's derivative formula automatically applies to all parameters at once", why: "tanh's derivative rule only applies to the specific Value it was called on -- it has no special mechanism for reaching other, unrelated parameters. It's the graph traversal in backward(), not any single operation's rule, that reaches everything." },
+  ]}
+/>
+
+## Summary
+
+`Neuron`, `Layer`, and `MLP` compose `Value` objects into a real, working neural network — every
+weight and bias is itself a node in one large computational graph. A single forward pass produces
+an output; a single `.backward()` call on that output computes the gradient with respect to
+*every* parameter in the entire network at once, exactly as reverse-mode differentiation
+promises. This closes week three's autograd engine; week four uses these gradients to actually
+train the network via gradient descent, building toward the month's capstone.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — builds this exact `Neuron`/`Layer`/`MLP` hierarchy on top of the same `Value`
+  class, then trains it in the following lessons.

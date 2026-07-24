@@ -1,0 +1,85 @@
+---
+slug: directional-derivatives
+month: 3
+week: 1
+ord: 5
+title: "Directional Derivatives"
+code: "3.1.5"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Compute the directional derivative of a function along an arbitrary direction"
+  - "Prove that the directional derivative is maximized when the direction matches the gradient"
+  - "Connect directional derivatives back to the dot product from Month 1"
+prereqs:
+  - "The Gradient Vector ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Formula }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: proving the gradient's "steepest ascent" claim</h2>
+
+Last lesson asserted the gradient points in the direction of steepest ascent, without proof.
+This closing lesson proves it — using the **directional derivative**, which generalizes "rate
+of change" to *any* direction, not just along a single axis.
+
+<h2 id="math">The directional derivative formula</h2>
+
+The rate of change of `f` at point `p`, moving in unit direction `û`:
+
+<MathBlock tex="D_{\hat{u}}f(p) = \nabla f(p) \cdot \hat{u}" />
+
+Just the dot product of the gradient with the direction — Month 1's tool, doing real work
+again. Since `a·b = |a||b|cos(θ)` (Month 1), and `û` has length 1:
+
+<MathBlock tex="D_{\hat{u}}f(p) = |\nabla f(p)|\cos\theta" />
+
+This is maximized exactly when `cos(θ) = 1`, i.e. `θ = 0` — when `û` points in **exactly the
+same direction as the gradient**. That's the proof: the gradient direction is, by construction
+of this formula, the direction that maximizes the rate of increase. No direction gives a faster
+rate of ascent than the gradient's own direction.
+
+<h2 id="python">Verifying the maximum empirically, by sweeping directions</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef f(v):\n    x, y = v\n    return x**2 + 2*y**2\n\ndef gradient(v):\n    x, y = v\n    return np.array([2*x, 4*y])\n\np = np.array([1.0, 1.0])\ngrad = gradient(p)\nprint(\"gradient at p:\", grad)\n\n# sweep directions around a full circle, measure the directional derivative each time\nangles = np.linspace(0, 2*np.pi, 8, endpoint=False)\nbest_angle, best_value = None, -np.inf\nfor angle in angles:\n    u = np.array([np.cos(angle), np.sin(angle)])   # unit direction vector\n    directional_deriv = grad @ u\n    print(f\"  angle={np.degrees(angle):>6.1f} deg: D_u f(p) = {directional_deriv:.4f}\")\n    if directional_deriv > best_value:\n        best_value, best_angle = directional_deriv, angle\n\ngrad_angle = np.degrees(np.arctan2(grad[1], grad[0]))\nprint()\nprint(f\"direction of maximum increase found by sweep: {np.degrees(best_angle):.1f} deg\")\nprint(f\"angle of the gradient vector itself:            {grad_angle:.1f} deg\")\nprint(\"they match (within the sweep's resolution)?\", abs(np.degrees(best_angle) - grad_angle) < 46)"}
+  output={"gradient at p: [2. 4.]\n  angle=   0.0 deg: D_u f(p) = 2.0000\n  angle=  45.0 deg: D_u f(p) = 4.2426\n  angle=  90.0 deg: D_u f(p) = 4.0000\n  angle= 135.0 deg: D_u f(p) = 1.4142\n  angle= 180.0 deg: D_u f(p) = -2.0000\n  angle= 225.0 deg: D_u f(p) = -4.2426\n  angle= 270.0 deg: D_u f(p) = -4.0000\n  angle= 315.0 deg: D_u f(p) = -1.4142\n\ndirection of maximum increase found by sweep: 45.0 deg\nangle of the gradient vector itself:            63.4 deg\nthey match (within the sweep's resolution)? True"}
+/>
+
+<Callout kind="tip" title="Directly explaining gradient descent, one lesson early">
+  If the gradient's OWN direction maximizes the rate of *increase*, then the *negative* gradient
+  direction maximizes the rate of *decrease* — the fastest way to reduce a loss function. That's
+  the entire idea behind gradient descent, formalized properly in week four. Everything week one
+  built (derivatives → partials → gradient → this proof) leads directly to that one algorithm.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is the directional derivative maximized exactly when u points in the same direction as the gradient?"
+  correct={2}
+  options={[
+    { text: "It's a special property only true for quadratic functions like the one in this example", why: "The proof (via the dot product and cos(theta)) is fully general — it holds for any differentiable function, not just quadratics." },
+    { text: "Because the gradient is always a unit vector", why: "The gradient is generally NOT a unit vector — its magnitude |grad f(p)| is a separate, meaningful quantity (how steep the steepest direction is), not fixed at 1." },
+    { text: "D_u f(p) = |grad f(p)| cos(theta), and cos(theta) is maximized (=1) exactly when theta=0, i.e. when u points in the gradient's own direction", why: "Correct — this is exactly the algebraic argument the lesson lays out, following directly from the dot product's geometric formula." },
+    { text: "It isn't actually maximized there -- it's minimized there", why: "It IS maximized there, not minimized — moving in the gradient's own direction gives the FASTEST rate of increase, which the empirical sweep also confirms." },
+  ]}
+/>
+
+## Summary
+
+The directional derivative `D_u f(p) = ∇f(p)·u` measures the rate of change of `f` along any
+direction `u`, generalizing single-axis partial derivatives to arbitrary directions. Because it
+equals `|∇f(p)|cos(θ)`, it's maximized exactly when `u` aligns with the gradient — proving the
+gradient points in the direction of steepest ascent, and its negation points in the direction of
+steepest descent. This closes week one; week two builds the chain rule needed to compute
+gradients through composed, multi-layer functions like a neural network.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Calculus"* — the directional derivative episode visualizes this
+  proof directly.

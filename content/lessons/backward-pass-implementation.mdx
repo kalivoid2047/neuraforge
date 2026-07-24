@@ -1,0 +1,93 @@
+---
+slug: backward-pass-implementation
+month: 3
+week: 3
+ord: 2
+title: "Implementing the Backward Pass"
+code: "3.3.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Attach a local-gradient function (_backward) to every operation a Value records"
+  - "Implement topological sort to find a valid order for the backward walk"
+  - "Implement .backward() end to end and verify it against numerical gradients"
+prereqs:
+  - "The Value Class: Wrapping Numbers for Autograd ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Local Gradients and Topological Order }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every node only needs to know its OWN local derivative</h2>
+
+Here's the key insight that makes backpropagation implementable: no node in the graph needs to
+understand the *whole* expression. Each node only needs to know how to compute its own **local**
+gradient — how its output changes with respect to its own immediate inputs. The chain rule
+(week two) then handles combining these local gradients across the whole graph automatically.
+For `out = a + b`, the local gradients are trivial: `∂out/∂a = 1` and `∂out/∂b = 1`. For
+`out = a * b`: `∂out/∂a = b` and `∂out/∂b = a`. That's it — each operation only ever needs to
+know its own tiny local rule.
+
+<h2 id="math">Local gradients, the chain rule, and topological order</h2>
+
+When node `out` receives its gradient `out.grad` (how much the final output changes per unit
+change in `out`), it pushes gradient into each of its inputs using the chain rule:
+
+<MathBlock tex="a.\text{grad} \mathrel{+}= \text{local\_grad}(a) \cdot \text{out.grad}" />
+
+The `+=` (not `=`) matters: if a value is used in more than one place (like `x` in
+`z = (x+y)*x` from two lessons ago), its total gradient is the **sum** of the contributions from
+every place it was used — exactly the "sum over paths" rule from the multivariable chain rule.
+
+For this to work, every node must receive its *complete* `out.grad` before it pushes gradient
+further backward — otherwise you'd push an incomplete gradient too early. That requires
+processing nodes in **reverse topological order**: every node before any of its dependents.
+**Topological sort** (via depth-first search) produces exactly that order.
+
+<h2 id="python">A complete Value class with backward()</h2>
+
+<CodeCell
+  code={"class Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None   # local gradient rule, set per-operation\n        self._prev = set(_children)\n        self._op = _op\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n        def _backward():\n            self.grad += 1.0 * out.grad\n            other.grad += 1.0 * out.grad\n        out._backward = _backward\n        return out\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def __repr__(self):\n        return f\"Value(data={self.data}, grad={self.grad})\"\n\n    def backward(self):\n        # 1. topological sort: build an order where every node comes before its dependents\n        topo = []\n        visited = set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n\n        # 2. seed: d(output)/d(output) = 1\n        self.grad = 1.0\n\n        # 3. walk in REVERSE topological order, pushing gradient backward\n        for v in reversed(topo):\n            v._backward()\n\n# z = (x + y) * x, with x=3, y=4 -- verify dz/dx and dz/dy by hand first:\n# z = (x+y)*x = x^2 + xy  =>  dz/dx = 2x + y,  dz/dy = x\nx = Value(3.0)\ny = Value(4.0)\na = x + y\nz = a * x\nz.backward()\n\nprint(\"z.data =\", z.data, \" (expected 21.0)\")\nprint(\"x.grad =\", x.grad, \" (expected dz/dx = 2*3+4 =\", 2*3+4, \")\")\nprint(\"y.grad =\", y.grad, \" (expected dz/dy = x =\", 3.0, \")\")"}
+  output={"z.data = 21.0  (expected 21.0)\nx.grad = 10.0  (expected dz/dx = 2*3+4 = 10 )\ny.grad = 3.0  (expected dz/dy = x = 3.0 )"}
+/>
+
+<Callout kind="tip" title="Why x.grad correctly sums two contributions">
+  `x` is used **twice** in `z = (x+y)*x` — once inside `a = x+y`, once directly in `z = a*x`.
+  Because `backward()` visits `z` first (pushing gradient into `a` and `x` via the `*` rule),
+  then visits `a` (pushing gradient into `x` and `y` via the `+` rule), and because every
+  `_backward` uses `+=`, `x.grad` correctly accumulates contributions from *both* uses. Get the
+  `+=` wrong (use `=` instead) and multi-use variables silently get the wrong gradient — a real
+  bug worth remembering.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why must backward() process nodes in REVERSE topological order rather than forward order or a random order?"
+  correct={1}
+  options={[
+    { text: "Reverse order is just a convention with no functional effect", why: "It's not just convention -- processing out of order would push incomplete or zero gradients into nodes before they're ready, producing wrong results." },
+    { text: "A node can only correctly push gradient to its inputs once it has received its OWN complete gradient from everything that used it -- reverse topological order guarantees that", why: "Correct — topological order puts every node before its dependents, so REVERSING it puts every node after all its dependents have already run, guaranteeing each node's grad is complete before it's used to compute local gradients for its own inputs." },
+    { text: "It's required to avoid Python recursion limits", why: "This has nothing to do with recursion limits -- the topological sort itself uses recursion, but the ORDER requirement is about gradient correctness, not stack depth." },
+    { text: "Reverse order makes the code run faster", why: "The ordering requirement is about correctness (getting the right gradient values), not performance." },
+  ]}
+/>
+
+## Summary
+
+Each operation attaches a small `_backward` closure implementing only its own local gradient
+rule (`+` passes gradient through unchanged to both inputs; `*` scales it by the other input's
+value). `backward()` topologically sorts the graph, seeds the output's gradient to `1.0`, then
+walks nodes in reverse topological order, calling each node's `_backward` to push gradient into
+its parents — accumulating with `+=` so multi-use values correctly sum contributions from every
+path. This is a complete, working reverse-mode autograd engine for scalar arithmetic. The next
+lesson extends it with more operations (powers, activation functions) needed for real neurons.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — implements this exact `backward()` method with the same topological-sort
+  approach.

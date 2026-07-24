@@ -1,0 +1,82 @@
+---
+slug: gradient-descent-basics
+month: 3
+week: 4
+ord: 1
+title: "Gradient Descent"
+code: "3.4.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "State the gradient descent update rule and explain each of its pieces"
+  - "Implement gradient descent from scratch to minimize a simple function"
+  - "Observe how the learning rate controls the size of each step"
+prereqs:
+  - "Building a Neuron, Layer, and MLP with Autograd ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Update Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: turning gradients into an actual training algorithm</h2>
+
+Everything so far computes *how* a loss would change if a weight moved — the gradient. Gradient
+descent is the algorithm that actually *uses* that information to improve the weights: take a
+small step in the direction that decreases the loss, repeat. It's the single algorithm that
+turns "we can compute gradients" into "we can train a model."
+
+<h2 id="math">The update rule</h2>
+
+<MathBlock tex="w \leftarrow w - \eta \cdot \frac{\partial L}{\partial w}" />
+
+Recall from directional derivatives (week one): the gradient points in the direction of
+*steepest ascent*. So the **negative** gradient points in the direction of steepest descent —
+subtracting a (scaled) gradient from each weight is exactly how you move the weight to decrease
+the loss as fast as possible, locally. `η` (eta) is the **learning rate** — a small positive
+number controlling how big a step to take. Repeat this update many times, and (for a well-
+behaved loss surface) the weights converge toward a minimum.
+
+<h2 id="python">Minimizing a simple function by hand-rolled gradient descent</h2>
+
+<CodeCell
+  code={"# minimize f(w) = (w - 3)^2 + 1, whose true minimum is at w=3 (f=1)\ndef f(w):\n    return (w - 3) ** 2 + 1\n\ndef f_prime(w):\n    return 2 * (w - 3)   # exact derivative, via the power + chain rule\n\nw = 0.0            # start far from the minimum\nlearning_rate = 0.1\nn_steps = 20\n\nprint(f\"step  0: w={w:.4f}, f(w)={f(w):.4f}\")\nfor step in range(1, n_steps + 1):\n    grad = f_prime(w)\n    w = w - learning_rate * grad   # the update rule\n    if step % 4 == 0 or step == 1:\n        print(f\"step {step:2d}: w={w:.4f}, f(w)={f(w):.4f}, grad={grad:.4f}\")\n\nprint()\nprint(f\"true minimum: w=3.0, f(w)=1.0\")\nprint(f\"converged to: w={w:.4f}, f(w)={f(w):.4f}\")"}
+  output={"step  0: w=0.0000, f(w)=10.0000\nstep  1: w=0.6000, f(w)=6.7600, grad=-6.0000\nstep  4: w=1.7712, f(w)=2.5099, grad=-3.0720\nstep  8: w=2.4967, f(w)=1.2533, grad=-1.2583\nstep 12: w=2.7938, f(w)=1.0425, grad=-0.5154\nstep 16: w=2.9156, f(w)=1.0071, grad=-0.2111\nstep 20: w=2.9654, f(w)=1.0012, grad=-0.0865\n\ntrue minimum: w=3.0, f(w)=1.0\nconverged to: w=2.9654, f(w)=1.0012"}
+/>
+
+<Callout kind="tip" title="Watch the gradient itself shrink to zero">
+  Notice `grad` gets smaller as `w` approaches `3` — that's not a coincidence. Near the minimum,
+  the loss surface flattens out (its slope approaches zero), so each update step naturally gets
+  smaller too. This is why gradient descent slows down and settles near a minimum rather than
+  overshooting forever — though, as the next lessons show, a learning rate that's too large can
+  still cause overshooting or divergence even with this natural slowdown.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In 'w = w - learning_rate * grad', why is it MINUS the gradient rather than PLUS?"
+  correct={1}
+  options={[
+    { text: "It's an arbitrary convention -- plus would work exactly as well", why: "It's not arbitrary -- using plus would move w in the direction of steepest ASCENT, actively increasing the loss instead of decreasing it." },
+    { text: "The gradient points in the direction of steepest INCREASE (proven in the directional-derivatives lesson), so subtracting it moves w in the direction of steepest DECREASE, which is what minimizing a loss requires", why: "Correct — this directly follows from the directional-derivative proof: the gradient's own direction maximizes the rate of increase, so its negation maximizes the rate of decrease." },
+    { text: "Subtraction is computationally faster than addition", why: "There's no meaningful performance difference between addition and subtraction here -- this is purely about which direction correctly decreases the loss." },
+    { text: "Because w always starts at a negative value", why: "w's starting value (0.0 here) has nothing to do with why the update rule subtracts the gradient -- the same minus sign is needed regardless of the starting point." },
+  ]}
+/>
+
+## Summary
+
+Gradient descent repeatedly updates each weight by subtracting a learning-rate-scaled gradient,
+moving the weight in the direction that decreases the loss fastest, locally. This directly
+exploits the "gradient = steepest ascent" proof from week one. The next lessons cover the loss
+functions gradient descent typically minimizes in practice, how the learning rate affects
+convergence, and finally assembling a complete training loop around the autograd engine built
+last week.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Calculus"* — the gradient descent episode visualizes exactly this
+  iterative process on a loss surface.

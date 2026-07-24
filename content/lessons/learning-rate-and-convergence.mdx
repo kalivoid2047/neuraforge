@@ -1,0 +1,85 @@
+---
+slug: learning-rate-and-convergence
+month: 3
+week: 4
+ord: 3
+title: "Learning Rate and Convergence"
+code: "3.4.3"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Observe how a too-small learning rate produces slow convergence"
+  - "Observe how a too-large learning rate produces oscillation or divergence"
+  - "Explain what 'divergence' looks like numerically, not just conceptually"
+prereqs:
+  - "Loss Functions for Regression: Mean Squared Error ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Regimes }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The single most important hyperparameter</h2>
+
+The learning rate `η` from the update rule (two lessons ago) is arguably the single most
+consequential number you choose when training a model. Too small, and training crawls,
+technically correct but wasting enormous amounts of compute. Too large, and training doesn't
+converge at all — it can oscillate indefinitely or blow up to infinity. This lesson makes both
+failure modes concrete, numerically, on the same simple function from the gradient descent
+lesson.
+
+<h2 id="math">Three regimes</h2>
+
+For `f(w) = (w-3)² + 1`, whose derivative is `f'(w) = 2(w-3)`, the update rule becomes:
+
+<MathBlock tex="w_{new} = w - \eta \cdot 2(w - 3) = (1 - 2\eta)\,w + 6\eta" />
+
+The factor `(1 - 2η)` determines everything: if `|1 - 2η| < 1`, each step shrinks the distance
+to the minimum, and the process converges. If `|1 - 2η| > 1`, each step *grows* the distance —
+divergence. For this specific quadratic, that boundary is exactly `η = 1.0`: below it,
+convergence (slower as `η` shrinks further from the ideal); above it, divergence.
+
+<h2 id="python">Three learning rates, same starting point, three very different outcomes</h2>
+
+<CodeCell
+  code={"def f(w):\n    return (w - 3) ** 2 + 1\ndef f_prime(w):\n    return 2 * (w - 3)\n\ndef run_gradient_descent(learning_rate, n_steps=10, w_start=0.0):\n    w = w_start\n    trajectory = [w]\n    for _ in range(n_steps):\n        w = w - learning_rate * f_prime(w)\n        trajectory.append(w)\n    return trajectory\n\nfor lr, label in [(0.01, \"too small\"), (0.4, \"well-chosen\"), (1.2, \"too large\")]:\n    traj = run_gradient_descent(lr)\n    print(f\"learning_rate={lr} ({label}):\")\n    print(\"  w values:\", [round(w, 3) for w in traj])\n    print(\"  final f(w):\", round(f(traj[-1]), 4), \" (true minimum f=1.0)\")\n    print()"}
+  output={"learning_rate=0.01 (too small):\n  w values: [0.0, 0.06, 0.119, 0.176, 0.233, 0.288, 0.342, 0.396, 0.448, 0.499, 0.549]\n  final f(w): 7.0085  (true minimum f=1.0)\n\nlearning_rate=0.4 (well-chosen):\n  w values: [0.0, 2.4, 2.88, 2.976, 2.995, 2.999, 3.0, 3.0, 3.0, 3.0, 3.0]\n  final f(w): 1.0  (true minimum f=1.0)\n\nlearning_rate=1.2 (too large):\n  w values: [0.0, 7.2, -2.88, 11.232, -8.525, 19.135, -19.589, 34.624, -41.274, 64.983, -83.776]\n  final f(w): 7531.143  (true minimum f=1.0)"}
+/>
+
+<Callout kind="tip" title="Divergence isn't subtle -- it's exponential">
+  Watch the `too large` trajectory: once `|1-2η|>1`, each step doesn't just fail to improve, it
+  makes the distance to the minimum *larger* by a constant multiplicative factor every step —
+  the same kind of exponential blowup as compound interest running in the wrong direction. This
+  is why a bad learning rate is usually obvious quickly (loss shooting toward infinity or `NaN`
+  within a few steps) rather than a slow, hard-to-notice degradation.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Training loss starts at 2.3, then over the next three steps becomes 4.1, 9.8, 41.2. What does this pattern most likely indicate?"
+  correct={0}
+  options={[
+    { text: "The learning rate is too large, causing divergence", why: "Correct — loss growing this quickly, especially accelerating, is the classic signature of an overly large learning rate causing the update steps to overshoot and diverge rather than converge." },
+    { text: "The learning rate is too small, causing slow convergence", why: "A too-small learning rate would cause loss to decrease SLOWLY, not grow rapidly -- growing loss is the opposite pattern from what a too-small learning rate produces." },
+    { text: "The model has already converged to the optimal solution", why: "A converged model's loss would be low and roughly flat, not growing rapidly across successive steps -- this pattern is the opposite of convergence." },
+    { text: "This is normal and expected behavior for any training run", why: "Rapidly growing loss across steps is a clear failure signal (typically a learning-rate problem), not normal or expected training behavior." },
+  ]}
+/>
+
+## Summary
+
+The learning rate controls a fundamental trade-off: too small wastes compute on unnecessarily
+slow convergence, too large causes oscillation or outright divergence, with loss growing
+exponentially rather than shrinking. For the simple quadratic examined here, convergence versus
+divergence has a sharp, computable boundary — real loss surfaces are more complex, but the same
+qualitative failure modes appear, which is why choosing (or scheduling) the learning rate is one
+of the most important practical decisions in training any model. The final lesson this week
+assembles a complete training loop and puts everything this month built to work.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, Ch. 8 — optimization algorithms and
+  practical guidance on learning rate selection.

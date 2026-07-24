@@ -1,0 +1,88 @@
+---
+slug: gradient-accumulation-and-zeroing
+month: 3
+week: 3
+ord: 4
+title: "Gradient Accumulation and Zeroing"
+code: "3.3.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Explain why gradients accumulate across repeated backward() calls, not just within one graph"
+  - "Demonstrate the silent bug caused by forgetting to zero gradients between steps"
+  - "Implement a zero_grad routine and verify it fixes the bug"
+prereqs:
+  - "Extending Autograd: Powers, exp, and tanh ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Why Accumulation Leaks Across Calls }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The single most common real-world autograd bug</h2>
+
+Two lessons ago, `+=` was used inside every `_backward` closure so that a value used in
+*multiple places within one graph* correctly sums its gradient contributions. That same `+=`
+has a consequence that catches nearly everyone the first time they train a real model: gradients
+also accumulate **across separate calls to `backward()`** — including across different training
+steps, on completely different batches of data — unless they're explicitly reset to zero first.
+This isn't a flaw in the design; it's a direct, unavoidable consequence of the same mechanism
+that makes multi-use nodes work correctly. But forgetting to reset it produces a bug that runs
+silently, without ever raising an error, while quietly corrupting every training step after the
+first.
+
+<h2 id="math">Why accumulation leaks across calls</h2>
+
+`Value.grad` is initialized once, in `__init__`, and every `_backward` closure only ever does
+`self.grad += ...` — never `self.grad = ...`. Nothing in the class distinguishes "the start of a
+new backward pass" from "another contribution within the same pass." So if you reuse the same
+`Value` objects (like a network's weights) for a second `backward()` call without resetting
+`.grad` to `0` first, the second call's gradient gets added on top of whatever was left over
+from the first — the parameter update ends up using a gradient that's the *sum* of two
+unrelated training steps, not the gradient of the current one.
+
+<h2 id="python">Reproducing the bug, then fixing it with zero_grad</h2>
+
+<CodeCell
+  code={"import math\n\nclass Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None\n        self._prev = set(_children)\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other))\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo, visited = [], set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n        self.grad = 1.0\n        for v in reversed(topo):\n            v._backward()\n\n# a single weight, reused across two separate 'training steps'\nw = Value(2.0)\n\n# --- step 1: loss = w * 3.0 ---\nloss1 = w * 3.0\nloss1.backward()\nprint(\"after step 1, w.grad =\", w.grad, \" (expected 3.0, the local gradient of w*3.0)\")\n\n# --- step 2 WITHOUT zeroing: loss = w * 5.0 ---\nloss2 = w * 5.0\nloss2.backward()\nprint(\"after step 2 (BUG: no zeroing), w.grad =\", w.grad, \" (WRONG -- this is 3.0 + 5.0, not just 5.0)\")\n\n# --- fix: reset w.grad to 0 before each backward pass ---\nw.grad = 0.0   # zero_grad, for a single parameter\nloss3 = w * 5.0\nloss3.backward()\nprint(\"after step 3 (fixed: zeroed first), w.grad =\", w.grad, \" (correct -- matches loss2's true local gradient, 5.0)\")"}
+  output={"after step 1, w.grad = 3.0  (expected 3.0, the local gradient of w*3.0)\nafter step 2 (BUG: no zeroing), w.grad = 8.0  (WRONG -- this is 3.0 + 5.0, not just 5.0)\nafter step 3 (fixed: zeroed first), w.grad = 5.0  (correct -- matches loss2's true local gradient, 5.0)"}
+/>
+
+<Callout kind="tip" title="This is exactly why PyTorch has optimizer.zero_grad()">
+  Real frameworks make this an explicit, mandatory step in every training loop:
+  `optimizer.zero_grad()` before `loss.backward()`, every single iteration. It exists precisely
+  because of the mechanism demonstrated above — forgetting it doesn't crash your program, it
+  just silently trains on corrupted, over-accumulated gradients. (There's also a legitimate use
+  for *intentional* accumulation — simulating a larger batch size by accumulating gradients over
+  several small batches before stepping — but that's a deliberate choice, not an accident.)
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why doesn't forgetting to call zero_grad() raise an error or crash the program?"
+  correct={0}
+  options={[
+    { text: "Because '+=' is a perfectly valid, successful operation regardless of what value .grad already holds -- there's nothing for Python or the autograd engine to detect as 'wrong'", why: "Correct — this is exactly why it's such a dangerous bug: the code runs, produces a number, and trains 'successfully' while quietly using the wrong gradient values. Nothing about the operation itself is invalid." },
+    { text: "It does crash, just with a delayed error message", why: "It does not crash at all -- the training loop runs to completion, just with silently wrong gradient values, which is precisely what makes this bug hard to catch." },
+    { text: "Modern autograd engines automatically detect and fix this", why: "They do not fix this automatically -- resetting gradients is an explicit, mandatory step the user (or training loop) must perform themselves, in every framework." },
+    { text: "Because gradients are always clipped to a maximum value", why: "Gradient clipping is a separate, optional technique for a different problem (exploding gradients) -- it has nothing to do with this accumulation issue and doesn't happen automatically here." },
+  ]}
+/>
+
+## Summary
+
+Gradients accumulate via `+=` both within a single graph (correctly, for multi-use values) and
+across separate `backward()` calls (incorrectly, unless explicitly reset) — both are the same
+mechanism, just applied at different scales. Forgetting to zero gradients between training steps
+is a real, common, silent bug that corrupts training without ever raising an error. The fix is
+always the same: reset every parameter's `.grad` to zero before each new `backward()` call. The
+final lesson this week composes everything built so far into `Neuron`, `Layer`, and `MLP`
+classes — a real, trainable neural network built entirely from this engine.
+
+## Further reading
+
+- PyTorch documentation, *"torch.Tensor.grad"* and *"Optimizer.zero_grad"* — the production
+  version of exactly this mechanism and its required reset step.

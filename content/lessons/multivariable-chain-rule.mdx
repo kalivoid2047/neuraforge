@@ -1,0 +1,82 @@
+---
+slug: multivariable-chain-rule
+month: 3
+week: 2
+ord: 2
+title: "The Multivariable Chain Rule"
+code: "3.2.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Extend the chain rule to functions with multiple intermediate variables"
+  - "Compute a total derivative by summing contributions through every path"
+  - "See why this 'sum over paths' structure is exactly what backprop will automate"
+prereqs:
+  - "The Chain Rule ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Multivariable Chain Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">When one input feeds into several intermediate quantities</h2>
+
+Real networks aren't a simple straight-line chain — an input often feeds into *multiple*
+intermediate quantities, which then combine to produce the output. Picture `z = f(x, y)` where
+both `x` and `y` themselves depend on some shared variable `t`. Changing `t` affects `z`
+through **two separate paths**: one through `x`, one through `y`. The multivariable chain rule
+says: **sum the contribution from every path.**
+
+<h2 id="math">The multivariable chain rule</h2>
+
+For `z = f(x, y)` where `x = x(t)` and `y = y(t)`:
+
+<MathBlock tex="\frac{dz}{dt} = \frac{\partial f}{\partial x}\cdot\frac{dx}{dt} + \frac{\partial f}{\partial y}\cdot\frac{dy}{dt}" />
+
+Each term is a path from `t` to `z`: one path goes `t → x → z`, contributing
+`(∂f/∂x)·(dx/dt)`; the other goes `t → y → z`, contributing `(∂f/∂y)·(dy/dt)`. Add them, because
+both paths' effects happen simultaneously and both contribute to the total change in `z`.
+
+<Callout kind="tip" title="This 'sum over paths' idea is the whole ballgame">
+  In a neural network, a single weight in an early layer can influence the final loss through
+  many different downstream paths (through different neurons in later layers). The multivariable
+  chain rule is precisely the rule that says: to get the total effect of that one weight on the
+  loss, sum its contribution along *every* path from that weight to the output. Backpropagation
+  (week three) is an efficient algorithm for computing exactly this sum, for every weight at
+  once, without literally enumerating every path.
+</Callout>
+
+<h2 id="python">Verifying by comparing to a numerical derivative of the composed function</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# z = f(x, y) = x^2 + x*y, with x(t) = t^2, y(t) = sin(t)\ndef x_of_t(t):\n    return t ** 2\ndef y_of_t(t):\n    return np.sin(t)\n\ndef f(x, y):\n    return x**2 + x*y\n\ndef z_of_t(t):\n    return f(x_of_t(t), y_of_t(t))\n\n# partials of f\ndef df_dx(x, y):\n    return 2*x + y\ndef df_dy(x, y):\n    return x\n\n# derivatives of the intermediate variables\ndef dx_dt(t):\n    return 2*t\ndef dy_dt(t):\n    return np.cos(t)\n\ndef dz_dt_chain_rule(t):\n    x, y = x_of_t(t), y_of_t(t)\n    return df_dx(x, y) * dx_dt(t) + df_dy(x, y) * dy_dt(t)\n\ndef numerical_derivative(func, t, h=1e-6):\n    return (func(t + h) - func(t)) / h\n\nfor t in [0.5, 1.0, 1.5]:\n    chain_result = dz_dt_chain_rule(t)\n    numerical_result = numerical_derivative(z_of_t, t)\n    print(f\"t={t}: chain rule dz/dt={chain_result:.4f}, numerical={numerical_result:.4f}\")"}
+  output={"t=0.5: chain rule dz/dt=1.1988, numerical=1.1988\nt=1.0: chain rule dz/dt=6.2232, numerical=6.2233\nt=1.5: chain rule dz/dt=16.6516, numerical=16.6517"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="z = f(x, y), where x and y both depend on t. Why does dz/dt require ADDING two terms rather than just one?"
+  correct={1}
+  options={[
+    { text: "It doesn't -- one term is always zero in practice", why: "Both terms are generally nonzero; there's no rule that forces one of them to vanish." },
+    { text: "Because t affects z through two separate paths (via x and via y), and their effects on z both happen at once, so both must be counted", why: "Correct — this is exactly the 'sum over paths' idea: t's total effect on z is the sum of its effect through every route by which it can influence z." },
+    { text: "Because addition is required whenever a function has more than one input", why: "It's not about the number of inputs to f in general -- it's specifically about the number of paths connecting t to z through those inputs." },
+    { text: "To normalize the units of x and y", why: "This isn't a units issue -- it's about correctly accounting for every path by which a change in t can change z." },
+  ]}
+/>
+
+## Summary
+
+The multivariable chain rule generalizes the chain rule to inputs that influence an output
+through multiple intermediate variables: sum the path-by-path contributions, each one a product
+of a partial derivative and an intermediate derivative. This "sum over paths" structure is
+exactly what a computational graph (two lessons ahead) makes explicit, and exactly what
+backpropagation computes efficiently for every weight in a network simultaneously.
+
+## Further reading
+
+- Strang, *Calculus*, multivariable chapter — the multivariable chain rule with the "tree
+  diagram" mnemonic for tracking paths.

@@ -1,0 +1,79 @@
+---
+slug: the-jacobian-matrix
+month: 3
+week: 2
+ord: 3
+title: "The Jacobian Matrix"
+code: "3.2.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Define the Jacobian matrix for a vector-valued, vector-input function"
+  - "Recognize the gradient as a special case of the Jacobian (single output)"
+  - "Compute a Jacobian numerically and verify it column by column"
+prereqs:
+  - "The Multivariable Chain Rule ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Jacobian, Defined }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">When a function has many outputs, not just one</h2>
+
+Every derivative-like object so far has described a function with a **single** output: a
+derivative, a gradient. But a neural network layer maps a vector of inputs to a vector of
+outputs — e.g. a layer with 512 inputs and 256 outputs. The **Jacobian matrix** is the object
+that captures "how does *every* output change with respect to *every* input," all at once.
+
+<h2 id="math">The Jacobian, defined</h2>
+
+For `f: R^n → R^m` (n inputs, m outputs), the Jacobian `J` is the `m × n` matrix where entry
+`(i, j)` is how much output `i` changes with respect to input `j`:
+
+<MathBlock tex="J_{ij} = \frac{\partial f_i}{\partial x_j}" />
+
+Each **row** of `J` is the gradient of one output component with respect to all the inputs.
+So the Jacobian is literally `m` stacked gradients — one gradient per output.
+
+<Callout kind="tip" title="The gradient is a Jacobian with one row">
+  When `m = 1` (a single output, like a scalar loss function), the Jacobian collapses to exactly
+  the gradient vector from two lessons ago — a `1 × n` matrix, which is just a row vector of
+  partials. Everything you learned about the gradient is the `m=1` special case of this more
+  general object. A full neural network layer, with many outputs, needs the full Jacobian.
+</Callout>
+
+<h2 id="python">Computing a Jacobian numerically, row by row</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# f: R^3 -> R^2\n# f1(x, y, z) = x^2 + y*z\n# f2(x, y, z) = x*y + z\ndef f(v):\n    x, y, z = v\n    return np.array([x**2 + y*z, x*y + z])\n\ndef jacobian_symbolic(v):\n    x, y, z = v\n    # row 0: partials of f1 w.r.t. x, y, z\n    row0 = [2*x, z, y]\n    # row 1: partials of f2 w.r.t. x, y, z\n    row1 = [y, x, 1]\n    return np.array([row0, row1], dtype=float)\n\ndef jacobian_numerical(f, v, h=1e-6):\n    n = len(v)\n    f0 = f(v)\n    m = len(f0)\n    J = np.zeros((m, n))\n    for j in range(n):\n        v_plus = v.copy()\n        v_plus[j] += h\n        J[:, j] = (f(v_plus) - f0) / h\n    return J\n\nv0 = np.array([1.0, 2.0, 3.0])\nprint(\"f(v0) =\", f(v0))\nprint()\nJ_sym = jacobian_symbolic(v0)\nJ_num = jacobian_numerical(f, v0)\nprint(\"symbolic Jacobian:\\n\", J_sym)\nprint(\"numerical Jacobian:\\n\", J_num.round(4))\nprint(\"match?\", np.allclose(J_sym, J_num, atol=1e-3))"}
+  output={"f(v0) = [7. 5.]\n\nsymbolic Jacobian:\n [[2. 3. 2.]\n [2. 1. 1.]]\nnumerical Jacobian:\n [[2. 3. 2.]\n [2. 1. 1.]]\nmatch? True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A layer maps 10 inputs to 4 outputs. What are the dimensions of its Jacobian?"
+  correct={2}
+  options={[
+    { text: "10 x 10", why: "This would be the Jacobian of a function with 10 inputs AND 10 outputs -- this layer only has 4 outputs." },
+    { text: "10 x 4", why: "Close, but the convention is rows=outputs, columns=inputs -- this has the dimensions transposed." },
+    { text: "4 x 10", why: "Correct — the Jacobian is m x n where m is the number of outputs (4) and n is the number of inputs (10): one row per output, one column per input." },
+    { text: "4 x 4", why: "This ignores the number of inputs entirely -- the Jacobian's column count matches the INPUT dimension (10), not the output dimension." },
+  ]}
+/>
+
+## Summary
+
+The Jacobian matrix generalizes the gradient to functions with multiple outputs: an `m × n`
+matrix whose `(i,j)` entry is `∂f_i/∂x_j`, with each row being the gradient of one output
+component. The gradient itself is just the `m=1` special case. Every layer in a neural network
+computes (implicitly) a Jacobian, and the next lesson shows how these Jacobians compose through
+a computational graph exactly the way single derivatives composed via the chain rule.
+
+## Further reading
+
+- Strang, *Calculus*, multivariable chapter — the Jacobian matrix and its role in change-of-
+  variables and multivariable differentiation.

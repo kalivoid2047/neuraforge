@@ -1,0 +1,91 @@
+---
+slug: the-value-class
+month: 3
+week: 3
+ord: 1
+title: "The Value Class: Wrapping Numbers for Autograd"
+code: "3.3.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Build a Value class that wraps a scalar and records the computational graph as operations happen"
+  - "Overload Python operators so ordinary arithmetic builds the graph automatically"
+  - "Explain why storing 'how I was made' on every value is the key design idea"
+prereqs:
+  - "Forward-Mode vs. Reverse-Mode Differentiation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Design }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: building a real autograd engine, from scratch</h2>
+
+Everything this month has been building toward this: a working implementation of reverse-mode
+automatic differentiation, in plain Python, with no library doing the hard part for you. By the
+end of this week you'll have a small engine that can compute gradients through arbitrary
+arithmetic expressions — the same core idea that powers PyTorch's `.backward()`, just
+implemented at a much smaller scale.
+
+The foundation is a single class, usually called `Value`, that wraps a plain number and — every
+time it's used in an operation — silently records *how it was produced*. That recorded history
+**is** the computational graph from last week, built automatically as ordinary Python arithmetic
+runs.
+
+<h2 id="math">Design: a number plus a memory of its own construction</h2>
+
+Each `Value` stores:
+
+- `.data` — the actual number
+- `._prev` — the `Value` objects that were combined to produce this one (empty for a leaf)
+- `._op` — which operation produced it (e.g. `'+'`, `'*'`, or `''` for a leaf)
+- `.grad` — the gradient accumulated so far (filled in during the backward pass, next lesson;
+  starts at `0`)
+
+The trick that makes this feel like ordinary Python: **operator overloading**. Defining
+`__add__` and `__mul__` on the class means writing `a + b` for two `Value` objects
+automatically creates a new `Value` *and* records that it came from an addition of `a` and `b`
+— building the graph as a side effect of code that looks like normal arithmetic.
+
+<h2 id="python">A minimal Value class, forward pass only</h2>
+
+<CodeCell
+  code={"class Value:\n    \"\"\"Wraps a scalar and records the operation that produced it.\"\"\"\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._prev = set(_children)\n        self._op = _op\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n        return out\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n        return out\n\n    def __repr__(self):\n        return f\"Value(data={self.data}, op='{self._op}')\"\n\n# build z = (x + y) * x, the same expression from last lesson's graph\nx = Value(3.0)\ny = Value(4.0)\na = x + y      # calls x.__add__(y), records op='+' with parents {x, y}\nz = a * x      # calls a.__mul__(x), records op='*' with parents {a, x}\n\nprint(\"x =\", x)\nprint(\"y =\", y)\nprint(\"a = x + y =\", a)\nprint(\"z = a * x =\", z)\nprint()\nprint(\"expected z.data:\", (3.0 + 4.0) * 3.0)\nprint(\"actual   z.data:\", z.data)\nprint()\nprint(\"z's recorded parents:\", sorted(z._prev, key=lambda v: v.data))\nprint(\"a's recorded parents:\", sorted(a._prev, key=lambda v: v.data))"}
+  output={"x = Value(data=3.0, op='')\ny = Value(data=4.0, op='')\na = x + y = Value(data=7.0, op='+')\nz = a * x = Value(data=21.0, op='*')\n\nexpected z.data: 21.0\nactual   z.data: 21.0\n\nz's recorded parents: [Value(data=3.0, op=''), Value(data=7.0, op='+')]\na's recorded parents: [Value(data=3.0, op=''), Value(data=4.0, op='')]"}
+/>
+
+<Callout kind="tip" title="This is not yet an autograd engine">
+  So far `Value` only builds the *forward* graph — it doesn't compute any gradients yet. That's
+  entirely intentional: separating "build the graph" (this lesson) from "walk it backward to
+  compute gradients" (next lesson) makes each piece easier to get right, and mirrors exactly how
+  real frameworks structure the problem internally.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does __add__ need to convert 'other' into a Value if it isn't one already (the 'other if isinstance(...) else Value(other)' line)?"
+  correct={0}
+  options={[
+    { text: "So that expressions like 'x + 5' (a Value plus a plain Python number) still work and still produce a proper graph node for the constant 5", why: "Correct — without this, x + 5 would crash trying to access 5.data. Wrapping bare numbers into Value objects lets constants participate in the same graph machinery as everything else." },
+    { text: "To make the addition faster", why: "This has nothing to do with speed -- it's purely about supporting mixed Value/plain-number arithmetic without crashing." },
+    { text: "Python requires it for all operator overloads", why: "Python's operator overloading doesn't require this -- it's a deliberate design choice in THIS class, to gracefully support operations against plain numbers." },
+    { text: "It prevents integer overflow", why: "This is unrelated to overflow -- Python's floats/ints don't have the fixed-width overflow issues this would address, and that isn't what this line is for." },
+  ]}
+/>
+
+## Summary
+
+The `Value` class wraps a plain number and, via operator overloading, automatically records the
+computational graph (parents and operation) every time it's combined with another `Value` —
+turning ordinary-looking arithmetic into graph construction as a side effect. This is the
+forward half of an autograd engine; the next lesson adds the backward pass that actually
+computes gradients by walking this recorded graph.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — builds this exact `Value` class live, then extends it through this week's
+  remaining lessons.

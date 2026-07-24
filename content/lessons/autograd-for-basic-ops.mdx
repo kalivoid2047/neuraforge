@@ -1,0 +1,82 @@
+---
+slug: autograd-for-basic-ops
+month: 3
+week: 3
+ord: 3
+title: "Extending Autograd: Powers, exp, and tanh"
+code: "3.3.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Add power, exp, and tanh operations to the Value class, each with its own local gradient rule"
+  - "Derive the local gradient for tanh and connect it back to Month 2's activation functions"
+  - "Verify each new operation's gradient against a numerical derivative"
+prereqs:
+  - "Implementing the Backward Pass ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: New Local Gradient Rules }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A neuron needs more than + and *</h2>
+
+Recall the perceptron and activation functions from Month 2: a neuron computes a weighted sum
+(`+` and `*` — already supported) and then passes it through a nonlinearity like `tanh` or
+`ReLU`. To build a working neuron with this autograd engine, `Value` needs a few more
+operations — and the pattern for adding each one is always the same: **implement the forward
+computation, then attach a `_backward` closure implementing that operation's own local gradient
+rule.** That pattern doesn't change no matter how exotic the operation is.
+
+<h2 id="math">New local gradient rules</h2>
+
+<MathBlock tex="\text{power: } \frac{d}{dx}x^n = nx^{n-1}" />
+<MathBlock tex="\text{exp: } \frac{d}{dx}e^x = e^x" />
+<MathBlock tex="\text{tanh: } \frac{d}{dx}\tanh(x) = 1 - \tanh^2(x)" />
+
+The `tanh` rule is worth noting: its derivative can be written *in terms of its own output*
+(`1 - tanh(x)²`), not just the raw input — so the `_backward` closure can reuse `out.data`
+directly instead of recomputing `tanh` from scratch. That's a genuinely useful implementation
+trick, not just a mathematical curiosity.
+
+<h2 id="python">Adding pow, exp, and tanh to Value</h2>
+
+<CodeCell
+  code={"import math\n\nclass Value:\n    def __init__(self, data, _children=(), _op=''):\n        self.data = data\n        self.grad = 0.0\n        self._backward = lambda: None\n        self._prev = set(_children)\n        self._op = _op\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n        def _backward():\n            self.grad += out.grad\n            other.grad += out.grad\n        out._backward = _backward\n        return out\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def __pow__(self, n):\n        assert isinstance(n, (int, float))\n        out = Value(self.data ** n, (self,), f'**{n}')\n        def _backward():\n            self.grad += (n * self.data ** (n - 1)) * out.grad\n        out._backward = _backward\n        return out\n\n    def exp(self):\n        out = Value(math.exp(self.data), (self,), 'exp')\n        def _backward():\n            self.grad += out.data * out.grad   # d/dx[e^x] = e^x = out.data\n        out._backward = _backward\n        return out\n\n    def tanh(self):\n        t = math.tanh(self.data)\n        out = Value(t, (self,), 'tanh')\n        def _backward():\n            self.grad += (1 - t**2) * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo, visited = [], set()\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for parent in v._prev:\n                    build_topo(parent)\n                topo.append(v)\n        build_topo(self)\n        self.grad = 1.0\n        for v in reversed(topo):\n            v._backward()\n\ndef numerical_grad(f, x0, h=1e-6):\n    return (f(x0 + h) - f(x0)) / h\n\n# test 1: pow.  f(x) = x^3 at x=2\nx = Value(2.0)\ny = x ** 3\ny.backward()\nprint(\"pow:  x.grad =\", x.grad, \" numerical =\", round(numerical_grad(lambda v: v**3, 2.0), 4))\n\n# test 2: exp.  f(x) = e^x at x=1\nx2 = Value(1.0)\ny2 = x2.exp()\ny2.backward()\nprint(\"exp:  x.grad =\", round(x2.grad, 4), \" numerical =\", round(numerical_grad(math.exp, 1.0), 4))\n\n# test 3: tanh.  f(x) = tanh(x) at x=0.5\nx3 = Value(0.5)\ny3 = x3.tanh()\ny3.backward()\nprint(\"tanh: x.grad =\", round(x3.grad, 4), \" numerical =\", round(numerical_grad(math.tanh, 0.5), 4))"}
+  output={"pow:  x.grad = 12.0  numerical = 12.0\nexp:  x.grad = 2.7183  numerical = 2.7183\ntanh: x.grad = 0.7864  numerical = 0.7864"}
+/>
+
+<Callout kind="tip" title="Division and subtraction come for free">
+  With `__add__`, `__mul__`, and `__pow__` in place, `a - b` can be implemented as
+  `a + (-1 * b)`, and `a / b` as `a * b**-1` — no new `_backward` rule needed for either. This is
+  exactly the kind of composition the whole engine is built on: a small set of primitive
+  operations with hand-written local gradients, and everything else built by combining them.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can tanh's _backward closure compute (1 - t**2) using 't' (the already-computed output) instead of recomputing tanh(self.data) from scratch?"
+  correct={3}
+  options={[
+    { text: "It can't -- this is actually a bug", why: "It's not a bug -- reusing the already-computed output is a deliberate, valid optimization enabled by the specific algebraic form of tanh's derivative." },
+    { text: "Python requires closures to only reference already-computed values", why: "This isn't a Python language requirement -- closures can reference and even recompute anything. This is a deliberate optimization choice, not a language constraint." },
+    { text: "Because 1 - t^2 is only an approximation of the true derivative", why: "It's exact, not an approximation -- d/dx[tanh(x)] = 1 - tanh(x)^2 is an exact identity, and t IS tanh(x) since t was already computed in the forward pass." },
+    { text: "Because tanh's derivative happens to be expressible purely in terms of tanh's own output value, so reusing 't' avoids a redundant recomputation of tanh()", why: "Correct — this is the specific algebraic property (1 - tanh(x)^2) that makes it possible, and it's a genuinely useful implementation trick for avoiding redundant work." },
+  ]}
+/>
+
+## Summary
+
+Adding a new operation to the autograd engine always follows the same pattern: implement the
+forward computation, then attach a `_backward` closure encoding that operation's local gradient
+rule, verified against a numerical derivative. `pow`, `exp`, and `tanh` round out the set of
+operations needed to build a real neuron (weighted sum plus nonlinearity) — exactly what the
+next lesson does, composing these primitives into `Neuron`, `Layer`, and `MLP` classes.
+
+## Further reading
+
+- Karpathy, *"The spelled-out intro to neural networks and backpropagation: building
+  micrograd"* — adds these exact operations (and more) to the same `Value` class.

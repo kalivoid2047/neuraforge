@@ -60,12 +60,13 @@ work, authored as [`.mdx` files](content/lessons/) per a lightweight version of
 [ADR-0005](docs/adr/0005-content-as-code.md) (no schema validation/versioning/publish pipeline
 yet — see the ADR for what's deliberately deferred).
 
-**Months 1, 2, and 7 complete: 60/240 lessons.** Month 1 (Python & Math Foundations → Matrix
-Calculator), Month 2 (Linear Algebra & Neural Nets I → Neural Network From Scratch), and Month 7
-(Transformers From Scratch) are each fully authored, 20/20 lessons. Months 3–6 and 8–12
-(180 lessons) are not yet authored — the curriculum is not sequentially navigable end to end
-yet; `/learn/[slug]` correctly flags month-boundary gaps rather than presenting a cross-month
-jump as the next lesson in sequence.
+**Months 1, 2, 3, and 7 complete: 80/240 lessons.** Month 1 (Python & Math Foundations → Matrix
+Calculator), Month 2 (Linear Algebra & Neural Nets I → Neural Network From Scratch), Month 3
+(Calculus, Optimization & Backprop → Backpropagation Engine, a from-scratch micrograd-style
+autograd library that trains a real MLP to solve XOR), and Month 7 (Transformers From Scratch)
+are each fully authored, 20/20 lessons. Months 4–6 and 8–12 (160 lessons) are not yet authored —
+the curriculum is not sequentially navigable end to end yet; `/learn/[slug]` correctly flags
+month-boundary gaps rather than presenting a cross-month jump as the next lesson in sequence.
 
 ## License
 

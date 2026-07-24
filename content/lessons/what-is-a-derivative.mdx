@@ -1,0 +1,91 @@
+---
+slug: what-is-a-derivative
+month: 3
+week: 1
+ord: 1
+title: "What Is a Derivative?"
+code: "3.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Define the derivative as a limit of a difference quotient"
+  - "Approximate a derivative numerically and compare it against a known exact value"
+  - "Explain what a derivative's sign and magnitude mean for a function's behavior"
+prereqs:
+  - "Building the Neural Network From Scratch ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Limit Definition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month three: answering the cliffhanger from Month 2</h2>
+
+Month 2 ended with a genuine, working neural network that could not learn — its weights were
+fixed at random initialization forever, because nothing told them how to change. This month
+closes that gap completely, starting from the most basic building block: the **derivative**,
+which measures how a function's output changes as its input changes, infinitesimally. By the
+end of this month, you'll have built an autograd engine and used it to actually train Month 2's
+network.
+
+<Callout kind="tip" title="The one-sentence intuition">
+  A derivative answers: "if I nudge the input by a tiny amount, how much (and in which
+  direction) does the output move?" That's it — everything else this month builds on that single
+  question, asked of increasingly complex functions.
+</Callout>
+
+<h2 id="math">The limit definition</h2>
+
+<MathBlock tex="f'(x) = \lim_{h\to 0}\frac{f(x+h)-f(x)}{h}" />
+
+This is the **difference quotient** — "change in output" over "change in input" — in the limit
+as the input change `h` shrinks to zero. Geometrically, it's the slope of the line tangent to
+`f`'s graph at the point `x`.
+
+<h2 id="python">Approximating a derivative numerically</h2>
+
+<CodeCell
+  code={"def numerical_derivative(f, x, h=1e-7):\n    \"\"\"Approximate f'(x) using a small but nonzero h -- the limit definition, not taken literally to 0.\"\"\"\n    return (f(x + h) - f(x)) / h\n\ndef f(x):\n    return x ** 2\n\n# The exact derivative of x^2 is 2x -- known from algebra, useful as ground truth here\nfor x in [0, 1, 2, 5, -3]:\n    exact = 2 * x\n    approx = numerical_derivative(f, x)\n    print(f\"x={x:>3}: exact f'(x)={exact:>4}, numerical approximation={approx:.4f}\")\n\n# Watch the approximation get WORSE if h is too large or too small\nprint()\nprint(\"effect of h's size, at x=3 (exact answer: 6):\")\nfor h in [1e-1, 1e-4, 1e-7, 1e-12, 1e-16]:\n    approx = numerical_derivative(f, 3, h=h)\n    print(f\"  h={h:.0e}: approximation={approx}\")"}
+  output={"x=  0: exact f'(x)=   0, numerical approximation=0.0000\nx=  1: exact f'(x)=   2, numerical approximation=2.0000\nx=  2: exact f'(x)=   4, numerical approximation=4.0000\nx=  5: exact f'(x)=  10, numerical approximation=10.0000\nx= -3: exact f'(x)=  -6, numerical approximation=-6.0000\n\neffect of h's size, at x=3 (exact answer: 6):\n  h=1e-01: approximation=6.100000000000012\n  h=1e-04: approximation=6.000100000012054\n  h=1e-07: approximation=6.000000087880153\n  h=1e-12: approximation=6.000533403494046\n  h=1e-16: approximation=0.0"}
+/>
+
+<Callout kind="warning" title="Why the approximation degrades at very small h">
+  With `h` too large, the difference quotient measures the *average* slope over a wide interval,
+  not the instantaneous slope — a real approximation error. With `h` too *small* (like `1e-16`),
+  a different problem appears: floating-point precision. `f(x+h)` and `f(x)` become nearly
+  indistinguishable in floating-point representation, and subtracting two nearly-equal numbers
+  amplifies rounding error catastrophically (a phenomenon called "catastrophic cancellation").
+  There's a sweet spot, not "smaller is always better" — a preview of exactly why the autograd
+  engine this month builds computes derivatives *symbolically*, not by this numerical
+  approximation, for anything beyond quick sanity checks.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the numerical derivative approximation get LESS accurate when h is extremely tiny (like 1e-16), not just when h is too large?"
+  correct={2}
+  options={[
+    { text: "It doesn't -- smaller h always gives a better approximation", why: "This is not true in floating-point arithmetic — extremely small h introduces a different kind of error." },
+    { text: "Because the limit definition is only a theoretical concept with no practical meaning", why: "The limit IS the exact mathematical derivative — the practical issue is specific to numerically approximating it with finite-precision floats, not a flaw in the definition." },
+    { text: "f(x+h) and f(x) become nearly indistinguishable in floating-point representation, and subtracting nearly-equal numbers amplifies rounding error", why: "Correct — this is catastrophic cancellation, a real numerical-precision issue distinct from the 'h too large' approximation error." },
+    { text: "Python doesn't support numbers smaller than 1e-10", why: "Python's floats support far smaller magnitudes than 1e-10 — this isn't a language limitation." },
+  ]}
+/>
+
+## Summary
+
+The derivative measures instantaneous rate of change — the limit of the difference quotient
+`(f(x+h) - f(x))/h` as `h → 0`. Numerically approximating it with a small nonzero `h` works, but
+has a real sweet spot: too large introduces approximation error, too small introduces
+floating-point cancellation error. This tension is exactly why the autograd engine this month
+builds computes derivatives symbolically/algorithmically rather than via numerical
+approximation — though numerical approximation remains a valuable *sanity check* tool, used
+later this month to test that engine's correctness.
+
+## Further reading
+
+- Strang, *Calculus* (free online via MIT OpenCourseWare) — the classical treatment of the
+  limit definition.

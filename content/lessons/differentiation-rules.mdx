@@ -1,0 +1,75 @@
+---
+slug: differentiation-rules
+month: 3
+week: 1
+ord: 2
+title: "Rules of Differentiation"
+code: "3.1.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Apply the power, sum, product, and quotient rules to compute derivatives symbolically"
+  - "Verify each rule numerically against the limit-definition approximation from last lesson"
+  - "Recognize which rule applies to a given expression's structure"
+prereqs:
+  - "What Is a Derivative? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Rules }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Shortcuts that avoid re-deriving from the limit every time</h2>
+
+Computing every derivative from the limit definition would be unbearably slow. In practice,
+a handful of rules let you compute derivatives of complicated expressions by breaking them into
+pieces and combining the pieces' known derivatives — exactly the strategy an autograd engine
+(week three) automates.
+
+<h2 id="math">The rules</h2>
+
+<MathBlock tex="\text{Power rule: } \frac{d}{dx}x^n = nx^{n-1}" />
+<MathBlock tex="\text{Sum rule: } \frac{d}{dx}[f(x)+g(x)] = f'(x)+g'(x)" />
+<MathBlock tex="\text{Product rule: } \frac{d}{dx}[f(x)g(x)] = f'(x)g(x)+f(x)g'(x)" />
+<MathBlock tex="\text{Quotient rule: } \frac{d}{dx}\left[\frac{f(x)}{g(x)}\right] = \frac{f'(x)g(x)-f(x)g'(x)}{g(x)^2}" />
+
+<Callout kind="tip" title="Where the product rule actually comes from">
+  It's not arbitrary: think of `f(x)g(x)` as the area of a rectangle with sides `f(x)` and
+  `g(x)`. Nudge `x` by a tiny `h` — both sides change slightly, and the area's change splits into
+  two thin strips (one from each side changing) plus a vanishingly small corner piece. Those two
+  strips are exactly `f'(x)g(x)` and `f(x)g'(x)`.
+</Callout>
+
+<h2 id="python">Symbolic rules, checked against numerical approximation</h2>
+
+<CodeCell
+  code={"def numerical_derivative(f, x, h=1e-6):\n    return (f(x + h) - f(x)) / h\n\n# --- Power rule: f(x) = x^3 ---\ndef f_power(x):\n    return x ** 3\ndef f_power_derivative(x):\n    return 3 * x ** 2   # power rule: n*x^(n-1)\n\nx = 2.0\nprint(\"power rule, f(x)=x^3 at x=2:\")\nprint(\"  symbolic: \", f_power_derivative(x))\nprint(\"  numerical:\", round(numerical_derivative(f_power, x), 4))\n\n# --- Product rule: f(x) = x^2, g(x) = x^3, product = x^5 ---\ndef product(x):\n    return (x ** 2) * (x ** 3)\ndef product_derivative(x):\n    f, f_prime = x ** 2, 2 * x\n    g, g_prime = x ** 3, 3 * x ** 2\n    return f_prime * g + f * g_prime\n\nprint()\nprint(\"product rule, f(x)=x^2 * x^3 at x=2:\")\nprint(\"  symbolic: \", product_derivative(x))\nprint(\"  numerical:\", round(numerical_derivative(product, x), 4))\nprint(\"  (sanity check: x^2*x^3 = x^5, whose derivative is 5x^4 =\", 5 * x**4, \")\")\n\n# --- Quotient rule: f(x) = x^2, g(x) = x + 1 ---\ndef quotient(x):\n    return (x ** 2) / (x + 1)\ndef quotient_derivative(x):\n    f, f_prime = x ** 2, 2 * x\n    g, g_prime = x + 1, 1\n    return (f_prime * g - f * g_prime) / (g ** 2)\n\nprint()\nprint(\"quotient rule, f(x)=x^2 / (x+1) at x=2:\")\nprint(\"  symbolic: \", round(quotient_derivative(x), 4))\nprint(\"  numerical:\", round(numerical_derivative(quotient, x), 4))"}
+  output={"power rule, f(x)=x^3 at x=2:\n  symbolic:  12.0\n  numerical: 12.0\n\nproduct rule, f(x)=x^2 * x^3 at x=2:\n  symbolic:  80.0\n  numerical: 80.0001\n  (sanity check: x^2*x^3 = x^5, whose derivative is 5x^4 = 80.0 )\n\nquotient rule, f(x)=x^2 / (x+1) at x=2:\n  symbolic:  0.8889\n  numerical: 0.8889"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Which rule applies directly to differentiate h(x) = sin(x) * x^2?"
+  correct={1}
+  options={[
+    { text: "The power rule alone", why: "The power rule alone handles x^n by itself — this expression is a PRODUCT of two different functions, sin(x) and x^2." },
+    { text: "The product rule, treating f(x)=sin(x) and g(x)=x^2", why: "Correct — h(x) is literally a product of two functions, which is exactly what the product rule is for." },
+    { text: "The quotient rule", why: "The quotient rule is for division (f(x)/g(x)); this expression is a product, not a quotient." },
+    { text: "The sum rule", why: "The sum rule is for f(x)+g(x); sin(x)*x^2 is a product, not a sum, of two functions." },
+  ]}
+/>
+
+## Summary
+
+The power, sum, product, and quotient rules let you compute derivatives of composite expressions
+from the known derivatives of their pieces, without re-deriving from the limit definition each
+time. Each rule checks out against the numerical approximation from last lesson — a pattern
+(symbolic computation, numerically verified) that reappears when the autograd engine's
+correctness gets tested later this month.
+
+## Further reading
+
+- Strang, *Calculus* — the standard derivation and proof of each rule from the limit definition.

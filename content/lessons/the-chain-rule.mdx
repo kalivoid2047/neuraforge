@@ -1,0 +1,88 @@
+---
+slug: the-chain-rule
+month: 3
+week: 2
+ord: 1
+title: "The Chain Rule"
+code: "3.2.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "State the chain rule for a composition of two single-variable functions"
+  - "Differentiate a composed function by identifying its outer and inner pieces"
+  - "Explain why the chain rule is the single most important rule for this month's goal"
+prereqs:
+  - "Directional Derivatives ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Chain Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: the single rule that makes deep networks trainable</h2>
+
+Every rule so far handled *one* function at a time. A neural network is a **composition** of
+many functions — layer 1's output feeds into layer 2, which feeds into layer 3, and so on. The
+**chain rule** is what lets you compute the derivative of a whole composition from the
+derivatives of its individual pieces — and it is, without exaggeration, the single
+mathematical fact that makes backpropagation (and therefore practically all of deep learning)
+possible.
+
+<h2 id="math">The chain rule</h2>
+
+For a composed function `h(x) = f(g(x))`:
+
+<MathBlock tex="h'(x) = f'(g(x))\cdot g'(x)" />
+
+In words: differentiate the *outer* function (evaluated at the inner function's output), then
+multiply by the derivative of the *inner* function. A common alternate notation makes the
+"chaining" visual:
+
+<MathBlock tex="\frac{dh}{dx} = \frac{dh}{dg}\cdot\frac{dg}{dx}" />
+
+— as if the `dg` terms cancel, chaining the rate of change through each intermediate step. That
+notation is informal (the `d`'s aren't literally fractions), but the intuition it conveys is
+exactly right: a small change in `x` causes some change in `g`, which causes some change in
+`h`, and the total effect is the product of each step's individual rate.
+
+<h2 id="python">Applying it, verified numerically</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# h(x) = sin(x^2) -- outer function f(u) = sin(u), inner function g(x) = x^2\ndef g(x):\n    return x ** 2\ndef g_prime(x):\n    return 2 * x\n\ndef f(u):\n    return np.sin(u)\ndef f_prime(u):\n    return np.cos(u)\n\ndef h(x):\n    return f(g(x))          # sin(x^2)\n\ndef h_prime_chain_rule(x):\n    return f_prime(g(x)) * g_prime(x)   # f'(g(x)) * g'(x)\n\ndef numerical_derivative(func, x, eps=1e-6):\n    return (func(x + eps) - func(x)) / eps\n\nfor x in [0.5, 1.0, 2.0]:\n    chain_rule_result = h_prime_chain_rule(x)\n    numerical_result = numerical_derivative(h, x)\n    print(f\"x={x}: chain rule={chain_rule_result:.4f}, numerical={numerical_result:.4f}\")"}
+  output={"x=0.5: chain rule=0.9689, numerical=0.9689\nx=1.0: chain rule=1.0806, numerical=1.0806\nx=2.0: chain rule=-2.6146, numerical=-2.6146"}
+/>
+
+<Callout kind="tip" title="Chains of more than two functions work the same way">
+  For `k(x) = f(g(h(x)))`, the chain rule extends directly: `k'(x) = f'(g(h(x))) · g'(h(x)) ·
+  h'(x)` — multiply the derivative of each step, evaluated at the right intermediate point. A
+  10-layer network is exactly this: a 10-deep composition, and the chain rule handles it the
+  same way, no matter how deep.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="h(x) = (3x + 1)^2. Using the chain rule with outer function f(u) = u^2 and inner function g(x) = 3x+1, what is h'(x)?"
+  correct={3}
+  options={[
+    { text: "2(3x+1)", why: "This is only f'(g(x)) -- it's missing the required multiplication by g'(x)." },
+    { text: "6x", why: "This drops the composition entirely and differentiates as if h were just x^2, ignoring the inner function." },
+    { text: "2(3x+1) + 3", why: "The chain rule multiplies the two derivatives together; it doesn't add them." },
+    { text: "2(3x+1) * 3 = 6(3x+1)", why: "Correct — f'(g(x)) = 2(3x+1), g'(x) = 3, and the chain rule multiplies them: 2(3x+1)*3." },
+  ]}
+/>
+
+## Summary
+
+The chain rule computes the derivative of a composition `f(g(x))` as `f'(g(x))·g'(x)` — the
+outer function's derivative (at the inner function's output) times the inner function's
+derivative. This extends to compositions of any depth by chaining the multiplication through
+every step, which is exactly the structure of a multi-layer neural network and exactly why this
+one rule underlies all of backpropagation, built starting next week.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Calculus"* — the chain rule episode, with strong visual intuition
+  for the "rates multiply" idea.

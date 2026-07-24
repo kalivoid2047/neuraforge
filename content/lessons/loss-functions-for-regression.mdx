@@ -1,0 +1,82 @@
+---
+slug: loss-functions-for-regression
+month: 3
+week: 4
+ord: 2
+title: "Loss Functions for Regression: Mean Squared Error"
+code: "3.4.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Define mean squared error (MSE) and explain what it measures"
+  - "Compute MSE and its gradient with respect to predictions by hand"
+  - "Explain why squaring the error is preferred over just summing raw errors"
+prereqs:
+  - "Gradient Descent ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Mean Squared Error }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A single number measuring "how wrong" the network is</h2>
+
+Gradient descent needs something to minimize — a **loss function** that turns "how wrong are
+the network's predictions" into a single number. For predicting continuous values (regression),
+the standard choice is **mean squared error (MSE)**: average the squared difference between
+each prediction and its true target.
+
+<h2 id="math">Mean squared error</h2>
+
+For predictions `ŷ_i` and true targets `y_i` over `n` examples:
+
+<MathBlock tex="\text{MSE} = \frac{1}{n}\sum_{i=1}^{n} (\hat{y}_i - y_i)^2" />
+
+<Callout kind="tip" title="Why square the error instead of just summing it?">
+  Three reasons, all important: (1) squaring makes every term non-negative, so errors in
+  opposite directions can't cancel out and hide each other; (2) it's differentiable everywhere,
+  unlike the absolute-value error `|ŷ-y|` which has a sharp corner at zero; (3) it penalizes
+  *large* errors disproportionately more than small ones — being off by 10 costs 100x more than
+  being off by 1, not just 10x, which strongly discourages any single wildly-wrong prediction.
+</Callout>
+
+The gradient of MSE with respect to one prediction `ŷ_i` (holding the target fixed, via the
+power rule from week one):
+
+<MathBlock tex="\frac{\partial \text{MSE}}{\partial \hat{y}_i} = \frac{2}{n}(\hat{y}_i - y_i)" />
+
+<h2 id="python">Computing MSE and its gradient, verified numerically</h2>
+
+<CodeCell
+  code={"def mse(predictions, targets):\n    n = len(predictions)\n    return sum((p - t) ** 2 for p, t in zip(predictions, targets)) / n\n\ndef mse_gradient_wrt_predictions(predictions, targets):\n    n = len(predictions)\n    return [2 * (p - t) / n for p, t in zip(predictions, targets)]\n\ndef numerical_gradient_wrt_one_prediction(predictions, targets, index, h=1e-6):\n    preds_plus = list(predictions)\n    preds_plus[index] += h\n    return (mse(preds_plus, targets) - mse(predictions, targets)) / h\n\npredictions = [2.5, 0.0, 2.1, 7.8]\ntargets =     [3.0, -0.5, 2.0, 7.5]\n\nloss = mse(predictions, targets)\nprint(\"predictions:\", predictions)\nprint(\"targets:    \", targets)\nprint(\"MSE loss:   \", round(loss, 4))\nprint()\n\nsymbolic_grad = mse_gradient_wrt_predictions(predictions, targets)\nnumerical_grad = [numerical_gradient_wrt_one_prediction(predictions, targets, i) for i in range(len(predictions))]\nprint(\"symbolic gradient: \", [round(g, 4) for g in symbolic_grad])\nprint(\"numerical gradient:\", [round(g, 4) for g in numerical_grad])"}
+  output={"predictions: [2.5, 0.0, 2.1, 7.8]\ntargets:     [3.0, -0.5, 2.0, 7.5]\nMSE loss:    0.15\n\nsymbolic gradient:  [-0.25, 0.25, 0.05, 0.15]\nnumerical gradient: [-0.25, 0.25, 0.05, 0.15]"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two predictions are both off by 2 in one model and off by 1 and 3 respectively in another (same total absolute error, 4). Does MSE treat these two error patterns as equally bad?"
+  correct={1}
+  options={[
+    { text: "Yes, MSE only cares about total absolute error", why: "MSE does NOT just track total absolute error -- it squares each individual error, so it depends on how errors are distributed, not just their sum." },
+    { text: "No -- MSE penalizes the [1, 3] pattern MORE than the [2, 2] pattern, because squaring disproportionately punishes the larger individual error (3^2=9 vs 2^2=4)", why: "Correct — [2,2] gives mean (4+4)/2=4, while [1,3] gives mean (1+9)/2=5. Same total absolute error (4), but MSE rates [1,3] as worse, exactly because squaring punishes the single large error of 3 disproportionately." },
+    { text: "No -- MSE penalizes the [2, 2] pattern more, because it prefers spread-out errors", why: "MSE prefers errors to be spread out EVENLY, not concentrated -- it's the [1,3] pattern (uneven) that gets penalized more, not [2,2]." },
+    { text: "It's impossible to tell without knowing the actual targets, not just the errors", why: "MSE is computed purely from the error values themselves (prediction minus target) -- the specific target values don't change which error pattern is penalized more." },
+  ]}
+/>
+
+## Summary
+
+Mean squared error averages the squared difference between predictions and targets, giving a
+single differentiable number that penalizes large errors disproportionately more than small
+ones. Its gradient with respect to each prediction, `(2/n)(ŷ-y)`, is exactly the signal gradient
+descent needs to know which direction to push each prediction — and, via the chain rule, which
+direction to push every weight that produced it. The next lesson looks at how the learning rate
+affects whether this process actually converges.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, Ch. 5 — loss functions for regression and
+  classification, and their statistical motivations.
