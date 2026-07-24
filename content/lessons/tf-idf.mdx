@@ -1,0 +1,87 @@
+---
+slug: tf-idf
+month: 5
+week: 3
+ord: 3
+title: "TF-IDF"
+code: "5.3.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute term frequency and inverse document frequency for a small corpus"
+  - "Explain why IDF down-weights words that appear in nearly every document"
+  - "Verify that TF-IDF de-emphasizes uninformative common words relative to plain bag-of-words counts"
+prereqs:
+  - "Bag-of-Words and Text Vectorization ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Term Frequency and Inverse Document Frequency }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Not every word is equally informative</h2>
+
+Plain bag-of-words counts have a blind spot: a word appearing in *every* document (like "the")
+gets a large count in every document's vector, contributing nothing useful for telling documents
+apart, while a word appearing in only one or two documents (like a topic-specific term) is far
+more informative for distinguishing them — yet plain counts don't reflect that difference at
+all. **TF-IDF** fixes this by explicitly down-weighting words that are common *across the whole
+corpus*, not just within one document.
+
+<h2 id="math">Term frequency and inverse document frequency</h2>
+
+<MathBlock tex="\text{TF}(t,d) = \text{count of term } t \text{ in document } d" />
+
+<MathBlock tex="\text{IDF}(t) = \log\left(\frac{N}{1 + \text{DF}(t)}\right) \qquad \text{TF-IDF}(t,d) = \text{TF}(t,d) \times \text{IDF}(t)" />
+
+`N` is the total number of documents; `DF(t)` ("document frequency") is how many documents
+contain term `t` at least once. A word appearing in every document has `DF(t)=N`, driving
+`IDF(t) = \log(N/(N+1))` — a value just *below* zero, the smallest (most suppressed) IDF any
+word in the corpus can get. A rare word (small `DF(t)`) gets a large *positive* `IDF(t)`,
+amplifying its contribution instead.
+
+<Callout kind="tip" title="The '+1' in the denominator matters">
+  Without it, a hypothetical term with `DF(t)=0` (never seen in the training corpus at all)
+  would divide by zero. Adding `1` to the denominator avoids that edge case — as a side effect,
+  it also means a term appearing in literally *every* document gets `IDF(t) = log(N/(N+1))`,
+  a small *negative* number rather than exactly zero (verified directly below). That's a
+  harmless quirk of this particular smoothing choice, not a bug: such a term still ends up with
+  the lowest IDF of any word in the corpus, which is the actual property TF-IDF needs.
+</Callout>
+
+<h2 id="python">TF-IDF, computed and compared directly against plain counts</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport re\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\ncorpus = [\n    \"the cat sat on the mat\",\n    \"the dog sat on the mat\",\n    \"the bird flew over the mat\",\n]\ntokenized = [tokenize(doc) for doc in corpus]\nvocabulary = sorted(set(w for doc in tokenized for w in doc))\nword_to_index = {w: i for i, w in enumerate(vocabulary)}\nN = len(corpus)\n\n# term frequency: plain counts, exactly like bag-of-words\ntf = np.zeros((N, len(vocabulary)))\nfor doc_idx, doc in enumerate(tokenized):\n    for word in doc:\n        tf[doc_idx, word_to_index[word]] += 1\n\n# document frequency: how many DOCUMENTS contain each word at least once\ndf = np.zeros(len(vocabulary))\nfor word, idx in word_to_index.items():\n    df[idx] = sum(1 for doc in tokenized if word in doc)\n\nidf = np.log(N / (1 + df))\ntfidf = tf * idf\n\nprint(\"vocabulary:\", vocabulary)\nprint()\nprint(f\"{'word':>6} {'DF':>4} {'IDF':>8}\")\nfor word, idx in word_to_index.items():\n    print(f\"{word:>6} {int(df[idx]):>4} {idf[idx]:>8.4f}\")\nprint()\n\n# compare 'the' and 'mat' (in EVERY document) against 'cat', 'dog', 'bird' (in only ONE document each)\nfor word in [\"the\", \"mat\", \"cat\", \"dog\", \"bird\"]:\n    idx = word_to_index[word]\n    print(f\"'{word}':  DF={int(df[idx])}/{N}  IDF={idf[idx]:.4f}  TF-IDF in doc 0={tfidf[0, idx]:.4f}\")\n\nprint()\nprint(\"'the' and 'mat' appear in ALL 3 documents -> IDF is NEGATIVE (log(3/4)) -> lowest TF-IDF\")\nprint(\"in the corpus, even though 'the' has a HIGHER raw count (2) than the rarer words (1 each).\")"}
+  output={"vocabulary: ['bird', 'cat', 'dog', 'flew', 'mat', 'on', 'over', 'sat', 'the']\n\n  word   DF      IDF\n  bird    1   0.4055\n   cat    1   0.4055\n   dog    1   0.4055\n  flew    1   0.4055\n   mat    3  -0.2877\n    on    2   0.0000\n  over    1   0.4055\n   sat    2   0.0000\n   the    3  -0.2877\n\n'the':  DF=3/3  IDF=-0.2877  TF-IDF in doc 0=-0.5754\n'mat':  DF=3/3  IDF=-0.2877  TF-IDF in doc 0=-0.2877\n'cat':  DF=1/3  IDF=0.4055  TF-IDF in doc 0=0.4055\n'dog':  DF=1/3  IDF=0.4055  TF-IDF in doc 0=0.0000\n'bird':  DF=1/3  IDF=0.4055  TF-IDF in doc 0=0.0000\n\n'the' and 'mat' appear in ALL 3 documents -> IDF is NEGATIVE (log(3/4)) -> lowest TF-IDF\nin the corpus, even though 'the' has a HIGHER raw count (2) than the rarer words (1 each)."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two words have the SAME raw count within a document, but 'the' appears in every document of the corpus while 'bird' appears in only one. Why does TF-IDF assign them very different scores despite the identical raw count?"
+  correct={1}
+  options={[
+    { text: "TF-IDF ignores raw counts entirely and only looks at which document a word first appeared in", why: "TF-IDF explicitly MULTIPLIES the raw count (TF) by IDF -- it doesn't ignore the count, it combines it with a corpus-wide rarity weighting." },
+    { text: "IDF is computed from how many DIFFERENT documents contain the word (document frequency), not from its count within any single document -- 'the' has a high document frequency (appears everywhere) driving its IDF toward 0, while 'bird' has a low document frequency (rare across the corpus) giving it a large IDF, so their TF-IDF scores diverge even with equal TF", why: "Correct — this is exactly the mechanism verified above: IDF depends on corpus-wide document frequency, not on any single document's word count, which is precisely why two words with identical TF can end up with very different TF-IDF scores." },
+    { text: "TF-IDF scores are randomly assigned and have no deterministic relationship to word frequency", why: "TF-IDF scores are fully deterministic, computed directly from the TF and IDF formulas -- there's no randomness involved anywhere in the calculation." },
+    { text: "'the' is a stopword and is automatically given a score of exactly 0 by definition", why: "TF-IDF has no built-in stopword list or special-casing -- 'the' gets a LOW (not necessarily exactly zero) score purely as a mathematical consequence of appearing in every document, driving its IDF near (but not always exactly) 0." },
+  ]}
+/>
+
+## Summary
+
+TF-IDF multiplies a word's raw count within a document (TF) by a corpus-wide rarity weight
+(IDF), which collapses toward zero for words appearing in nearly every document and grows for
+rare, more distinguishing words — verified directly above by comparing "the"/"mat" (in every
+document) against "cat"/"dog"/"bird" (each in exactly one). This gives a more useful text
+representation than plain bag-of-words counts for many downstream tasks, including the Naive
+Bayes classifier built next lesson. The next lesson turns to n-grams — capturing some of the
+word-order information both bag-of-words and TF-IDF completely discard.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 6.5 — TF-IDF's formal derivation
+  and its historical role in information retrieval.

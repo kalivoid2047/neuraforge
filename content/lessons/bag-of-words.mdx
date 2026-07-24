@@ -1,0 +1,82 @@
+---
+slug: bag-of-words
+month: 5
+week: 3
+ord: 2
+title: "Bag-of-Words and Text Vectorization"
+code: "5.3.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Build a vocabulary from a corpus and represent documents as word-count vectors"
+  - "Explain what information bag-of-words deliberately discards, and why that's an acceptable trade for many tasks"
+  - "Compute document similarity using bag-of-words vectors"
+prereqs:
+  - "Text Preprocessing: Tokenization, Casing, and Stopwords ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Vocabulary and Count Vectors }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The simplest way to turn text into a vector</h2>
+
+Once text is tokenized (last lesson), the next question is: how does a list of words become a
+fixed-length numeric vector a model can consume? **Bag-of-words** is the simplest possible
+answer: build a **vocabulary** (every unique word across a whole corpus), then represent each
+document as a vector counting how many times each vocabulary word appears in it — completely
+ignoring word *order*. The name says it directly: a document becomes a "bag" of its words, with
+all positional information thrown away.
+
+<h2 id="math">Vocabulary and count vectors</h2>
+
+For a vocabulary of size `V`, document `d`'s bag-of-words vector `x \in \mathbb{R}^V` has:
+
+<MathBlock tex="x_j = \text{count of vocabulary word } j \text{ in document } d" />
+
+Two documents can be compared by treating their count vectors as ordinary vectors — Month 1's
+dot product and cosine similarity apply directly, unchanged, to text represented this way.
+
+<Callout kind="tip" title="What bag-of-words throws away, on purpose">
+  `"dog bites man"` and `"man bites dog"` produce the *exact same* bag-of-words vector — word
+  order is completely discarded. That's a real, deliberate limitation, not an oversight: for
+  many tasks (topic classification, spam detection), *which* words appear matters far more than
+  their order, so the simplicity is worth the trade. Tasks where order matters a lot (translation,
+  next-word prediction) need the sequence-aware models covered starting Month 6.
+</Callout>
+
+<h2 id="python">Building a vocabulary and count vectors, verified by hand</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport re\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\ncorpus = [\n    \"the cat sat on the mat\",\n    \"the dog sat on the log\",\n    \"cats and dogs are great pets\",\n]\n\n# build the vocabulary: every unique word across the WHOLE corpus, sorted for a deterministic order\ntokenized_docs = [tokenize(doc) for doc in corpus]\nvocabulary = sorted(set(word for doc in tokenized_docs for word in doc))\nword_to_index = {word: i for i, word in enumerate(vocabulary)}\n\nprint(\"vocabulary (\", len(vocabulary), \"words ):\", vocabulary)\nprint()\n\ndef vectorize(tokens, word_to_index):\n    vec = np.zeros(len(word_to_index))\n    for word in tokens:\n        if word in word_to_index:   # ignore out-of-vocabulary words\n            vec[word_to_index[word]] += 1\n    return vec\n\nvectors = np.array([vectorize(doc, word_to_index) for doc in tokenized_docs])\nfor doc, vec in zip(corpus, vectors):\n    print(f\"'{doc}'\\n  -> {vec.astype(int)}\")\nprint()\n\n# demonstrate the 'dog bites man' == 'man bites dog' collision directly,\n# using a small standalone vocabulary just for this pair\nmini_vocab = sorted(set(tokenize(\"dog bites man\") + tokenize(\"man bites dog\")))\nmini_index = {w: i for i, w in enumerate(mini_vocab)}\nvec_dog_bites_man = vectorize(tokenize(\"dog bites man\"), mini_index)\nvec_man_bites_dog = vectorize(tokenize(\"man bites dog\"), mini_index)\nprint(\"'dog bites man' vector:\", vec_dog_bites_man.astype(int))\nprint(\"'man bites dog' vector:\", vec_man_bites_dog.astype(int))\nprint(\"identical despite opposite meaning:\", np.array_equal(vec_dog_bites_man, vec_man_bites_dog))\nprint()\n\n# cosine similarity between the first two corpus documents (similar topic: pets sitting)\ndef cosine_similarity(a, b):\n    return (a @ b) / (np.linalg.norm(a) * np.linalg.norm(b))\n\nsim_01 = cosine_similarity(vectors[0], vectors[1])\nsim_02 = cosine_similarity(vectors[0], vectors[2])\nprint(f\"similarity('{corpus[0]}', '{corpus[1]}') = {sim_01:.4f}\")\nprint(f\"similarity('{corpus[0]}', '{corpus[2]}') = {sim_02:.4f}\")"}
+  output={"vocabulary ( 13 words ): ['and', 'are', 'cat', 'cats', 'dog', 'dogs', 'great', 'log', 'mat', 'on', 'pets', 'sat', 'the']\n\n'the cat sat on the mat'\n  -> [0 0 1 0 0 0 0 0 1 1 0 1 2]\n'the dog sat on the log'\n  -> [0 0 0 0 1 0 0 1 0 1 0 1 2]\n'cats and dogs are great pets'\n  -> [1 1 0 1 0 1 1 0 0 0 1 0 0]\n\n'dog bites man' vector: [1 1 1]\n'man bites dog' vector: [1 1 1]\nidentical despite opposite meaning: True\n\nsimilarity('the cat sat on the mat', 'the dog sat on the log') = 0.7500\nsimilarity('the cat sat on the mat', 'cats and dogs are great pets') = 0.0000"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why do 'dog bites man' and 'man bites dog' produce the exact same bag-of-words vector, despite having very different meanings?"
+  correct={3}
+  options={[
+    { text: "Because 'dog' and 'man' are treated as the same word by the tokenizer", why: "The tokenizer keeps 'dog' and 'man' as entirely distinct tokens -- they get separate vocabulary entries and separate counts. They are not conflated by tokenization." },
+    { text: "This is a bug in this specific implementation, not a property of bag-of-words generally", why: "This is not implementation-specific -- it's a fundamental, defining property of ANY bag-of-words representation, since counting word occurrences inherently discards their order." },
+    { text: "Cosine similarity between the two vectors happens to be exactly 1, which forces them to be identical", why: "The reasoning is backwards -- the vectors are identical BECAUSE bag-of-words discards word order (both sentences contain the same three words, each appearing once), and cosine similarity being 1 is a CONSEQUENCE of that, not the cause." },
+    { text: "Bag-of-words only counts which words appear and how often, with no representation of their positions or sequence -- since both sentences contain exactly the same three words, each exactly once, their count vectors are necessarily identical", why: "Correct — this is exactly the defining trade-off of bag-of-words: it deliberately discards word order entirely, so any two sentences that are anagrams of each other's words produce identical vectors, regardless of meaning." },
+  ]}
+/>
+
+## Summary
+
+Bag-of-words represents a document as a vector of word counts over a shared vocabulary,
+completely discarding word order — a deliberate simplification verified directly above with the
+classic "dog bites man" vs. "man bites dog" collision. Despite that limitation, bag-of-words
+vectors support real operations like cosine similarity, directly reusing Month 1's vector tools
+on text. The next lesson improves on plain counts with TF-IDF, which down-weights words that
+appear in nearly every document and are therefore less useful for distinguishing between them.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 6 — vector semantics, including
+  bag-of-words and its role as the foundation for more sophisticated text representations.

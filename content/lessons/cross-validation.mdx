@@ -1,0 +1,87 @@
+---
+slug: cross-validation
+month: 5
+week: 4
+ord: 2
+title: "Cross-Validation and Train/Test Methodology"
+code: "5.4.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why a single train/test split gives a noisy estimate of true performance"
+  - "Implement k-fold cross-validation from scratch"
+  - "Use cross-validation to choose a hyperparameter, rather than eyeballing a single split's result"
+prereqs:
+  - "Evaluation Metrics: Precision, Recall, F1, Confusion Matrix ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: K-Fold Cross-Validation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One train/test split is one noisy sample</h2>
+
+Month 4's train/validation split, evaluated once, gives a single performance number — but that
+number depends partly on which particular examples happened to land in the validation set. A
+"lucky" or "unlucky" split can make a model look better or worse than it really is, especially
+with small datasets like this month's text examples. **Cross-validation** fixes this by
+evaluating on *several* different splits and averaging, giving a far more reliable estimate of
+how a model actually performs.
+
+<h2 id="math">K-fold cross-validation</h2>
+
+Split the dataset into `k` roughly equal parts ("folds"). For each fold in turn: train on the
+other `k-1` folds, evaluate on the held-out fold. Average the `k` resulting scores:
+
+<MathBlock tex="\text{CV score} = \frac{1}{k}\sum_{i=1}^{k} \text{score}(\text{model trained on folds} \neq i,\ \text{evaluated on fold } i)" />
+
+Every example gets used for evaluation *exactly once*, across the `k` folds, and for training in
+every fold except the one where it's held out — making full use of a small dataset rather than
+permanently sacrificing one chunk of it as a single validation set.
+
+<Callout kind="tip" title="Cross-validation isn't just 'more data' -- it reduces the estimate's VARIANCE">
+  Averaging `k` scores from `k` different splits doesn't just use more data efficiently — it
+  directly reduces how much the *final reported number* varies from one lucky-or-unlucky split
+  to another (an application of the same "averaging reduces variance" idea behind the Law of
+  Large Numbers, week one). The code below demonstrates this directly: single splits scatter
+  much more widely than the cross-validated average.
+</Callout>
+
+<h2 id="python">K-fold cross-validation, implemented and compared to single splits</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef k_fold_indices(n, k, seed=0):\n    rng = np.random.default_rng(seed)\n    indices = np.arange(n)\n    rng.shuffle(indices)\n    folds = np.array_split(indices, k)\n    return folds\n\n# a toy 'classifier': predicts correctly with some fixed underlying probability\ndef simulate_accuracy(rng, n_test, true_accuracy):\n    correct = rng.random(n_test) < true_accuracy\n    return correct.mean()\n\nrng = np.random.default_rng(1)\nn_examples = 40\ntrue_underlying_accuracy = 0.75   # the model's REAL performance, which we're trying to estimate\n\n# approach 1: many independent SINGLE train/test splits (80/20), each giving one noisy estimate\nsingle_split_scores = []\nfor trial in range(20):\n    test_size = int(n_examples * 0.2)\n    score = simulate_accuracy(rng, test_size, true_underlying_accuracy)\n    single_split_scores.append(score)\n\nprint(\"20 independent single 80/20 splits:\")\nprint(\"  scores:\", [round(float(s), 3) for s in single_split_scores[:8]], \"...\")\nprint(f\"  mean: {np.mean(single_split_scores):.4f}  std: {np.std(single_split_scores):.4f}\")\nprint()\n\n# approach 2: 5-fold cross-validation, repeated 20 times (20 different random fold assignments)\ncv_scores = []\nfor trial in range(20):\n    folds = k_fold_indices(n_examples, k=5, seed=trial)\n    fold_scores = [simulate_accuracy(rng, len(fold), true_underlying_accuracy) for fold in folds]\n    cv_scores.append(np.mean(fold_scores))   # average across the 5 folds -- THIS is the CV score\n\nprint(\"20 independent 5-fold CV estimates (each averaging 5 folds):\")\nprint(\"  scores:\", [round(float(s), 3) for s in cv_scores[:8]], \"...\")\nprint(f\"  mean: {np.mean(cv_scores):.4f}  std: {np.std(cv_scores):.4f}\")\nprint()\nprint(f\"true underlying accuracy: {true_underlying_accuracy}\")\nprint(f\"CV estimates are noticeably LESS spread out (smaller std) than single-split estimates,\")\nprint(f\"even though both average out to roughly the same true value.\")"}
+  output={"20 independent single 80/20 splits:\n  scores: [0.625, 0.75, 0.75, 0.75, 0.75, 0.625, 0.625, 0.625] ...\n  mean: 0.7188  std: 0.1304\n\n20 independent 5-fold CV estimates (each averaging 5 folds):\n  scores: [0.75, 0.725, 0.85, 0.775, 0.825, 0.725, 0.825, 0.675] ...\n  mean: 0.7337  std: 0.0699\n\ntrue underlying accuracy: 0.75\nCV estimates are noticeably LESS spread out (smaller std) than single-split estimates,\neven though both average out to roughly the same true value."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does 5-fold cross-validation give a more RELIABLE performance estimate than a single 80/20 train/test split, even though both should average to roughly the same true accuracy?"
+  correct={0}
+  options={[
+    { text: "A single split's score depends heavily on which specific examples happened to land in that one test set, so it can vary a lot by chance -- cross-validation averages over 5 different held-out sets, which reduces how much the final reported number is affected by any single unlucky (or lucky) split", why: "Correct — this is exactly the variance-reduction property verified in the code above: cross-validated scores across repeated trials cluster much more tightly around the true accuracy than single-split scores do, even though both have the same average." },
+    { text: "Cross-validation actually changes the model's true underlying performance", why: "Cross-validation is purely an EVALUATION methodology -- it doesn't change the model or its true performance at all, only how reliably that (fixed, unchanged) performance is measured and reported." },
+    { text: "A single 80/20 split always underestimates true accuracy, while cross-validation always overestimates it", why: "Neither approach has a systematic bias in one particular direction -- both single splits and cross-validation average out to approximately the true accuracy over many repetitions; the real difference is in how much any ONE estimate varies from that true value." },
+    { text: "Cross-validation uses a completely different model architecture than a single train/test split", why: "Cross-validation uses the exact same model and training procedure -- it only changes how the data is split and how many times evaluation happens, not anything about the model itself." },
+  ]}
+/>
+
+## Summary
+
+K-fold cross-validation splits data into `k` folds, training on `k-1` and evaluating on the
+held-out fold each time, then averages the `k` scores — giving a performance estimate that
+varies far less from one random split to another than a single train/test split does, verified
+directly above by comparing the spread of repeated single-split scores against repeated
+cross-validation scores. This is exactly the methodology used to reliably compare models or
+tune hyperparameters, rather than trusting one arbitrary split's result. The next lesson bridges
+this month's classical NLP techniques to Month 4's neural network tools, building a neural text
+classifier directly on top of the bag-of-words representation.
+
+## Further reading
+
+- Hastie, Tibshirani & Friedman, *The Elements of Statistical Learning*, Ch. 7 — cross-
+  validation and other model assessment and selection methods, with a formal treatment of bias
+  and variance in the estimate itself.

@@ -1,0 +1,88 @@
+---
+slug: bias-variance-tradeoff
+month: 5
+week: 4
+ord: 4
+title: "Choosing and Tuning a Model: Bias-Variance in Practice"
+code: "5.4.4"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Explain underfitting (high bias) and overfitting (high variance) as two ends of one spectrum"
+  - "Use cross-validation to trace out a bias-variance curve as model capacity increases"
+  - "Choose a model capacity using the cross-validated curve, not training accuracy alone"
+prereqs:
+  - "From Bag-of-Words to a Neural Classifier ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Bias, Variance, and Capacity }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two failure modes, one underlying trade-off</h2>
+
+Month 4's overfitting lesson showed a high-degree polynomial memorizing noise. That's one end of
+a spectrum called **bias-variance trade-off**: a model with too little capacity has **high
+bias** (it can't represent the true pattern at all, underfitting both train and validation
+data); a model with too much capacity has **high variance** (it fits training-set-specific noise
+that doesn't generalize, the classic overfitting signature). Between these extremes sits a
+capacity that fits the real pattern without memorizing noise — found using cross-validation
+(last lesson), not by staring at training accuracy alone.
+
+<h2 id="math">Bias, variance, and capacity</h2>
+
+As model capacity (e.g., a neural network's hidden layer size) increases:
+
+- **Training error** decreases roughly monotonically — more capacity means fitting the training
+  data more and more exactly.
+- **Cross-validated error** decreases at first (reducing bias, learning the real pattern), then
+  *increases* again (rising variance, memorizing noise) — an approximately **U-shaped** curve.
+
+The capacity at the bottom of that U is the sweet spot — genuinely the best-performing choice on
+new data, not the choice with the lowest training error (which is always the *largest* capacity
+tried, by construction, and is exactly the wrong signal to optimize).
+
+<Callout kind="tip" title="Why this generalizes last month's overfitting lesson">
+  Month 4 showed one *specific instance* of high variance (a degree-11 polynomial). Bias-
+  variance trade-off is the *general principle* behind that specific example — applicable to
+  polynomial degree, neural network width or depth, or, as verified below, the hidden layer size
+  of the text classifier built last lesson.
+</Callout>
+
+<h2 id="python">Tracing the bias-variance curve via cross-validation</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\n# generate a small, deliberately NOISY synthetic dataset: each document is mostly\n# 'its own' class's words, but with some words leaked in from the other class --\n# genuinely overlapping classes, not perfectly separable, so capacity actually matters\nrng = np.random.default_rng(0)\nspam_words = [\"free\", \"win\", \"prize\", \"cash\", \"click\", \"now\", \"claim\", \"vacation\", \"gift\", \"urgent\"]\nham_words = [\"meeting\", \"report\", \"schedule\", \"document\", \"tomorrow\", \"review\", \"team\", \"project\", \"thanks\", \"please\"]\n\ndef generate_doc(own_words, other_words, n_words, noise_frac, rng):\n    n_noise = int(n_words * noise_frac)\n    n_own = n_words - n_noise\n    words = list(rng.choice(own_words, size=n_own)) + list(rng.choice(other_words, size=n_noise))\n    rng.shuffle(words)\n    return \" \".join(words)\n\nn_per_class = 15   # a SMALL dataset -- exactly the setting where capacity matters most\ndocs = [generate_doc(spam_words, ham_words, 5, 0.35, rng) for _ in range(n_per_class)] + \\\n       [generate_doc(ham_words, spam_words, 5, 0.35, rng) for _ in range(n_per_class)]\nlabels = np.array([1]*n_per_class + [0]*n_per_class)\n\nvocab = sorted(set(w for doc in docs for w in tokenize(doc)))\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\ndef vectorize(text):\n    vec = np.zeros(V)\n    for word in tokenize(text):\n        if word in word_to_index:\n            vec[word_to_index[word]] += 1\n    return vec\n\nX = np.array([vectorize(d) for d in docs])\ny = labels\n\ndef softmax(z):\n    shifted = z - np.max(z, axis=-1, keepdims=True)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp, axis=-1, keepdims=True)\n\ndef train_and_eval(X_train, y_train, X_val, y_val, hidden_size, n_epochs=300, lr=0.1, seed=1):\n    rng2 = np.random.default_rng(seed)\n    W1 = rng2.normal(0, 0.5, (V, hidden_size)); b1 = np.zeros(hidden_size)\n    W2 = rng2.normal(0, 0.5, (hidden_size, 2)); b2 = np.zeros(2)\n    n = len(X_train)\n    for epoch in range(n_epochs):\n        h = np.maximum(0, X_train @ W1 + b1)\n        logits = h @ W2 + b2\n        probs = softmax(logits)\n        one_hot = np.zeros((n, 2)); one_hot[np.arange(n), y_train] = 1.0\n        d_logits = (probs - one_hot) / n\n        dW2 = h.T @ d_logits; db2 = d_logits.sum(axis=0)\n        d_h = d_logits @ W2.T; d_h[h <= 0] = 0\n        dW1 = X_train.T @ d_h; db1 = d_h.sum(axis=0)\n        W1 -= lr * dW1; b1 -= lr * db1; W2 -= lr * dW2; b2 -= lr * db2\n\n    train_preds = np.argmax(np.maximum(0, X_train @ W1 + b1) @ W2 + b2, axis=1)\n    val_preds = np.argmax(np.maximum(0, X_val @ W1 + b1) @ W2 + b2, axis=1)\n    return (train_preds == y_train).mean(), (val_preds == y_val).mean()\n\ndef k_fold_indices(n, k, seed=0):\n    rng3 = np.random.default_rng(seed)\n    idx = np.arange(n); rng3.shuffle(idx)\n    return np.array_split(idx, k)\n\n# repeat 5-fold CV several times with different shuffles and average -- exactly last\n# lesson's variance-reduction technique, needed here because the dataset is so small\nprint(f\"{'hidden_size':>11} {'train_acc':>10} {'cv_acc':>8}\")\nfor hidden_size in [1, 2, 4, 16, 64, 128]:\n    train_accs, val_accs = [], []\n    for cv_seed in range(6):\n        folds = k_fold_indices(len(X), k=5, seed=cv_seed)\n        for i in range(5):\n            val_idx = folds[i]\n            train_idx = np.concatenate([folds[j] for j in range(5) if j != i])\n            t_acc, v_acc = train_and_eval(X[train_idx], y[train_idx], X[val_idx], y[val_idx], hidden_size, seed=cv_seed*10+i)\n            train_accs.append(t_acc); val_accs.append(v_acc)\n    print(f\"{hidden_size:>11} {np.mean(train_accs):>10.3f} {np.mean(val_accs):>8.3f}\")"}
+  output={"hidden_size  train_acc   cv_acc\n          1      0.960    0.861\n          2      0.993    0.867\n          4      0.996    0.911\n         16      1.000    0.911\n         64      1.000    0.922\n        128      1.000    0.850"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In a bias-variance curve, why is the model with the LOWEST training error almost never the right choice to deploy?"
+  correct={2}
+  options={[
+    { text: "Training error is computed incorrectly for high-capacity models", why: "Training error is computed correctly regardless of model capacity -- there's no computational error involved. The issue is what training error actually measures (fit to already-seen data), not a bug in how it's calculated." },
+    { text: "Lower training error always means better generalization, so this claim is actually false", why: "This is backwards -- training error and generalization performance (cross-validated error) frequently diverge for high-capacity models, which is exactly the bias-variance trade-off's core lesson. Lower training error does NOT reliably mean better performance on new data." },
+    { text: "Training error keeps decreasing (or stays flat) as capacity grows without bound, since more capacity always allows fitting the training data more exactly -- but cross-validated error eventually INCREASES past some capacity, as the model starts fitting training-set-specific noise rather than the true underlying pattern", why: "Correct — this is exactly the U-shaped cross-validated error curve: the highest-capacity model in the sweep will always have the lowest (or tied-lowest) training error by construction, but that capacity is frequently past the point where cross-validated performance peaks." },
+    { text: "Training error and cross-validated error are actually always identical numbers", why: "They are generally NOT identical -- the entire point of tracking both separately is that they diverge as capacity increases, with training error typically becoming much lower than cross-validated error for high-capacity models." },
+  ]}
+/>
+
+## Summary
+
+Bias-variance trade-off generalizes Month 4's overfitting lesson into a full spectrum: too
+little model capacity underfits (high bias, poor performance everywhere), too much overfits
+(high variance, memorizing training-set noise), and cross-validation traces out the resulting
+U-shaped curve needed to find the sweet spot in between — verified above across several hidden
+layer sizes for the text classifier. Training accuracy alone always favors the largest capacity
+tried, which is precisely the wrong signal for choosing a model to deploy. The final lesson this
+month assembles everything — probability, information theory, classical NLP, evaluation, and
+this bias-variance methodology — into the Text Classifier capstone.
+
+## Further reading
+
+- Hastie, Tibshirani & Friedman, *The Elements of Statistical Learning*, Ch. 2.9 and Ch. 7 —
+  the formal bias-variance decomposition and its relationship to model selection.

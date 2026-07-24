@@ -1,0 +1,88 @@
+---
+slug: cross-entropy-revisited
+month: 5
+week: 2
+ord: 2
+title: "Cross-Entropy, Revisited: An Information-Theoretic View"
+code: "5.2.2"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Define cross-entropy between two distributions, generalizing entropy to two distributions"
+  - "Show that Month 4's -log(p_correct) loss is exactly cross-entropy against a one-hot true distribution"
+  - "Explain why cross-entropy is always at least as large as the true distribution's own entropy"
+prereqs:
+  - "Entropy: Measuring Uncertainty ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Cross-Entropy, Defined }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Entropy for two distributions: the true one, and your guess</h2>
+
+Entropy measures the average bits needed to encode outcomes from a distribution `P`, *using an
+optimal code built for P itself*. **Cross-entropy** asks a related but different question: what
+if you encode outcomes from the true distribution `P`, but using a code that was optimized for
+a *different*, possibly wrong distribution `Q` (your model's prediction)? The more `Q`
+mismatches `P`, the more bits get wasted — cross-entropy is always at least as large as `P`'s
+own entropy, and the gap is exactly how much your model's predictions cost you for being wrong.
+
+<h2 id="math">Cross-entropy, defined</h2>
+
+<MathBlock tex="H(P, Q) = -\sum_i P(i) \log_2 Q(i)" />
+
+Compare this to entropy, `H(P) = -ΣP(i)log₂P(i)` — cross-entropy simply replaces the *second*
+`P(i)` with `Q(i)`, the model's predicted probability, while still weighting by the *true*
+probability `P(i)`. When a true label is one-hot (probability `1` on the correct class, `0`
+everywhere else — exactly Month 4's classification setup), only one term in the sum survives:
+
+<MathBlock tex="H(P,Q) = -1\cdot\log_2 Q(\text{correct class}) = -\log_2 Q(\text{correct class})" />
+
+— exactly Month 4's `-log(p_correct)` cross-entropy loss (using the natural log there instead of
+`log₂` is just a units choice — "nats" instead of "bits" — that doesn't change any of the
+underlying behavior or the optimization).
+
+<h2 id="python">Cross-entropy, verified, and its relationship to entropy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef entropy(p):\n    p = np.array(p)\n    nz = p[p > 0]\n    return -np.sum(nz * np.log2(nz))\n\ndef cross_entropy(p, q):\n    p, q = np.array(p), np.array(q)\n    mask = p > 0   # skip terms where p(i)=0 -- they contribute nothing regardless of q(i)\n    return -np.sum(p[mask] * np.log2(q[mask]))\n\n# true distribution: a fair coin\np_true = [0.5, 0.5]\n\n# three possible models (predicted distributions), of varying quality\nq_perfect = [0.5, 0.5]      # matches P exactly\nq_close = [0.6, 0.4]        # a bit off\nq_bad = [0.99, 0.01]        # confidently wrong about the balance\n\nprint(f\"H(P) [entropy of the true distribution]: {entropy(p_true):.4f} bits\")\nprint()\nfor name, q in [(\"perfect model\", q_perfect), (\"close model\", q_close), (\"bad model\", q_bad)]:\n    ce = cross_entropy(p_true, q)\n    gap = ce - entropy(p_true)\n    print(f\"{name:>13} Q={q}: H(P,Q) = {ce:.4f} bits   (gap over H(P): {gap:.4f})\")\n\nprint()\nprint(\"the gap is exactly zero only when Q matches P exactly -- otherwise cross-entropy\")\nprint(\"is STRICTLY greater than the true distribution's own entropy, and grows as Q gets worse.\")\nprint()\n\n# connect directly to Month 4's -log(p_correct) formula, for a one-hot true label\none_hot_true = [1.0, 0.0]      # 'true class is index 0', with total certainty\nmodel_prediction = [0.8, 0.2]  # model assigns 80% to the correct class\nce_onehot = cross_entropy(one_hot_true, model_prediction)\nmonth4_style = -np.log2(model_prediction[0])   # exactly Month 4's -log(p_correct), base-2 here\nprint(f\"one-hot cross-entropy: {ce_onehot:.4f} bits\")\nprint(f\"Month-4-style -log2(p_correct): {month4_style:.4f} bits\")\nprint(f\"identical: {np.isclose(ce_onehot, month4_style)}\")"}
+  output={"H(P) [entropy of the true distribution]: 1.0000 bits\n\nperfect model Q=[0.5, 0.5]: H(P,Q) = 1.0000 bits   (gap over H(P): 0.0000)\n  close model Q=[0.6, 0.4]: H(P,Q) = 1.0294 bits   (gap over H(P): 0.0294)\n    bad model Q=[0.99, 0.01]: H(P,Q) = 3.3292 bits   (gap over H(P): 2.3292)\n\nthe gap is exactly zero only when Q matches P exactly -- otherwise cross-entropy\nis STRICTLY greater than the true distribution's own entropy, and grows as Q gets worse.\n\none-hot cross-entropy: 0.3219 bits\nMonth-4-style -log2(p_correct): 0.3219 bits\nidentical: True"}
+/>
+
+<Callout kind="tip" title="This is exactly why cross-entropy loss can never go below zero">
+  Since cross-entropy is always at least the true distribution's own entropy, and a one-hot true
+  label has *zero* entropy (no uncertainty — `H([1,0]) = 0`, as verified last lesson), a
+  classification model's cross-entropy loss is bounded below by exactly `0`, achieved only when
+  the model assigns probability `1` to the correct class. This is a cleaner explanation of "loss
+  can't go negative" than just accepting it as a property of the formula.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is cross-entropy H(P,Q) always greater than or equal to the true distribution's own entropy H(P), becoming equal only when Q exactly matches P?"
+  correct={2}
+  options={[
+    { text: "This is simply an arbitrary convention chosen when cross-entropy was first defined", why: "It's not an arbitrary convention -- it's a provable mathematical fact (related to a result called Gibbs' inequality), directly demonstrated in the code above across models of varying quality." },
+    { text: "It only holds true for one-hot (fully certain) true distributions, not general distributions like the fair-coin example", why: "The fair-coin example (P=[0.5,0.5], not one-hot at all) already demonstrates the gap growing as Q worsens -- the property holds for general distributions, not just one-hot ones." },
+    { text: "H(P) represents encoding outcomes from P using the BEST POSSIBLE code (one built specifically for P); any other code, including one built for a mismatched Q, can only do as well or worse, never better, at encoding P's actual outcomes -- so H(P,Q) >= H(P) always, with equality exactly when Q=P (using P's own optimal code)", why: "Correct — this is exactly the intuition given: H(P) is the BEST achievable average code length for P's outcomes, so using a mismatched code (from Q) can only match or exceed it, never beat it." },
+    { text: "Cross-entropy and entropy are actually unrelated quantities that happen to look similar", why: "They are directly related -- cross-entropy generalizes entropy to two distributions, reducing exactly to entropy itself when Q=P, as shown by the 'perfect model' case in the code." },
+  ]}
+/>
+
+## Summary
+
+Cross-entropy `H(P,Q) = -ΣP(i)log₂Q(i)` measures the cost (in bits) of encoding true-distribution
+outcomes using a code optimized for a possibly-mismatched `Q` — always at least `H(P)` itself,
+with the gap growing as `Q` worsens, verified directly above. For a one-hot true label, this
+reduces exactly to Month 4's `-log(p_correct)` loss, now understood as a specific case of a more
+general information-theoretic quantity rather than an arbitrary formula. The next lesson
+isolates that "gap" itself — KL divergence — as its own named, useful quantity.
+
+## Further reading
+
+- Cover & Thomas, *Elements of Information Theory*, Ch. 2 — cross-entropy, Gibbs' inequality
+  (the proof that `H(P,Q) ≥ H(P)`), and their relationship to coding theory.

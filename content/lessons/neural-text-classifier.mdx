@@ -1,0 +1,99 @@
+---
+slug: neural-text-classifier
+month: 5
+week: 4
+ord: 3
+title: "From Bag-of-Words to a Neural Classifier"
+code: "5.4.3"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Feed a bag-of-words vector directly into the Month 4 Linear/ReLU/softmax pipeline"
+  - "Train a small neural text classifier with cross-entropy loss and Adam, reusing Month 4's training loop"
+  - "Compare a neural classifier's decision process to Naive Bayes' explicit probability model"
+prereqs:
+  - "Cross-Validation and Train/Test Methodology ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Bag-of-Words as a Feature Vector }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Text classification was never a special case</h2>
+
+Every piece needed for a neural text classifier already exists from Month 4: `nn.Linear`,
+`ReLU`, softmax, cross-entropy loss, and Adam. The only genuinely new idea this month contributes
+is the *input representation* — turning text into a fixed-length numeric vector (bag-of-words or
+TF-IDF) that Month 4's machinery can consume exactly as if it were any other kind of numeric
+feature vector, no different from the tabular examples used there.
+
+<h2 id="math">Bag-of-words as a feature vector</h2>
+
+A document's bag-of-words vector `x \in \mathbb{R}^{|V|}` (vocabulary size `|V|`) is fed
+directly into a small feedforward network, exactly matching Month 4's architecture pattern:
+
+<MathBlock tex="h = \text{ReLU}(xW_1+b_1) \qquad \text{logits} = hW_2+b_2 \qquad \hat{y}=\text{softmax}(\text{logits})" />
+
+Trained with cross-entropy loss and Adam — precisely Month 4's `minimal-training-script`
+pipeline, with a bag-of-words vector standing in for whatever numeric features were used there.
+
+```python
+# reference only -- torch isn't available in this browser sandbox
+import torch.nn as nn
+
+class TextClassifier(nn.Module):
+    def __init__(self, vocab_size, hidden_size, n_classes):
+        super().__init__()
+        self.fc1 = nn.Linear(vocab_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, n_classes)
+    def forward(self, bow_vector):
+        h = torch.relu(self.fc1(bow_vector))
+        return self.fc2(h)   # raw logits; nn.CrossEntropyLoss applies softmax internally
+```
+
+<h2 id="python">A neural classifier on bag-of-words vectors, trained from scratch</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\ntrain_data = [\n    (\"win free money now\", 1), (\"free prize click now\", 1),\n    (\"win a free vacation now\", 1), (\"claim your free money prize\", 1),\n    (\"congratulations you win cash prize\", 1), (\"click now for free gift\", 1),\n    (\"meeting scheduled for tomorrow\", 0), (\"can we reschedule our meeting\", 0),\n    (\"please review the attached document\", 0), (\"let us know your availability tomorrow\", 0),\n    (\"the report is due tomorrow\", 0), (\"thanks for sending the document\", 0),\n]\n\n# build vocabulary and bag-of-words vectors, exactly like the bag-of-words lesson\nvocab = sorted(set(w for text, _ in train_data for w in tokenize(text)))\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\ndef vectorize(text):\n    vec = np.zeros(V)\n    for word in tokenize(text):\n        if word in word_to_index:   # ignore out-of-vocabulary words\n            vec[word_to_index[word]] += 1\n    return vec\n\nX = np.array([vectorize(t) for t, _ in train_data])\ny = np.array([label for _, label in train_data])\n\n# a small feedforward network: Linear -> ReLU -> Linear -> softmax (exactly Month 4's shape)\nrng = np.random.default_rng(0)\nhidden_size = 8\nW1 = rng.normal(0, 0.3, (V, hidden_size)); b1 = np.zeros(hidden_size)\nW2 = rng.normal(0, 0.3, (hidden_size, 2)); b2 = np.zeros(2)\n\ndef softmax(z):\n    shifted = z - np.max(z, axis=-1, keepdims=True)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp, axis=-1, keepdims=True)\n\ndef forward(x):\n    h = np.maximum(0, x @ W1 + b1)\n    logits = h @ W2 + b2\n    return h, logits\n\nparams = {\"W1\": W1, \"b1\": b1, \"W2\": W2, \"b2\": b2}\nm_state = {k: np.zeros_like(v) for k, v in params.items()}\nv_state = {k: np.zeros_like(v) for k, v in params.items()}\nbeta1, beta2, eps, lr = 0.9, 0.999, 1e-8, 0.05\n\nn = len(X)\nfor epoch in range(1, 301):\n    h, logits = forward(X)\n    probs = softmax(logits)\n    one_hot = np.zeros((n, 2)); one_hot[np.arange(n), y] = 1.0\n    loss = -np.mean(np.log(probs[np.arange(n), y] + 1e-12))\n\n    d_logits = (probs - one_hot) / n\n    dW2 = h.T @ d_logits\n    db2 = d_logits.sum(axis=0)\n    d_h = d_logits @ W2.T\n    d_h[h <= 0] = 0   # ReLU gradient\n    dW1 = X.T @ d_h\n    db1 = d_h.sum(axis=0)\n    grads = {\"W1\": dW1, \"b1\": db1, \"W2\": dW2, \"b2\": db2}\n\n    for k in params:\n        m_state[k] = beta1 * m_state[k] + (1 - beta1) * grads[k]\n        v_state[k] = beta2 * v_state[k] + (1 - beta2) * grads[k]**2\n        m_hat = m_state[k] / (1 - beta1**epoch)\n        v_hat = v_state[k] / (1 - beta2**epoch)\n        params[k] -= lr * m_hat / (np.sqrt(v_hat) + eps)\n    W1, b1, W2, b2 = params[\"W1\"], params[\"b1\"], params[\"W2\"], params[\"b2\"]\n\n    if epoch % 60 == 0 or epoch == 1:\n        preds = np.argmax(logits, axis=1)\n        acc = np.mean(preds == y)\n        print(f\"epoch {epoch:3d}: loss={loss:.4f}  train_acc={acc:.2f}\")\n\nprint()\ntest_examples = [\"win free cash now\", \"schedule the meeting please\"]\nfor text in test_examples:\n    _, logits = forward(vectorize(text).reshape(1, -1))\n    pred = np.argmax(logits, axis=1)[0]\n    label_name = \"spam\" if pred == 1 else \"ham\"\n    print(f\"'{text}' -> predicted: {label_name}\")"}
+  output={"epoch   1: loss=0.9530  train_acc=0.17\nepoch  60: loss=0.0000  train_acc=1.00\nepoch 120: loss=0.0000  train_acc=1.00\nepoch 180: loss=0.0000  train_acc=1.00\nepoch 240: loss=0.0000  train_acc=1.00\nepoch 300: loss=0.0000  train_acc=1.00\n\n'win free cash now' -> predicted: spam\n'schedule the meeting please' -> predicted: ham"}
+/>
+
+<Callout kind="tip" title="Naive Bayes vs. neural: an explicit model vs. a learned one">
+  Naive Bayes explicitly estimates `P(word|class)` for every word and combines them via a fixed
+  formula derived from Bayes' theorem — the decision process is fully interpretable. A neural
+  classifier instead *learns* whatever weighted combination of bag-of-words features happens to
+  minimize cross-entropy loss on the training data, with no explicit per-word probability
+  ever computed. Both can perform well; they represent genuinely different modeling philosophies
+  — explicit probabilistic structure versus a flexible, learned function.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What is the ONE genuinely new idea this lesson introduces, beyond what Month 4 already built?"
+  correct={1}
+  options={[
+    { text: "A new loss function specifically designed for text data", why: "The loss function is exactly Month 4's cross-entropy loss, unchanged -- no text-specific loss function is introduced here." },
+    { text: "Representing text as a fixed-length bag-of-words vector, so that Month 4's existing Linear/ReLU/softmax/cross-entropy/Adam pipeline can be applied to it completely unchanged", why: "Correct — this is exactly the lesson's point: nothing about the training pipeline itself needed to change for text; only the INPUT REPRESENTATION (turning text into a numeric vector) was new, and that came from this month's earlier bag-of-words lesson, not from anything text-classification-specific in this lesson's network architecture." },
+    { text: "A new optimizer specifically designed for sparse bag-of-words gradients", why: "The optimizer is exactly Month 4's Adam, with no text-specific modification -- no new optimizer is introduced." },
+    { text: "A completely new backward-pass algorithm for handling variable-length text", why: "The backward pass uses the exact same reverse-mode differentiation from Month 3 -- and bag-of-words vectors are actually FIXED-length (by vocabulary size), not variable-length, so there's no new backward-pass mechanism needed here at all." },
+  ]}
+/>
+
+## Summary
+
+A neural text classifier is Month 4's exact architecture — `Linear → ReLU → Linear → softmax`,
+trained with cross-entropy and Adam — applied to bag-of-words input vectors, verified above by
+training one from scratch on a small spam/ham dataset. The only genuinely new ingredient is the
+text-to-vector representation from earlier this month; nothing about the training pipeline
+itself needed to change. This stands in contrast to Naive Bayes' explicit, interpretable
+probability model — two different philosophies for the same task. The next lesson covers
+choosing between approaches like these using the bias-variance framework, directly ahead of the
+capstone.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 7 — neural network approaches to
+  text classification, including bag-of-words and beyond.

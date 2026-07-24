@@ -1,0 +1,95 @@
+---
+slug: maximum-likelihood-estimation
+month: 5
+week: 2
+ord: 5
+title: "Maximum Likelihood Estimation and Its Link to Cross-Entropy"
+code: "5.2.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "State the maximum likelihood estimation (MLE) principle and derive the MLE for a Bernoulli parameter"
+  - "Show that minimizing cross-entropy loss over a dataset is exactly maximum likelihood estimation"
+  - "Verify the closed-form Bernoulli MLE against a numerical search for the maximum"
+prereqs:
+  - "Softmax, Revisited: Why It's the Natural Choice ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The MLE Principle }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: the general principle behind cross-entropy training</h2>
+
+Every parameter estimation this month — and every neural network weight ever trained with
+cross-entropy loss — is secretly an instance of one general statistical principle: **maximum
+likelihood estimation (MLE)**. Given observed data and a family of candidate models (parameter
+values), choose the parameters that make the *observed data* as probable as possible under the
+model. This lesson makes that principle precise, and shows — not just claims — that training a
+classifier with cross-entropy loss literally *is* maximum likelihood estimation.
+
+<h2 id="math">The MLE principle</h2>
+
+For data `x_1, \ldots, x_n` (assumed independent) and a model with parameter `θ`, the
+**likelihood** of the data is the probability the model assigns to it:
+
+<MathBlock tex="L(\theta) = \prod_{i=1}^{n} P(x_i \mid \theta) \qquad \hat\theta_{\text{MLE}} = \arg\max_\theta L(\theta)" />
+
+Products of many small probabilities underflow numerically, so in practice you maximize the
+**log-likelihood** instead — the logarithm turns the product into a sum, and since `log` is
+monotonically increasing, it never changes *which* `θ` is the maximizer:
+
+<MathBlock tex="\log L(\theta) = \sum_{i=1}^{n} \log P(x_i \mid \theta)" />
+
+For `n` independent Bernoulli(`p`) trials with `k` observed successes, maximizing the
+log-likelihood with respect to `p` (via ordinary calculus — setting the derivative to zero, a
+direct application of Month 3's tools) gives a strikingly simple closed form:
+
+<MathBlock tex="\hat{p}_{\text{MLE}} = \frac{k}{n} \qquad \text{(just the observed success rate)}" />
+
+<Callout kind="tip" title="Cross-entropy minimization IS maximum likelihood estimation">
+  For a classification dataset, the **negative** log-likelihood of the correct labels under the
+  model, summed (or averaged) over all examples, is *exactly* the total cross-entropy loss
+  Month 4 minimized: `-\sum_i \log Q(y_i | x_i)`. Minimizing cross-entropy loss and maximizing
+  the likelihood of the true labels are the same optimization problem, just with a sign flip and
+  a name. Every classifier trained this way is doing maximum likelihood estimation, whether or
+  not that name was ever mentioned.
+</Callout>
+
+<h2 id="python">The Bernoulli MLE, verified against a numerical search</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\n# generate data from a coin with a KNOWN true bias, then pretend we don't know it\ntrue_p = 0.7\nn_flips = 200\nflips = (rng.random(n_flips) < true_p).astype(int)   # 1 = heads, 0 = tails\nk = flips.sum()\nprint(f\"observed: {k} heads out of {n_flips} flips\")\n\n# closed-form MLE: just the observed success rate\np_mle_closed_form = k / n_flips\nprint(f\"closed-form MLE: p_hat = k/n = {p_mle_closed_form:.4f}\")\nprint()\n\n# verify by brute-force: compute the log-likelihood for many candidate p values, find the max\ndef log_likelihood(p, flips):\n    # avoid log(0) at the p=0 or p=1 boundary\n    p = np.clip(p, 1e-10, 1 - 1e-10)\n    return np.sum(flips * np.log(p) + (1 - flips) * np.log(1 - p))\n\ncandidate_ps = np.linspace(0.01, 0.99, 9801)   # a fine grid of candidate p values\nlog_likelihoods = [log_likelihood(p, flips) for p in candidate_ps]\np_mle_grid_search = candidate_ps[np.argmax(log_likelihoods)]\nprint(f\"grid-search MLE (best of {len(candidate_ps)} candidates): p_hat = {p_mle_grid_search:.4f}\")\nprint(f\"matches closed-form: {np.isclose(p_mle_closed_form, p_mle_grid_search, atol=1e-3)}\")\nprint()\n\n# also confirm: NEGATIVE log-likelihood at the MLE equals the average cross-entropy loss\navg_neg_log_likelihood = -log_likelihood(p_mle_closed_form, flips) / n_flips\ncross_entropy_style = -np.mean(flips * np.log(p_mle_closed_form) + (1 - flips) * np.log(1 - p_mle_closed_form))\nprint(f\"average negative log-likelihood at p_hat: {avg_neg_log_likelihood:.4f}\")\nprint(f\"(this IS the binary cross-entropy loss, evaluated at the MLE)\")\nprint(f\"identical to direct cross-entropy computation: {np.isclose(avg_neg_log_likelihood, cross_entropy_style)}\")"}
+  output={"observed: 127 heads out of 200 flips\nclosed-form MLE: p_hat = k/n = 0.6350\n\ngrid-search MLE (best of 9801 candidates): p_hat = 0.6350\nmatches closed-form: True\n\naverage negative log-likelihood at p_hat: 0.6562\n(this IS the binary cross-entropy loss, evaluated at the MLE)\nidentical to direct cross-entropy computation: True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is training a neural network with cross-entropy loss described as 'doing maximum likelihood estimation', even if MLE was never explicitly mentioned when the network was built?"
+  correct={1}
+  options={[
+    { text: "It isn't really MLE -- the resemblance is coincidental, and the two are only loosely similar in spirit", why: "It's not a loose resemblance or coincidence -- cross-entropy loss (summed over a dataset) is EXACTLY the negative log-likelihood of the true labels under the model, verified directly in the code above." },
+    { text: "The total cross-entropy loss over a dataset is exactly the negative log-likelihood of the true labels under the model's predicted distribution, so minimizing cross-entropy loss and maximizing likelihood are literally the same optimization problem with a sign flip", why: "Correct — this is exactly the identity verified above: the average negative log-likelihood at the MLE matches the cross-entropy loss computation exactly, confirming they are the same quantity." },
+    { text: "MLE only applies to simple distributions like Bernoulli, never to complex models like neural networks", why: "MLE applies generally to any parametric probability model, including the very complex distribution a neural network with millions of parameters implicitly defines over its outputs -- it's not restricted to simple textbook distributions." },
+    { text: "Cross-entropy and log-likelihood happen to use the same mathematical symbols but mean different things", why: "They don't just share notation -- they are the exact same quantity (up to a sign and, in some conventions, an averaging factor), which is precisely why minimizing one accomplishes the other." },
+  ]}
+/>
+
+## Week two summary
+
+This week grounded Month 4's cross-entropy loss in information theory and statistics: entropy
+measures a distribution's own uncertainty; cross-entropy measures the cost of using a
+mismatched distribution to encode another's outcomes; KL divergence isolates that mismatch cost
+exactly; softmax is the unique, non-arbitrary way to turn logits into probabilities; and
+training with cross-entropy loss is precisely maximum likelihood estimation, verified above via
+the classic Bernoulli case. None of this changes how any Month 4 code was written — it explains
+*why* that code was the right choice. Week three turns to representing text itself as data,
+building toward this month's Text Classifier capstone.
+
+## Further reading
+
+- Wasserman, *All of Statistics*, Ch. 9 — the general theory of maximum likelihood estimation,
+  its properties, and its central role across statistics and machine learning.

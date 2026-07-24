@@ -1,0 +1,90 @@
+---
+slug: softmax-revisited
+month: 5
+week: 2
+ord: 4
+title: "Softmax, Revisited: Why It's the Natural Choice"
+code: "5.2.4"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Derive softmax from the requirement that equal logit differences mean constant probability ratios"
+  - "Show that minimizing cross-entropy against a one-hot label is exactly minimizing KL divergence"
+  - "Re-verify softmax's clean gradient with cross-entropy loss, now understood from first principles"
+prereqs:
+  - "KL Divergence: Measuring Distance Between Distributions ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Deriving Softmax }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Softmax wasn't an arbitrary formula choice</h2>
+
+Month 4 introduced softmax as "the function that converts logits into probabilities" without
+asking *why that specific formula*, rather than some other way of normalizing numbers into
+`[0,1]` summing to `1`. This lesson derives it from a natural requirement, and shows that
+training with cross-entropy against a one-hot label is *exactly* minimizing KL divergence to the
+true distribution — connecting every information-theoretic idea this week into one coherent
+picture.
+
+<h2 id="math">Deriving softmax</h2>
+
+Suppose a network's raw logits `z_i` are meant to represent *relative log-probabilities* — a
+natural requirement being that the *ratio* between any two classes' probabilities,
+`Q(i)/Q(j)`, should depend only on the *difference* `z_i - z_j`, not on their absolute values or
+on any other logit (shifting every logit by the same constant, or changing an unrelated class's
+logit, shouldn't affect how two OTHER classes compare to each other). That requirement forces
+`Q(i) \propto e^{z_i}`; normalizing so probabilities sum to `1` gives exactly softmax:
+
+<MathBlock tex="Q(i) = \frac{e^{z_i}}{\sum_j e^{z_j}}" />
+
+There is no other normalization that satisfies that "probability ratio depends only on the
+logit difference" requirement — softmax is the *unique* answer, not one arbitrary option among
+many.
+
+<Callout kind="tip" title="Training with cross-entropy IS minimizing KL divergence">
+  For a one-hot true label `P`, `H(P)=0` (zero entropy — no uncertainty, verified in the entropy
+  lesson). Since `D_{KL}(P\|Q) = H(P,Q) - H(P) = H(P,Q) - 0 = H(P,Q)`, minimizing cross-entropy
+  loss and minimizing KL divergence to the true label are *exactly the same optimization
+  problem* whenever the true label is one-hot. Training a classifier with cross-entropy loss
+  literally is training it to minimize KL divergence to the true distribution.
+</Callout>
+
+<h2 id="python">Softmax's defining property and its gradient, both verified</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(z):\n    shifted = z - np.max(z)\n    exp = np.exp(shifted)\n    return exp / np.sum(exp)\n\n# verify the defining property: the RATIO Q(0)/Q(2) should depend ONLY on (z[0]-z[2]),\n# scaling by exactly e^c when z[0] shifts by c -- regardless of z[1]\nz = np.array([1.0, 2.0, 0.5])\nq_before = softmax(z)\nratio_02_before = q_before[0] / q_before[2]\n\nc = 1.5\nz_shifted = z.copy()\nz_shifted[0] += c   # shift ONLY z[0]\nq_after = softmax(z_shifted)\nratio_02_after = q_after[0] / q_after[2]\n\nprint(\"probabilities before shift:\", q_before.round(4))\nprint(\"probabilities after shifting z[0] by\", c, \":\", q_after.round(4))\nprint()\nprint(f\"Q(0)/Q(2) before: {ratio_02_before:.4f}\")\nprint(f\"Q(0)/Q(2) after:  {ratio_02_after:.4f}\")\nprint(f\"ratio of those ratios (after/before): {ratio_02_after/ratio_02_before:.4f}\")\nprint(f\"expected e^c = {np.exp(c):.4f}\")\nprint(f\"matches: {np.isclose(ratio_02_after/ratio_02_before, np.exp(c))}\")\nprint()\n\n# meanwhile, the ratio between the two UNSHIFTED classes (1 and 2) stays completely fixed\nratio_12_before = q_before[1] / q_before[2]\nratio_12_after = q_after[1] / q_after[2]\nprint(f\"ratio between unaffected classes 1&2, before: {ratio_12_before:.4f}, after: {ratio_12_after:.4f}\")\nprint(f\"unchanged: {np.isclose(ratio_12_before, ratio_12_after)}\")\nprint()\n\n# re-verify the gradient of cross-entropy w.r.t. logits: softmax(z) - one_hot\ntrue_class = 1\none_hot = np.zeros(3); one_hot[true_class] = 1.0\nq = softmax(z)\nanalytical_grad = q - one_hot\n\ndef cross_entropy_loss(z, true_class):\n    return -np.log(softmax(z)[true_class])\n\ndef numerical_grad(i, h=1e-6):\n    z_plus = z.copy(); z_plus[i] += h\n    return (cross_entropy_loss(z_plus, true_class) - cross_entropy_loss(z, true_class)) / h\n\nnumerical = np.array([numerical_grad(i) for i in range(3)])\nprint(\"analytical dL/dz (softmax(z) - one_hot):\", analytical_grad.round(4))\nprint(\"numerical  dL/dz:                       \", numerical.round(4))\nprint(\"match:\", np.allclose(analytical_grad, numerical, atol=1e-3))"}
+  output={"probabilities before shift: [0.2312 0.6285 0.1402]\nprobabilities after shifting z[0] by 1.5 : [0.5741 0.3482 0.0777]\n\nQ(0)/Q(2) before: 1.6487\nQ(0)/Q(2) after:  7.3891\nratio of those ratios (after/before): 4.4817\nexpected e^c = 4.4817\nmatches: True\n\nratio between unaffected classes 1&2, before: 4.4817, after: 4.4817\nunchanged: True\n\nanalytical dL/dz (softmax(z) - one_hot): [ 0.2312 -0.3715  0.1402]\nnumerical  dL/dz:                        [ 0.2312 -0.3715  0.1402]\nmatch: True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does training a classifier with cross-entropy loss against a one-hot true label turn out to be EXACTLY the same optimization as minimizing KL divergence to that label?"
+  correct={3}
+  options={[
+    { text: "It isn't actually the same -- cross-entropy and KL divergence just happen to produce similar-looking numbers", why: "It IS exactly the same optimization, not merely similar -- this follows from an exact algebraic identity, not a coincidental numerical resemblance." },
+    { text: "Because softmax always outputs a one-hot vector itself", why: "Softmax's output is virtually never exactly one-hot -- it produces a smooth probability distribution over all classes. The one-hot vector here is the TRUE LABEL, not softmax's output." },
+    { text: "Cross-entropy and KL divergence are unrelated quantities that happen to have similar formulas", why: "They are directly, exactly related by the identity D_KL(P||Q) = H(P,Q) - H(P), verified in the previous lesson -- not merely superficially similar in form." },
+    { text: "D_KL(P||Q) = H(P,Q) - H(P) by definition, and a one-hot P has H(P) = 0 (zero entropy, since there's no uncertainty about a certain outcome) -- so D_KL(P||Q) reduces to exactly H(P,Q), meaning minimizing one IS minimizing the other", why: "Correct — this is the exact algebraic chain: since H(P)=0 for a one-hot label, KL divergence and cross-entropy become the identical quantity, not just numerically close." },
+  ]}
+/>
+
+## Summary
+
+Softmax, `Q(i) = e^{z_i}/Σe^{z_j}`, is the unique normalization satisfying a natural
+requirement: the ratio between any two classes' probabilities should depend only on the
+difference between their logits — verified directly above. Because a one-hot true label has zero
+entropy, minimizing cross-entropy against it is *exactly* minimizing KL divergence to the true
+distribution, not merely a related idea. This closes the information-theoretic story behind
+Month 4's loss function. The final lesson this week connects all of this to maximum likelihood
+estimation — the general statistical principle that cross-entropy minimization turns out to be
+a special case of.
+
+## Further reading
+
+- Bishop, *Pattern Recognition and Machine Learning*, Ch. 4.3 — softmax's derivation from the
+  exponential family of distributions, a more general version of the argument given here.

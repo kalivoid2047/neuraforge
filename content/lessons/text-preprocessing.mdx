@@ -1,0 +1,84 @@
+---
+slug: text-preprocessing
+month: 5
+week: 3
+ord: 1
+title: "Text Preprocessing: Tokenization, Casing, and Stopwords"
+code: "5.3.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Implement a basic tokenizer that splits raw text into a list of words"
+  - "Explain the trade-offs of lowercasing and stopword removal"
+  - "Build a complete preprocessing pipeline and trace text through each of its steps"
+prereqs:
+  - "Maximum Likelihood Estimation and Its Link to Cross-Entropy ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Preprocessing Pipeline }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: turning raw text into something a model can use</h2>
+
+Every model this month expects numbers, not sentences. Before any of the probability or
+information-theoretic machinery this month built can touch text, the text itself needs
+converting into a structured, numeric-friendly form — starting with **tokenization**: splitting
+a raw string into a list of discrete units (usually words), the first and most foundational step
+of any text pipeline.
+
+<h2 id="math">The preprocessing pipeline</h2>
+
+A typical classical NLP pipeline runs several steps in sequence:
+
+1. **Tokenization** — split text into individual tokens (words, punctuation)
+2. **Lowercasing** — treat `"Free"` and `"free"` as the same token
+3. **Stopword removal** — discard extremely common words (`"the"`, `"is"`, `"and"`) that carry
+   little topic-specific signal
+4. Optionally, **stemming/lemmatization** — collapse related word forms (`"running"`, `"ran"` →
+   `"run"`) — not implemented here, but worth knowing exists
+
+<Callout kind="tip" title="Lowercasing and stopword removal are trade-offs, not free wins">
+  Lowercasing loses the distinction between `"Apple"` (the company) and `"apple"` (the fruit) —
+  usually a reasonable trade for simplicity, but not always. Removing stopwords assumes they
+  carry no useful signal, which is often true for topic classification but can be actively
+  harmful for tasks where function words matter (e.g., detecting sentiment, where "not good" and
+  "good" differ entirely because of a word many stopword lists would discard). Every step here
+  is a modeling *choice*, not a mandatory law.
+</Callout>
+
+<h2 id="python">A complete preprocessing pipeline, traced step by step</h2>
+
+<CodeCell
+  code={"import re\n\nSTOPWORDS = {\"the\", \"is\", \"a\", \"an\", \"and\", \"or\", \"to\", \"of\", \"in\", \"it\", \"this\", \"that\"}\n\ndef tokenize(text):\n    # split on any run of non-letter characters, discard empty results\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text) if tok]\n\ndef lowercase(tokens):\n    return [tok.lower() for tok in tokens]\n\ndef remove_stopwords(tokens):\n    return [tok for tok in tokens if tok not in STOPWORDS]\n\ndef preprocess(text):\n    tokens = tokenize(text)\n    tokens = lowercase(tokens)\n    tokens = remove_stopwords(tokens)\n    return tokens\n\nraw_text = \"This is a FREE offer! Click the link now, and don't miss it.\"\n\nstep1 = tokenize(raw_text)\nstep2 = lowercase(step1)\nstep3 = remove_stopwords(step2)\n\nprint(\"raw text:      \", raw_text)\nprint(\"1. tokenized:  \", step1)\nprint(\"2. lowercased: \", step2)\nprint(\"3. stopwords removed:\", step3)\nprint()\nprint(\"full pipeline in one call:\", preprocess(raw_text))\nprint()\n\n# demonstrating the sentiment-analysis pitfall directly\nprint(\"sentiment example -- notice 'not' is a common stopword-list candidate:\")\nfor text in [\"this movie was good\", \"this movie was not good\"]:\n    print(f\"  '{text}' -> {preprocess(text)}\")\nprint(\"if 'not' were in the stopword list, both examples would preprocess to the SAME tokens --\")\nprint(\"destroying exactly the information needed to tell a positive review from a negative one.\")"}
+  output={"raw text:       This is a FREE offer! Click the link now, and don't miss it.\n1. tokenized:   ['This', 'is', 'a', 'FREE', 'offer', 'Click', 'the', 'link', 'now', 'and', 'don', 't', 'miss', 'it']\n2. lowercased:  ['this', 'is', 'a', 'free', 'offer', 'click', 'the', 'link', 'now', 'and', 'don', 't', 'miss', 'it']\n3. stopwords removed: ['free', 'offer', 'click', 'link', 'now', 'don', 't', 'miss']\n\nfull pipeline in one call: ['free', 'offer', 'click', 'link', 'now', 'don', 't', 'miss']\n\nsentiment example -- notice 'not' is a common stopword-list candidate:\n  'this movie was good' -> ['movie', 'was', 'good']\n  'this movie was not good' -> ['movie', 'was', 'not', 'good']\nif 'not' were in the stopword list, both examples would preprocess to the SAME tokens --\ndestroying exactly the information needed to tell a positive review from a negative one."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why might removing stopwords like 'not' be a BAD choice for a sentiment analysis task specifically, even though it's often fine for topic classification?"
+  correct={2}
+  options={[
+    { text: "Stopword removal is always harmful for every NLP task, with no exceptions", why: "Stopword removal is often genuinely helpful for tasks like topic classification, where common function words really do carry little topic-specific signal -- it's not universally harmful, just harmful for certain tasks." },
+    { text: "The word 'not' isn't actually a common English word, so it wouldn't appear on typical stopword lists anyway", why: "'not' is in fact a very common word and does appear on many standard stopword lists -- that's precisely what creates the risk for sentiment analysis." },
+    { text: "Removing 'not' can make 'good' and 'not good' preprocess into identical token sets, destroying exactly the distinction (positive vs. negative sentiment) the task needs to detect", why: "Correct — this is exactly the pitfall demonstrated in the code: negation words like 'not' carry crucial task-specific signal for sentiment analysis, even though they're common enough to look like generic 'noise' words for topic classification." },
+    { text: "Sentiment analysis doesn't use tokenization at all, so stopword removal is irrelevant", why: "Sentiment analysis models absolutely do rely on tokenization (and typically bag-of-words or similar representations, covered next lesson) -- it's not exempt from the preprocessing pipeline, which is exactly why the stopword choice matters." },
+  ]}
+/>
+
+## Summary
+
+A text preprocessing pipeline — tokenize, lowercase, remove stopwords — converts raw text into
+a cleaned list of tokens ready for numeric representation. Each step is a deliberate modeling
+choice with real trade-offs, not a mandatory law: lowercasing loses case information, and
+stopword removal can destroy task-critical signal (like negation words for sentiment analysis),
+verified directly above. The next lesson takes these cleaned tokens and builds the first actual
+numeric representation: bag-of-words.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 2 — text normalization,
+  tokenization, and the practical trade-offs of each preprocessing decision.

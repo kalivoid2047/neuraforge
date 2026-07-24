@@ -1,0 +1,88 @@
+---
+slug: discrete-random-variables
+month: 5
+week: 1
+ord: 4
+title: "Random Variables and Discrete Distributions"
+code: "5.1.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Define a random variable and its probability mass function (PMF)"
+  - "Work with the Bernoulli and Binomial distributions and their formulas"
+  - "Verify a distribution's formula by comparing it against simulated relative frequencies"
+prereqs:
+  - "Bayes' Theorem ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Bernoulli and Binomial }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Naming outcomes with numbers</h2>
+
+A **random variable** is simply a function that assigns a number to each outcome of a random
+process — "number of heads in 10 coin flips," "whether an email is spam (1) or not (0)." Its
+**probability mass function (PMF)** gives the probability of each possible value. Two
+distributions come up constantly in machine learning: the **Bernoulli** (a single yes/no trial —
+exactly the coin-flip-shaped random variable behind every binary classification label) and the
+**Binomial** (the count of successes across many independent Bernoulli trials).
+
+<h2 id="math">Bernoulli and Binomial</h2>
+
+A Bernoulli random variable with success probability `p`:
+
+<MathBlock tex="P(X=1) = p \qquad P(X=0) = 1-p" />
+
+A Binomial random variable counts successes across `n` independent Bernoulli(`p`) trials:
+
+<MathBlock tex="P(X=k) = \binom{n}{k} p^k (1-p)^{n-k} \qquad \text{where } \binom{n}{k} = \frac{n!}{k!(n-k)!}" />
+
+`\binom{n}{k}` (read "n choose k") counts how many *different orderings* of `k` successes among
+`n` trials exist — because any specific ordering with `k` successes has the same probability,
+`p^k(1-p)^{n-k}`, but there are `\binom{n}{k}` such orderings to sum over.
+
+<h2 id="python">Binomial PMF, verified against simulated coin flips</h2>
+
+<CodeCell
+  code={"import numpy as np\nfrom math import comb\n\ndef binomial_pmf(k, n, p):\n    return comb(n, k) * (p ** k) * ((1 - p) ** (n - k))\n\nn_flips = 10\np_heads = 0.5\n\nprint(\"exact Binomial PMF, n=10 flips, p=0.5:\")\nfor k in range(n_flips + 1):\n    print(f\"  P(exactly {k} heads) = {binomial_pmf(k, n_flips, p_heads):.4f}\")\n\ntotal_prob = sum(binomial_pmf(k, n_flips, p_heads) for k in range(n_flips + 1))\nprint(f\"sum over all k (should be 1.0): {total_prob:.6f}\")\nprint()\n\n# verify against simulation: flip 10 coins, a million separate times\nrng = np.random.default_rng(0)\nn_trials = 1_000_000\nflips = rng.random((n_trials, n_flips)) < p_heads   # True = heads\nheads_counts = flips.sum(axis=1)   # number of heads in each trial, 0..10\n\nprint(f\"{'k':>3} {'exact PMF':>12} {'simulated freq':>15}\")\nfor k in [0, 3, 5, 7, 10]:\n    exact = binomial_pmf(k, n_flips, p_heads)\n    simulated = (heads_counts == k).mean()\n    print(f\"{k:>3} {exact:>12.4f} {simulated:>15.4f}\")"}
+  output={"exact Binomial PMF, n=10 flips, p=0.5:\n  P(exactly 0 heads) = 0.0010\n  P(exactly 1 heads) = 0.0098\n  P(exactly 2 heads) = 0.0439\n  P(exactly 3 heads) = 0.1172\n  P(exactly 4 heads) = 0.2051\n  P(exactly 5 heads) = 0.2461\n  P(exactly 6 heads) = 0.2051\n  P(exactly 7 heads) = 0.1172\n  P(exactly 8 heads) = 0.0439\n  P(exactly 9 heads) = 0.0098\n  P(exactly 10 heads) = 0.0010\nsum over all k (should be 1.0): 1.000000\n\n  k    exact PMF  simulated freq\n  0       0.0010          0.0010\n  3       0.1172          0.1170\n  5       0.2461          0.2459\n  7       0.1172          0.1170\n 10       0.0010          0.0010"}
+/>
+
+<Callout kind="tip" title="Every binary classification label is a Bernoulli random variable">
+  The true label in a binary classification problem (spam/not-spam, cat/not-cat) is exactly a
+  Bernoulli random variable — and Month 4's cross-entropy loss, `-log(p_correct)`, is directly
+  built from treating the network's predicted probability as an estimate of that Bernoulli's
+  parameter `p`. This isn't a loose analogy; it's the literal statistical object cross-entropy
+  is defined against, made precise in week two.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the Binomial PMF formula include the binomial coefficient C(n,k), rather than just p^k * (1-p)^(n-k) alone?"
+  correct={2}
+  options={[
+    { text: "C(n,k) is a normalization constant with no combinatorial meaning", why: "It has a precise combinatorial meaning (counting orderings), not just an arbitrary normalization factor -- though it does happen to make the PMF sum to 1 correctly." },
+    { text: "p^k * (1-p)^(n-k) alone would already sum to 1 over all k, making C(n,k) redundant", why: "p^k*(1-p)^(n-k) alone does NOT sum to 1 over k -- it's the probability of one SPECIFIC ordering of successes and failures. C(n,k) is required precisely to correctly account for all the different orderings." },
+    { text: "p^k * (1-p)^(n-k) is the probability of one SPECIFIC ordering of k successes among n trials, and C(n,k) counts how many different orderings achieve exactly k successes -- summing over those equally-likely orderings requires multiplying by that count", why: "Correct — this is exactly why the coefficient is needed: many different sequences of heads/tails can produce the same total count k, each equally probable, and C(n,k) is precisely how many such sequences exist." },
+    { text: "C(n,k) adjusts for the random number generator's bias", why: "This has nothing to do with random number generation -- C(n,k) is a purely combinatorial (counting) quantity that exists independent of how the randomness is actually generated or simulated." },
+  ]}
+/>
+
+## Summary
+
+A random variable assigns numbers to random outcomes; its PMF gives each value's probability.
+Bernoulli models a single trial; Binomial counts successes across `n` independent Bernoulli
+trials, with the binomial coefficient accounting for the number of orderings that produce the
+same count — verified above against a million simulated 10-flip trials. Binary classification
+labels are literally Bernoulli random variables, directly connecting to Month 4's cross-entropy
+loss. The next lesson extends these ideas to continuous random variables and the Gaussian
+distribution.
+
+## Further reading
+
+- Blitzstein & Hwang, *Introduction to Probability*, Ch. 3 — random variables, PMFs, and the
+  Bernoulli/Binomial distributions in depth.

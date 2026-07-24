@@ -1,0 +1,84 @@
+---
+slug: ngrams-language-statistics
+month: 5
+week: 3
+ord: 4
+title: "N-grams and Language Statistics"
+code: "5.3.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Extract n-grams (bigrams, trigrams) from tokenized text"
+  - "Compute conditional word probabilities from n-gram counts, directly applying week one's probability tools"
+  - "Explain what n-grams recover about word order that bag-of-words discards, and their limits"
+prereqs:
+  - "TF-IDF ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: N-grams as Conditional Probability }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Recovering a little bit of word order</h2>
+
+Bag-of-words and TF-IDF both discard word order entirely. **N-grams** — contiguous sequences of
+`n` tokens — recover a limited, local amount of it: a **bigram** (`n=2`) captures which words
+tend to follow which; a **trigram** (`n=3`) captures slightly longer local patterns. Counting
+n-grams across a corpus, and turning those counts into conditional probabilities, is exactly the
+technique behind the earliest statistical language models — and directly reuses week one's
+conditional probability, now applied to word sequences instead of dice or coins.
+
+<h2 id="math">N-grams as conditional probability</h2>
+
+A bigram model estimates the probability of a word given the *one* word before it, using
+observed counts (an application of the MLE principle from week two, applied to language):
+
+<MathBlock tex="P(w_i \mid w_{i-1}) = \frac{\text{count}(w_{i-1}, w_i)}{\text{count}(w_{i-1})}" />
+
+This is the same "observed frequency" idea behind the Bernoulli MLE (`k/n`) from two lessons
+ago — just counting pairs of adjacent words instead of individual coin flips.
+
+<Callout kind="tip" title="What n-grams still can't capture">
+  A bigram model only ever looks *one word back* — it has no memory of anything earlier in the
+  sentence. `"The cat that chased the mouse was hungry"` needs to connect `"cat"` (the subject)
+  to `"was"` (its verb), five words later — completely outside a bigram's one-word window. This
+  specific limitation (fixed, short, local context) is exactly what motivates the recurrent and
+  attention-based models covered starting Month 6 and Month 7.
+</Callout>
+
+<h2 id="python">Bigram counts and conditional probabilities, computed directly</h2>
+
+<CodeCell
+  code={"import re\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\ncorpus = [\n    \"the cat sat on the mat\",\n    \"the cat sat on the log\",\n    \"the dog ran in the park\",\n    \"the cat ran in the park\",\n]\n\n# extract all bigrams (adjacent word pairs) across the corpus\nbigram_counts = defaultdict(int)\nunigram_counts = defaultdict(int)\nfor doc in corpus:\n    tokens = tokenize(doc)\n    for word in tokens:\n        unigram_counts[word] += 1\n    for i in range(len(tokens) - 1):\n        bigram_counts[(tokens[i], tokens[i+1])] += 1\n\nprint(\"a few bigram counts:\")\nfor bigram in [(\"the\", \"cat\"), (\"the\", \"dog\"), (\"cat\", \"sat\"), (\"cat\", \"ran\")]:\n    print(f\"  {bigram}: {bigram_counts[bigram]}\")\nprint()\n\ndef bigram_probability(w_prev, w_curr):\n    return bigram_counts[(w_prev, w_curr)] / unigram_counts[w_prev]\n\nprint(\"P(next word | 'the'):\")\nfor word in [\"cat\", \"dog\", \"mat\"]:\n    print(f\"  P({word} | the) = {bigram_probability('the', word):.4f}\")\n\nprint()\nprint(\"P(next word | 'cat'):\")\nfor word in [\"sat\", \"ran\"]:\n    print(f\"  P({word} | cat) = {bigram_probability('cat', word):.4f}\")\n\n# verify: probabilities of ALL words following 'the' should sum to 1\nfollowers_of_the = [w for (w_prev, w) in bigram_counts if w_prev == \"the\"]\ntotal_prob = sum(bigram_probability(\"the\", w) for w in followers_of_the)\nprint()\nprint(f\"sum of P(w | the) over all observed followers of 'the': {total_prob:.4f}\")"}
+  output={"a few bigram counts:\n  ('the', 'cat'): 3\n  ('the', 'dog'): 1\n  ('cat', 'sat'): 2\n  ('cat', 'ran'): 1\n\nP(next word | 'the'):\n  P(cat | the) = 0.3750\n  P(dog | the) = 0.1250\n  P(mat | the) = 0.1250\n\nP(next word | 'cat'):\n  P(sat | cat) = 0.6667\n  P(ran | cat) = 0.3333\n\nsum of P(w | the) over all observed followers of 'the': 1.0000"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does a bigram model fail to correctly connect the subject and verb in 'The cat that chased the mouse was hungry', where 'was' should refer back to 'cat'?"
+  correct={0}
+  options={[
+    { text: "A bigram model only conditions on the SINGLE word immediately before the current one -- when predicting 'was', it only has access to 'mouse' (the word right before it), with no memory at all of 'cat' from five words earlier", why: "Correct — this is exactly the bigram model's structural limitation: its context window is fixed at exactly one word back, so any dependency spanning further than that (like connecting a distant subject to its verb) is entirely invisible to it." },
+    { text: "Bigram models can only be built from single documents, not multi-sentence text", why: "Bigram models work perfectly well on multi-sentence or multi-document corpora, as demonstrated in the code above with a 4-document corpus -- the limitation is about CONTEXT WINDOW LENGTH, not document count or sentence count." },
+    { text: "The word 'was' is a stopword and gets removed before bigram counting", why: "Nothing in this lesson's approach removes stopwords -- bigram counting operates on the tokenized text directly, and this isn't actually why long-range dependencies are missed regardless." },
+    { text: "Bigram probabilities are always exactly 0 for verbs following nouns", why: "This isn't true at all -- the code demonstrates clearly nonzero probabilities for word-following patterns like P(sat|cat) and P(ran|cat). The issue is specifically about DISTANCE, not verb-noun combinations being impossible." },
+  ]}
+/>
+
+## Summary
+
+N-grams recover a small, local amount of word-order information that bag-of-words and TF-IDF
+discard, estimating `P(w_i | w_{i-1})` directly from observed adjacent-word counts — the same
+MLE "observed frequency" principle from week two, now applied to word pairs, verified directly
+above. Their fixed, one-word (or few-word) context window is a real limitation for
+longer-range dependencies, motivating the sequence models covered in later months. The final
+lesson this week builds the Naive Bayes classifier, combining Bayes' theorem (week one) with the
+bag-of-words representation (this week) into an actual working text classifier.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 3 — n-gram language models, their
+  probability estimation, and classical smoothing techniques for unseen n-grams.

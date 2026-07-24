@@ -1,0 +1,90 @@
+---
+slug: capstone-text-classifier
+month: 5
+week: 4
+ord: 5
+title: "Capstone: A Complete Text Classifier Pipeline"
+code: "5.4.5"
+minutes: 120
+difficulty: 5
+objectives:
+  - "Assemble preprocessing, TF-IDF vectorization, and two classifiers into one complete pipeline"
+  - "Evaluate both classifiers properly, with precision/recall/F1 and cross-validation, not just accuracy"
+  - "Trace the full month's arc from probability axioms to a working, evaluated text classifier"
+prereqs:
+  - "Choosing and Tuning a Model: Bias-Variance in Practice ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Full Pipeline }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The month's arc, in one pipeline</h2>
+
+Trace the path from the first lesson to here: probability axioms → conditional probability →
+Bayes' theorem → random variables and distributions → entropy → cross-entropy → KL divergence
+→ softmax derived from first principles → maximum likelihood estimation → text preprocessing →
+bag-of-words → TF-IDF → n-grams → Naive Bayes (Bayes' theorem, applied) → precision/recall/F1
+→ cross-validation → a neural classifier (Month 4's tools, applied to text) → bias-variance
+trade-off. This capstone's single pipeline uses nearly all of it: real text, properly
+preprocessed and vectorized, classified by two genuinely different approaches, evaluated
+properly rather than by accuracy alone.
+
+<h2 id="math">The full pipeline</h2>
+
+<MathBlock tex="\text{raw text} \xrightarrow{\text{preprocess}} \text{tokens} \xrightarrow{\text{TF-IDF}} \text{vector} \xrightarrow{\text{classifier}} \hat{y} \xrightarrow{\text{precision/recall/F1, via CV}} \text{honest evaluation}" />
+
+Two classifiers, trained on the *same* preprocessed, vectorized data, evaluated the *same* way:
+**Naive Bayes** (explicit probabilistic model, Bayes' theorem plus the independence assumption)
+and a **small neural network** (Month 4's `Linear → ReLU → Linear → softmax`, trained with
+cross-entropy and Adam) — a direct, fair comparison of two different modeling philosophies on
+identical data.
+
+<h2 id="python">The complete pipeline: preprocess, vectorize, train both classifiers, evaluate honestly</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\nfrom collections import defaultdict\n\n# --- 1. preprocessing (week 3) ---\nSTOPWORDS = {\"a\", \"the\", \"is\", \"to\", \"for\", \"of\", \"and\", \"us\", \"our\", \"your\"}\ndef preprocess(text):\n    tokens = [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n    return [t for t in tokens if t not in STOPWORDS]\n\n# --- generate a moderately-overlapping synthetic spam/ham dataset ---\nrng = np.random.default_rng(0)\nspam_words = [\"free\", \"win\", \"prize\", \"cash\", \"click\", \"now\", \"claim\", \"vacation\", \"gift\", \"urgent\"]\nham_words = [\"meeting\", \"report\", \"schedule\", \"document\", \"tomorrow\", \"review\", \"team\", \"project\", \"thanks\", \"please\"]\n\ndef generate_doc(own, other, n_words, noise_frac, rng):\n    n_noise = int(n_words * noise_frac)\n    words = list(rng.choice(own, size=n_words - n_noise)) + list(rng.choice(other, size=n_noise))\n    rng.shuffle(words)\n    return \" \".join(words)\n\nn_per_class = 25\ndocs = [generate_doc(spam_words, ham_words, 6, 0.3, rng) for _ in range(n_per_class)] + \\\n       [generate_doc(ham_words, spam_words, 6, 0.3, rng) for _ in range(n_per_class)]\ny = np.array([1]*n_per_class + [0]*n_per_class)\n\n# --- 2. TF-IDF vectorization (week 3) ---\ntokenized = [preprocess(d) for d in docs]\nvocab = sorted(set(w for doc in tokenized for w in doc))\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV, N = len(vocab), len(docs)\n\ntf = np.zeros((N, V))\nfor i, doc in enumerate(tokenized):\n    for w in doc:\n        tf[i, word_to_index[w]] += 1\ndf = np.array([sum(1 for doc in tokenized if w in doc) for w in vocab])\nidf = np.log(N / (1 + df))\nX_tfidf = tf * idf\n\n# --- 3a. Naive Bayes (weeks 1, 2, 3) -- trained on raw counts, its natural input ---\ndef train_naive_bayes(tokenized_train, y_train):\n    class_word_counts = {0: defaultdict(int), 1: defaultdict(int)}\n    class_doc_counts = {0: 0, 1: 0}\n    for doc, label in zip(tokenized_train, y_train):\n        class_doc_counts[label] += 1\n        for w in doc:\n            class_word_counts[label][w] += 1\n    total_words = {c: sum(class_word_counts[c].values()) for c in [0, 1]}\n    n_docs_train = sum(class_doc_counts.values())\n    return class_word_counts, class_doc_counts, total_words, n_docs_train\n\ndef nb_predict(doc, class_word_counts, class_doc_counts, total_words, n_docs_train):\n    scores = {}\n    for c in [0, 1]:\n        score = np.log(class_doc_counts[c] / n_docs_train)\n        for w in doc:\n            if w in vocab:\n                count = class_word_counts[c][w]\n                score += np.log((count + 1) / (total_words[c] + V))\n        scores[c] = score\n    return max(scores, key=scores.get)\n\n# --- 3b. neural classifier (Month 4 + week 4) -- trained on TF-IDF vectors ---\ndef softmax(z):\n    s = z - np.max(z, axis=-1, keepdims=True)\n    e = np.exp(s)\n    return e / np.sum(e, axis=-1, keepdims=True)\n\ndef train_neural(X_train, y_train, hidden_size=8, n_epochs=250, lr=0.1, seed=1):\n    rng2 = np.random.default_rng(seed)\n    W1 = rng2.normal(0, 0.3, (V, hidden_size)); b1 = np.zeros(hidden_size)\n    W2 = rng2.normal(0, 0.3, (hidden_size, 2)); b2 = np.zeros(2)\n    n = len(X_train)\n    for _ in range(n_epochs):\n        h = np.maximum(0, X_train @ W1 + b1)\n        probs = softmax(h @ W2 + b2)\n        one_hot = np.zeros((n, 2)); one_hot[np.arange(n), y_train] = 1.0\n        d_logits = (probs - one_hot) / n\n        dW2 = h.T @ d_logits; db2 = d_logits.sum(axis=0)\n        d_h = d_logits @ W2.T; d_h[h <= 0] = 0\n        dW1 = X_train.T @ d_h; db1 = d_h.sum(axis=0)\n        W1 -= lr*dW1; b1 -= lr*db1; W2 -= lr*dW2; b2 -= lr*db2\n    return W1, b1, W2, b2\n\ndef neural_predict(X, W1, b1, W2, b2):\n    h = np.maximum(0, X @ W1 + b1)\n    return np.argmax(h @ W2 + b2, axis=1)\n\n# --- 4. 5-fold cross-validation, evaluating BOTH classifiers with precision/recall/F1 ---\ndef k_fold_indices(n, k, seed=0):\n    rng3 = np.random.default_rng(seed)\n    idx = np.arange(n); rng3.shuffle(idx)\n    return np.array_split(idx, k)\n\ndef prf1(y_true, y_pred):\n    tp = np.sum((y_true==1)&(y_pred==1)); fp = np.sum((y_true==0)&(y_pred==1)); fn = np.sum((y_true==1)&(y_pred==0))\n    p = tp/(tp+fp) if (tp+fp)>0 else 0.0\n    r = tp/(tp+fn) if (tp+fn)>0 else 0.0\n    f1 = 2*p*r/(p+r) if (p+r)>0 else 0.0\n    return p, r, f1\n\nfolds = k_fold_indices(N, k=5, seed=0)\nnb_scores, neural_scores = [], []\nfor i in range(5):\n    val_idx = folds[i]\n    train_idx = np.concatenate([folds[j] for j in range(5) if j != i])\n\n    nb_model = train_naive_bayes([tokenized[j] for j in train_idx], y[train_idx])\n    nb_preds = np.array([nb_predict(tokenized[j], *nb_model) for j in val_idx])\n    nb_scores.append(prf1(y[val_idx], nb_preds))\n\n    W1, b1, W2, b2 = train_neural(X_tfidf[train_idx], y[train_idx])\n    neural_preds = neural_predict(X_tfidf[val_idx], W1, b1, W2, b2)\n    neural_scores.append(prf1(y[val_idx], neural_preds))\n\nnb_scores, neural_scores = np.array(nb_scores), np.array(neural_scores)\nprint(f\"{'model':>12} {'precision':>10} {'recall':>8} {'F1':>8}\")\nprint(f\"{'Naive Bayes':>12} {nb_scores[:,0].mean():>10.3f} {nb_scores[:,1].mean():>8.3f} {nb_scores[:,2].mean():>8.3f}\")\nprint(f\"{'Neural Net':>12} {neural_scores[:,0].mean():>10.3f} {neural_scores[:,1].mean():>8.3f} {neural_scores[:,2].mean():>8.3f}\")"}
+  output={"       model  precision   recall       F1\n Naive Bayes      1.000    1.000    1.000\n  Neural Net      1.000    1.000    1.000"}
+/>
+
+<Callout kind="tip" title="Both classifiers, evaluated fairly, on the same data">
+  Naive Bayes and the neural classifier see the same preprocessed, split data and are scored by
+  the same precision/recall/F1 metrics, averaged over the same 5 cross-validation folds — a fair
+  comparison, not a cherry-picked single split. Neither approach is "correct" in general; this is
+  exactly the kind of evidence-based comparison week four's methodology exists to produce.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why are Naive Bayes and the neural classifier evaluated using the SAME cross-validation folds in this capstone, rather than each getting its own separate random split?"
+  correct={1}
+  options={[
+    { text: "Using the same folds is required by Naive Bayes' mathematical definition", why: "Bayes' theorem and the Naive Bayes classification rule place no requirement on how folds are assigned -- this is purely a methodological choice for making the comparison fair, not a mathematical necessity of the model itself." },
+    { text: "Using identical train/validation splits for both classifiers ensures any performance difference between them reflects a genuine difference in modeling approach, not merely the two models happening to get different (easier or harder) data splits by chance", why: "Correct — this is exactly the fairness argument: if each model used a different random split, an observed performance gap could just be due to one model getting a luckier split, rather than reflecting a real difference between the two approaches." },
+    { text: "Separate splits would make the neural network's training loop crash", why: "There's no technical reason separate splits would cause any crash -- the neural network's training loop works fine on any valid train/validation partition. The reason for shared folds is about fair comparison, not technical necessity." },
+    { text: "Cross-validation can only be performed once per dataset, ever", why: "Cross-validation can be run as many times as needed on the same dataset (as the previous lesson's repeated-CV-and-average technique directly demonstrated) -- there's no one-time-only restriction." },
+  ]}
+/>
+
+## Month 5 summary
+
+This month built the mathematical foundation for reasoning under uncertainty and applied it
+directly to text: probability axioms, conditional probability, and Bayes' theorem (week one);
+entropy, cross-entropy, KL divergence, and softmax, all connected through maximum likelihood
+estimation to explain *why* Month 4's loss function has the form it does (week two); the
+classical NLP pipeline — preprocessing, bag-of-words, TF-IDF, n-grams, and Naive Bayes — built
+entirely from that same probability foundation (week three); and proper evaluation methodology —
+precision/recall/F1, cross-validation, and the bias-variance trade-off — culminating in this
+capstone's side-by-side comparison of an explicit probabilistic classifier against a neural one,
+evaluated fairly on identical data. Month 6 turns to embeddings and language modeling, building
+the representations that let words be compared by meaning rather than exact string match.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 4 — the complete classical text
+  classification pipeline this capstone assembles, end to end.
+- Bishop, *Pattern Recognition and Machine Learning*, Ch. 1 — the probabilistic foundations
+  (Bayes' theorem, MLE, information theory) this entire month is built from.

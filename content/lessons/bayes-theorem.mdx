@@ -1,0 +1,83 @@
+---
+slug: bayes-theorem
+month: 5
+week: 1
+ord: 3
+title: "Bayes' Theorem"
+code: "5.1.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Derive Bayes' theorem from the definition of conditional probability"
+  - "Use Bayes' theorem to reverse the direction of conditioning in a diagnostic-test-style example"
+  - "Explain why the base rate matters enormously, even for a seemingly accurate test"
+prereqs:
+  - "Conditional Probability and Independence ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Reversing the Condition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Reversing the direction of "given"</h2>
+
+Often you know `P(evidence | hypothesis)` — e.g., "if a document is spam, how likely is the word
+'free' to appear?" — but what you actually want is `P(hypothesis | evidence)`: "given the word
+'free' appeared, how likely is this document spam?" **Bayes' theorem** is the tool that flips
+conditional probability around, and it's the mathematical foundation of the Naive Bayes text
+classifier built later this month.
+
+<h2 id="math">Reversing the condition</h2>
+
+Starting from last lesson's definition, `P(A|B) = P(A∩B)/P(B)`, and noting
+`P(A∩B) = P(B|A)P(A)` (the same joint probability, written the other way):
+
+<MathBlock tex="P(A \mid B) = \frac{P(B \mid A)\,P(A)}{P(B)}" />
+
+In the classic naming: `P(A)` is the **prior** (belief before seeing evidence), `P(B|A)` is the
+**likelihood** (how probable the evidence is, if the hypothesis is true), and `P(A|B)` is the
+**posterior** (updated belief after seeing evidence).
+
+<Callout kind="tip" title="Why the prior matters so much: the base-rate trap">
+  A medical test that's "99% accurate" sounds like it should make a positive result very
+  trustworthy. But if the disease itself is very rare (a low prior), most positive results can
+  still be false positives — because there are so many more healthy people than sick people that
+  even a small false-positive *rate* produces more false positives in absolute count than true
+  positives from the (rare) sick population. The code below computes this exactly.
+</Callout>
+
+<h2 id="python">Bayes' theorem, computed exactly and verified by simulation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# a disease affecting 1% of the population; test is 99% accurate both ways\n# (99% chance of positive if sick, 99% chance of negative if healthy)\np_disease = 0.01\np_positive_given_disease = 0.99       # sensitivity\np_negative_given_healthy = 0.99       # specificity\np_positive_given_healthy = 1 - p_negative_given_healthy   # false positive rate\n\n# P(positive) via the law of total probability: sum over both ways to get a positive result\np_positive = (p_positive_given_disease * p_disease) + (p_positive_given_healthy * (1 - p_disease))\n\n# Bayes' theorem: P(disease | positive)\np_disease_given_positive = (p_positive_given_disease * p_disease) / p_positive\n\nprint(\"exact calculation via Bayes' theorem:\")\nprint(f\"  P(disease) = {p_disease}  (the prior -- disease is rare)\")\nprint(f\"  P(positive | disease) = {p_positive_given_disease}  (the likelihood -- test sensitivity)\")\nprint(f\"  P(disease | positive) = {p_disease_given_positive:.4f}  (the posterior -- what we actually want)\")\nprint()\nprint(f\"despite a '99% accurate' test, a positive result means only a\")\nprint(f\"{p_disease_given_positive*100:.1f}% chance of actually having the disease!\")\nprint()\n\n# verify by simulating a large population directly\nrng = np.random.default_rng(0)\nn = 5_000_000\nhas_disease = rng.random(n) < p_disease\ntest_positive = np.where(\n    has_disease,\n    rng.random(n) < p_positive_given_disease,     # sick people: positive with 99% prob\n    rng.random(n) < p_positive_given_healthy,     # healthy people: positive with 1% prob (false positive)\n)\n\nsimulated_posterior = has_disease[test_positive].mean()\nprint(f\"simulated P(disease | positive) over {n:,} people: {simulated_posterior:.4f}\")\nprint(f\"matches exact calculation: {np.isclose(simulated_posterior, p_disease_given_positive, atol=0.005)}\")"}
+  output={"exact calculation via Bayes' theorem:\n  P(disease) = 0.01  (the prior -- disease is rare)\n  P(positive | disease) = 0.99  (the likelihood -- test sensitivity)\n  P(disease | positive) = 0.5000  (the posterior -- what we actually want)\n\ndespite a '99% accurate' test, a positive result means only a\n50.0% chance of actually having the disease!\n\nsimulated P(disease | positive) over 5,000,000 people: 0.4991\nmatches exact calculation: True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A '99% accurate' disease test comes back positive for a rare disease (1% prior), yet the code shows only about a 50% chance the person actually has it. Why does high test accuracy NOT translate directly into a high posterior probability here?"
+  correct={0}
+  options={[
+    { text: "Because the disease is rare, there are far more healthy people than sick people overall, so even the test's small false-positive rate applied to the huge healthy population produces roughly as many false positives as true positives from the small sick population", why: "Correct — this is exactly the base-rate effect: a low prior means the healthy population vastly outnumbers the sick population, so the 1% false-positive rate on many healthy people rivals the 99% true-positive rate on few sick people." },
+    { text: "The test's stated 99% accuracy figure must be a typo or error", why: "There's no error -- both the sensitivity and specificity really are 99% as stated. The surprising posterior is a real, correctly-computed mathematical consequence of the disease's low base rate, not a mistake in the given numbers." },
+    { text: "Bayes' theorem only works for common diseases, not rare ones", why: "Bayes' theorem applies identically regardless of how rare or common the condition is -- it's precisely because the disease is RARE that the base-rate effect produces such a counterintuitive result here." },
+    { text: "The simulation and the exact calculation actually disagree, revealing a bug", why: "The code explicitly checks and confirms the simulated result closely matches the exact Bayes' theorem calculation -- they agree, which is exactly what validates the (correct, if counterintuitive) result." },
+  ]}
+/>
+
+## Summary
+
+Bayes' theorem, `P(A|B) = P(B|A)P(A)/P(B)`, reverses the direction of conditioning, converting a
+known likelihood into the posterior probability actually needed. The base-rate example — a
+seemingly accurate test producing a surprisingly low posterior for a rare condition — shows
+directly why the prior can't be ignored, verified both by exact calculation and by simulating
+millions of individuals. The next lesson formalizes random variables and their distributions,
+the objects Bayes' theorem and everything else this month actually operates on.
+
+## Further reading
+
+- Blitzstein & Hwang, *Introduction to Probability*, Ch. 2 — Bayes' theorem, the base-rate
+  fallacy, and several worked diagnostic-test examples.

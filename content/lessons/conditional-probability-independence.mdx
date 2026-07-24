@@ -1,0 +1,83 @@
+---
+slug: conditional-probability-independence
+month: 5
+week: 1
+ord: 2
+title: "Conditional Probability and Independence"
+code: "5.1.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute a conditional probability P(A|B) and explain what it measures"
+  - "Define independence precisely, and distinguish it from mutual exclusivity"
+  - "Verify conditional probabilities against simulated data, filtered on the conditioning event"
+prereqs:
+  - "What Is Probability? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Conditioning and Independence }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">How does learning one thing change what you believe about another?</h2>
+
+**Conditional probability** answers: given that you already know event `B` happened, what's the
+probability of event `A`? This is the mathematical core of an enormous amount of machine
+learning — a spam classifier estimates `P(spam | these words appear)`, and next month's language
+models estimate `P(next word | previous words)`. **Independence** is the special case where
+knowing `B` happened tells you *nothing* about `A` — a precise, checkable condition, not just an
+intuitive guess.
+
+<h2 id="math">Conditioning and independence</h2>
+
+<MathBlock tex="P(A \mid B) = \frac{P(A \cap B)}{P(B)} \qquad \text{(defined whenever } P(B) > 0\text{)}" />
+
+`A` and `B` are **independent** exactly when knowing `B` doesn't change `A`'s probability at
+all:
+
+<MathBlock tex="A \perp B \iff P(A \mid B) = P(A) \iff P(A \cap B) = P(A)\,P(B)" />
+
+<Callout kind="tip" title="Independence is NOT the same as mutual exclusivity">
+  These are often confused, but they're nearly opposite ideas. Mutually exclusive events
+  (`P(A∩B)=0`) can *never* both happen — learning `B` happened tells you `A` definitely did
+  *not* (`P(A|B)=0`), which is about as far from "no information" as possible. Independent
+  events (`P(A∩B)=P(A)P(B)`) can both happen, just at rates consistent with each not affecting
+  the other. If `P(A)>0` and `P(B)>0`, mutually exclusive events are actually *never*
+  independent — verified directly in the code below.
+</Callout>
+
+<h2 id="python">Conditional probability and independence, verified by simulation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\nn = 2_000_000\n\n# roll two independent fair dice\ndie1 = rng.integers(1, 7, size=n)\ndie2 = rng.integers(1, 7, size=n)\n\n# event A: die1 is even. event B: die2 is 6. These involve DIFFERENT dice -- should be independent.\nA = (die1 % 2 == 0)\nB = (die2 == 6)\n\np_A = A.mean()\np_B = B.mean()\np_A_and_B = (A & B).mean()\np_A_given_B = (A & B).sum() / B.sum()   # P(A|B) computed directly from the definition\n\nprint(\"independent-by-construction case (different dice):\")\nprint(f\"  P(A) = {p_A:.4f}\")\nprint(f\"  P(A|B) = {p_A_given_B:.4f}  (close to P(A) => independence)\")\nprint(f\"  P(A)*P(B) = {p_A*p_B:.4f}  vs  P(A and B) = {p_A_and_B:.4f}\")\nprint()\n\n# now: event C: die1 is odd. A and C are MUTUALLY EXCLUSIVE (same die, even vs odd)\nC = (die1 % 2 == 1)\np_C = C.mean()\np_A_and_C = (A & C).mean()\np_A_given_C = (A & C).sum() / C.sum() if C.sum() > 0 else 0\n\nprint(\"mutually exclusive case (A=die1 even, C=die1 odd, same die):\")\nprint(f\"  P(A and C) = {p_A_and_C:.4f}  (should be ~0 -- can't be both even AND odd)\")\nprint(f\"  P(A|C) = {p_A_given_C:.4f}  (should be ~0 -- knowing die1 is odd means it's definitely NOT even)\")\nprint(f\"  P(A)*P(C) = {p_A*p_C:.4f}  (clearly does NOT match P(A and C) -- confirms NOT independent)\")"}
+  output={"independent-by-construction case (different dice):\n  P(A) = 0.4995\n  P(A|B) = 0.5009  (close to P(A) => independence)\n  P(A)*P(B) = 0.0832  vs  P(A and B) = 0.0835\n\nmutually exclusive case (A=die1 even, C=die1 odd, same die):\n  P(A and C) = 0.0000  (should be ~0 -- can't be both even AND odd)\n  P(A|C) = 0.0000  (should be ~0 -- knowing die1 is odd means it's definitely NOT even)\n  P(A)*P(C) = 0.2500  (clearly does NOT match P(A and C) -- confirms NOT independent)"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Events A and C are mutually exclusive (they can never both happen), and both have probability greater than 0. Can A and C also be independent?"
+  correct={1}
+  options={[
+    { text: "Yes, mutually exclusive events with positive probability are always independent", why: "This is exactly backwards -- mutually exclusive events with positive probability can NEVER be independent, as the simulation directly demonstrates (P(A)*P(C) does not match P(A and C) = 0)." },
+    { text: "No -- since P(A and C) = 0 but P(A)*P(C) > 0 (both have positive probability), the independence condition P(A and C) = P(A)*P(C) cannot hold", why: "Correct — this is exactly what the simulation verifies: mutual exclusivity forces P(A and C)=0, but independence requires P(A and C) to equal the product P(A)*P(C), which is strictly positive whenever both events have positive probability. The two conditions are incompatible here." },
+    { text: "It depends entirely on which specific events A and C are", why: "It does NOT depend on the specific events -- this is a general mathematical fact: ANY two mutually exclusive events, each with positive probability, are necessarily NOT independent, for the reason given above." },
+    { text: "Independence and mutual exclusivity are just two names for the same concept", why: "They describe nearly opposite relationships -- mutual exclusivity means the events can never co-occur, while independence means knowing one doesn't affect the probability of the other. They are not the same concept." },
+  ]}
+/>
+
+## Summary
+
+Conditional probability `P(A|B) = P(A∩B)/P(B)` measures how learning that `B` occurred updates
+the probability of `A`; independence is the special case where that update changes nothing at
+all, `P(A|B)=P(A)`. Mutually exclusive events with positive probability are actually the
+opposite of independent — verified directly above by simulation on two dice. The next lesson
+builds directly on conditional probability to derive Bayes' theorem, the tool for reversing the
+direction of conditioning.
+
+## Further reading
+
+- Blitzstein & Hwang, *Introduction to Probability*, Ch. 1–2 — conditional probability,
+  independence, and the common confusions between independence and mutual exclusivity.

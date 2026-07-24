@@ -1,0 +1,87 @@
+---
+slug: evaluation-metrics
+month: 5
+week: 4
+ord: 1
+title: "Evaluation Metrics: Precision, Recall, F1, Confusion Matrix"
+code: "5.4.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Build a confusion matrix from a classifier's predictions and true labels"
+  - "Compute precision, recall, and F1 score, and explain what each specifically measures"
+  - "Show a case where accuracy alone is misleading, and precision/recall reveal the real problem"
+prereqs:
+  - "Naive Bayes Text Classification ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Confusion Matrix }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: accuracy alone can lie to you</h2>
+
+Month 4 used accuracy as the evaluation metric, which works fine when classes are roughly
+balanced. But consider a spam filter where only 1% of emails are actually spam: a classifier
+that predicts "not spam" *every single time* achieves 99% accuracy — while being completely
+useless. **Precision**, **recall**, and **F1 score** reveal exactly this kind of failure, which
+plain accuracy hides.
+
+<h2 id="math">The confusion matrix</h2>
+
+For binary classification, every prediction falls into one of four categories:
+
+<MathBlock tex="\text{TP (true positive)} \quad \text{FP (false positive)} \quad \text{TN (true negative)} \quad \text{FN (false negative)}" />
+
+<MathBlock tex="\text{Precision} = \frac{TP}{TP+FP} \qquad \text{Recall} = \frac{TP}{TP+FN} \qquad F_1 = 2\cdot\frac{\text{Precision}\cdot\text{Recall}}{\text{Precision}+\text{Recall}}" />
+
+**Precision** asks: of everything the classifier *called* positive, how much actually was?
+**Recall** asks: of everything that actually *was* positive, how much did the classifier catch?
+**F1** is their harmonic mean — a single number that's low unless *both* precision and recall
+are reasonably high (unlike a plain average, which can look fine even if one of the two is very
+poor).
+
+<Callout kind="tip" title="Why accuracy hides the 'always predict the majority class' failure">
+  The "always predict not-spam" classifier from above gets `TP=0` (it never predicts spam, so it
+  never correctly catches one) and `FN=` every actual spam email. Its recall is exactly `0` —
+  immediately revealing it catches *no* spam at all — even though its accuracy looks excellent.
+  This is precisely why precision and recall matter most for imbalanced classification problems.
+</Callout>
+
+<h2 id="python">Confusion matrix, precision, recall, and F1, computed directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef confusion_matrix_binary(y_true, y_pred):\n    y_true, y_pred = np.array(y_true), np.array(y_pred)\n    tp = np.sum((y_true == 1) & (y_pred == 1))\n    fp = np.sum((y_true == 0) & (y_pred == 1))\n    tn = np.sum((y_true == 0) & (y_pred == 0))\n    fn = np.sum((y_true == 1) & (y_pred == 0))\n    return tp, fp, tn, fn\n\ndef precision_recall_f1(tp, fp, tn, fn):\n    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0\n    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0\n    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0\n    return precision, recall, f1\n\n# a realistic imbalanced dataset: 100 emails, only 5 are actually spam (1)\nrng = np.random.default_rng(0)\ny_true = np.array([1]*5 + [0]*95)\nrng.shuffle(y_true)\n\n# classifier A: 'always predict not-spam' -- looks great on accuracy alone\ny_pred_lazy = np.zeros(100, dtype=int)\naccuracy_lazy = np.mean(y_true == y_pred_lazy)\ntp, fp, tn, fn = confusion_matrix_binary(y_true, y_pred_lazy)\nprecision, recall, f1 = precision_recall_f1(tp, fp, tn, fn)\nprint(\"Classifier A ('always predict not-spam'):\")\nprint(f\"  accuracy:  {accuracy_lazy:.4f}  (looks great!)\")\nprint(f\"  TP={tp} FP={fp} TN={tn} FN={fn}\")\nprint(f\"  precision: {precision:.4f}  recall: {recall:.4f}  F1: {f1:.4f}  (reveals it's useless)\")\nprint()\n\n# classifier B: actually catches most spam, with a few false alarms\ny_pred_real = y_true.copy()\nspam_indices = np.where(y_true == 1)[0]\ny_pred_real[spam_indices[0]] = 0   # misses one actual spam (a false negative)\nham_indices = np.where(y_true == 0)[0]\ny_pred_real[ham_indices[:3]] = 1   # 3 false alarms (false positives)\n\naccuracy_real = np.mean(y_true == y_pred_real)\ntp2, fp2, tn2, fn2 = confusion_matrix_binary(y_true, y_pred_real)\nprecision2, recall2, f1_2 = precision_recall_f1(tp2, fp2, tn2, fn2)\nprint(\"Classifier B (catches most spam, a few false alarms):\")\nprint(f\"  accuracy:  {accuracy_real:.4f}\")\nprint(f\"  TP={tp2} FP={fp2} TN={tn2} FN={fn2}\")\nprint(f\"  precision: {precision2:.4f}  recall: {recall2:.4f}  F1: {f1_2:.4f}\")"}
+  output={"Classifier A ('always predict not-spam'):\n  accuracy:  0.9500  (looks great!)\n  TP=0 FP=0 TN=95 FN=5\n  precision: 0.0000  recall: 0.0000  F1: 0.0000  (reveals it's useless)\n\nClassifier B (catches most spam, a few false alarms):\n  accuracy:  0.9600\n  TP=4 FP=3 TN=92 FN=1\n  precision: 0.5714  recall: 0.8000  F1: 0.6667"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A classifier that always predicts 'not spam' on a 5%-spam dataset achieves 95% accuracy, yet its recall is exactly 0. Why does recall expose the problem that accuracy completely hides?"
+  correct={1}
+  options={[
+    { text: "Recall and accuracy are actually the same metric, just computed differently, so this shouldn't happen", why: "They are NOT the same metric -- recall specifically measures 'of all actual positives, how many did the classifier catch,' while accuracy measures overall correctness across ALL predictions, positive and negative combined. That difference is exactly why they can diverge this dramatically." },
+    { text: "Recall = TP / (TP + FN), and this classifier has TP=0 (it never predicts positive) while FN equals every single actual spam email -- so recall becomes 0/(0+FN) = 0 regardless of how many (correctly predicted) negative examples inflate the accuracy score", why: "Correct — this is exactly the mechanism: accuracy is dominated by the 95 correctly-identified 'not spam' emails, while recall looks ONLY at the 5 actual spam emails and finds the classifier caught none of them." },
+    { text: "This specific accuracy/recall gap only happens with exactly 5% positive rates, not other imbalance ratios", why: "The gap isn't specific to exactly 5% -- any sufficiently imbalanced dataset (1%, 2%, 10%, etc.) can produce this same pattern where a 'predict the majority class' classifier gets high accuracy but zero recall for the minority class." },
+    { text: "Accuracy is being computed incorrectly in this example", why: "Accuracy is computed completely correctly here (95 out of 100 predictions match the true label) -- the issue isn't a computational error, it's that accuracy simply isn't the right metric to reveal this particular failure mode." },
+  ]}
+/>
+
+## Summary
+
+The confusion matrix (TP, FP, TN, FN) underlies precision (`TP/(TP+FP)`, "how trustworthy are
+positive predictions") and recall (`TP/(TP+FN)`, "how many actual positives were caught"), with
+F1 combining both into one number that's low unless both are reasonably high. Verified directly
+above: an "always predict the majority class" classifier achieves misleadingly high accuracy on
+an imbalanced dataset while its recall — and F1 — correctly expose it as useless. The next
+lesson covers cross-validation, the methodology for evaluating a classifier's performance
+reliably rather than on just one arbitrary train/test split.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 4.7 — evaluation for text
+  classification, including precision, recall, F1, and their macro/micro averaging variants for
+  multi-class problems.

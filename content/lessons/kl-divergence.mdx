@@ -1,0 +1,80 @@
+---
+slug: kl-divergence
+month: 5
+week: 2
+ord: 3
+title: "KL Divergence: Measuring Distance Between Distributions"
+code: "5.2.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Define KL divergence as the 'extra cost' isolated from cross-entropy and entropy"
+  - "Show KL divergence is always non-negative, and zero exactly when the two distributions match"
+  - "Explain why KL divergence is NOT a true distance metric, despite measuring dissimilarity"
+prereqs:
+  - "Cross-Entropy, Revisited: An Information-Theoretic View ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Isolating the Extra Cost }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Naming the gap from last lesson</h2>
+
+Last lesson showed cross-entropy `H(P,Q)` always exceeds `H(P)` unless `Q` matches `P` exactly —
+that gap itself is useful enough to deserve its own name: **KL divergence**,
+`D_{KL}(P \| Q)`. It measures specifically how much *worse* `Q` is as a stand-in for `P`, with
+the entropy-vs-cross-entropy relationship built directly into its definition.
+
+<h2 id="math">Isolating the extra cost</h2>
+
+<MathBlock tex="D_{KL}(P \| Q) = H(P,Q) - H(P) = \sum_i P(i)\log_2\frac{P(i)}{Q(i)}" />
+
+Because `H(P,Q) \geq H(P)` always (Gibbs' inequality, last lesson), `D_{KL}(P\|Q) \geq 0`
+always, with equality exactly when `Q=P` everywhere.
+
+<Callout kind="tip" title="Why KL divergence is NOT a real 'distance'">
+  A true distance metric must be symmetric (`d(x,y)=d(y,x)`) — but
+  `D_{KL}(P\|Q) \neq D_{KL}(Q\|P)` in general. Concretely: `D_{KL}(P\|Q)` heavily penalizes `Q`
+  assigning near-zero probability to something `P` considers likely (that log ratio blows up),
+  while `D_{KL}(Q\|P)` penalizes the reverse situation instead. This asymmetry is genuinely
+  useful — which direction you use depends on what kind of mismatch you care about most — but it
+  does mean "KL distance" is a loose, technically-incorrect nickname worth knowing is imprecise.
+</Callout>
+
+<h2 id="python">KL divergence: non-negativity and asymmetry, both verified</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef entropy(p):\n    p = np.array(p)\n    nz = p[p > 0]\n    return -np.sum(nz * np.log2(nz))\n\ndef cross_entropy(p, q):\n    p, q = np.array(p), np.array(q)\n    mask = p > 0\n    return -np.sum(p[mask] * np.log2(q[mask]))\n\ndef kl_divergence(p, q):\n    return cross_entropy(p, q) - entropy(p)\n\n# verify KL >= 0 for several (P, Q) pairs, including P==Q\npairs = [\n    (\"P == Q\", [0.5, 0.3, 0.2], [0.5, 0.3, 0.2]),\n    (\"close\", [0.5, 0.3, 0.2], [0.45, 0.35, 0.2]),\n    (\"far\", [0.5, 0.3, 0.2], [0.1, 0.1, 0.8]),\n]\nfor name, p, q in pairs:\n    kl = kl_divergence(p, q)\n    print(f\"{name:>6}: D_KL(P||Q) = {kl:.4f}  (>= 0: {kl >= -1e-9})\")\n\nprint()\n\n# verify asymmetry directly: D_KL(P||Q) != D_KL(Q||P) in general\np = [0.9, 0.1]\nq = [0.5, 0.5]\nforward = kl_divergence(p, q)\nbackward = kl_divergence(q, p)\nprint(f\"D_KL(P||Q) with P={p}, Q={q}: {forward:.4f}\")\nprint(f\"D_KL(Q||P) with the SAME P, Q (just swapped): {backward:.4f}\")\nprint(f\"equal? {np.isclose(forward, backward)}  -- confirms KL divergence is NOT symmetric\")"}
+  output={"P == Q: D_KL(P||Q) = 0.0000  (>= 0: True)\n close: D_KL(P||Q) = 0.0093  (>= 0: True)\n   far: D_KL(P||Q) = 1.2365  (>= 0: True)\n\nD_KL(P||Q) with P=[0.9, 0.1], Q=[0.5, 0.5]: 0.5310\nD_KL(Q||P) with the SAME P, Q (just swapped): 0.7370\nequal? False  -- confirms KL divergence is NOT symmetric"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't KL divergence be used as a genuine mathematical 'distance' between two distributions?"
+  correct={0}
+  options={[
+    { text: "A true distance metric requires symmetry (distance from A to B equals distance from B to A), but D_KL(P||Q) is generally NOT equal to D_KL(Q||P), as verified directly above", why: "Correct — this asymmetry is exactly why KL divergence fails to satisfy the defining requirement of a distance metric, even though it does satisfy non-negativity and equals zero exactly when the distributions match." },
+    { text: "KL divergence can be negative, which no distance measure allows", why: "KL divergence is NEVER negative -- it satisfies non-negativity just fine (verified above). The disqualifying issue is specifically its lack of symmetry, not a sign problem." },
+    { text: "KL divergence is undefined whenever P equals Q", why: "KL divergence is well-defined (and equals exactly 0) when P equals Q -- this is explicitly verified in the 'P == Q' case above, not an undefined edge case." },
+    { text: "KL divergence only applies to continuous distributions, not discrete ones like those used here", why: "KL divergence applies to both discrete and continuous distributions -- every example verified in this lesson uses discrete distributions, and the formula works perfectly well for them." },
+  ]}
+/>
+
+## Summary
+
+KL divergence, `D_KL(P‖Q) = H(P,Q) - H(P)`, isolates exactly the "extra cost" of using `Q` in
+place of `P` — always non-negative, zero exactly when the distributions match, but genuinely
+asymmetric (`D_KL(P‖Q) ≠ D_KL(Q‖P)` in general), both properties verified directly above. This
+asymmetry disqualifies it as a true distance metric despite measuring real dissimilarity. The
+next lesson returns to softmax — not as an ad hoc formula, but as the specific function that
+arises naturally from these information-theoretic ideas.
+
+## Further reading
+
+- Cover & Thomas, *Elements of Information Theory*, Ch. 2 — KL divergence's formal properties,
+  including the proof of non-negativity (Gibbs' inequality) and its use throughout the rest of
+  the field.

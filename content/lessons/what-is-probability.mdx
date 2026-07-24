@@ -1,0 +1,85 @@
+---
+slug: what-is-probability
+month: 5
+week: 1
+ord: 1
+title: "What Is Probability?"
+code: "5.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Define a sample space and an event, and state the three axioms every valid probability must satisfy"
+  - "Compute the probability of simple events by counting outcomes"
+  - "Verify a theoretical probability against simulated relative frequency"
+prereqs:
+  - "Capstone: Image Classifier, Built From Scratch ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Sample Spaces, Events, Axioms }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 5: the mathematics of uncertainty</h2>
+
+Every month so far has assumed the data was simply given. Real machine learning constantly
+reasons about uncertainty: how confident is this prediction, how surprised should the model be
+by this outcome, how do we compare two predicted distributions? **Probability theory** is the
+mathematical language for all of that — and by the end of this month, it directly explains
+*why* cross-entropy (Month 4's loss function) has the exact form it does, and builds toward a
+working text classifier.
+
+<h2 id="math">Sample spaces, events, and the axioms</h2>
+
+The **sample space** `Ω` is the set of all possible outcomes of some random process (e.g., for
+one die roll, `Ω = {1,2,3,4,5,6}`). An **event** is any subset of the sample space (e.g., "rolled
+an even number" = `{2,4,6}`). A valid probability assignment `P` must satisfy three axioms:
+
+<MathBlock tex="P(E) \geq 0 \ \text{for every event } E \qquad P(\Omega) = 1 \qquad P(E_1 \cup E_2) = P(E_1) + P(E_2) \ \text{if } E_1 \cap E_2 = \emptyset" />
+
+In words: probabilities are never negative, the probability that *something* in the sample
+space happens is exactly `1`, and the probability of either of two *mutually exclusive* events
+happening is just the sum of their individual probabilities. Every other probability rule used
+this month is derived from these three facts.
+
+<Callout kind="tip" title="Probability as long-run relative frequency">
+  For a fair die, `P(\{2,4,6\}) = 3/6 = 0.5` isn't just a definition — it's a claim about what
+  happens if you actually rolled the die many, many times: the *fraction* of rolls landing on an
+  even number should approach `0.5` as the number of rolls grows. This "long-run frequency"
+  interpretation is exactly what the code below verifies directly, by simulation.
+</Callout>
+
+<h2 id="python">Verifying a theoretical probability against simulation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\n# sample space for one die roll: {1,2,3,4,5,6}, each equally likely\n# event: rolling an even number -> {2,4,6}\ntheoretical_prob = 3 / 6\n\nfor n_rolls in [10, 100, 1000, 100_000, 1_000_000]:\n    rolls = rng.integers(1, 7, size=n_rolls)   # simulate n_rolls fair die rolls\n    is_even = (rolls % 2 == 0)\n    empirical_prob = is_even.mean()\n    print(f\"n_rolls={n_rolls:>8}: empirical P(even) = {empirical_prob:.4f}  (theoretical = {theoretical_prob:.4f})\")\n\nprint()\n\n# verify the axioms directly on simulated data\nn = 1_000_000\nrolls = rng.integers(1, 7, size=n)\np_all_outcomes = sum((rolls == k).mean() for k in range(1, 7))\nprint(f\"sum of P(k) for k=1..6 (should be 1.0, the P(omega)=1 axiom): {p_all_outcomes:.4f}\")\n\np_even = (rolls % 2 == 0).mean()\np_2 = (rolls == 2).mean()\np_4 = (rolls == 4).mean()\np_6 = (rolls == 6).mean()\nprint(f\"P(even) = {p_even:.4f}  vs  P(2)+P(4)+P(6) = {p_2+p_4+p_6:.4f}  (mutually exclusive events, additivity axiom)\")"}
+  output={"n_rolls=      10: empirical P(even) = 0.6000  (theoretical = 0.5000)\nn_rolls=     100: empirical P(even) = 0.4700  (theoretical = 0.5000)\nn_rolls=    1000: empirical P(even) = 0.5320  (theoretical = 0.5000)\nn_rolls=  100000: empirical P(even) = 0.4975  (theoretical = 0.5000)\nn_rolls= 1000000: empirical P(even) = 0.4989  (theoretical = 0.5000)\n\nsum of P(k) for k=1..6 (should be 1.0, the P(omega)=1 axiom): 1.0000\nP(even) = 0.5004  vs  P(2)+P(4)+P(6) = 0.5004  (mutually exclusive events, additivity axiom)"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the empirical probability from simulation get CLOSER to the theoretical value as n_rolls increases, rather than staying randomly scattered?"
+  correct={1}
+  options={[
+    { text: "It doesn't actually get closer -- this is a coincidence specific to dice", why: "It's not a coincidence or specific to dice -- this convergence is a general, provable mathematical fact (the Law of Large Numbers, covered in week two) that applies to any repeated random process." },
+    { text: "This is exactly what the 'long-run relative frequency' interpretation of probability predicts -- with more trials, random fluctuations average out, so the observed fraction of a specific outcome converges toward its true underlying probability", why: "Correct — this convergence is precisely what probability is claiming to describe, and it's provable (the Law of Large Numbers, formalized next week) rather than a lucky coincidence in this particular simulation." },
+    { text: "The random number generator becomes more accurate as more numbers are generated", why: "The random number generator's quality doesn't change with how many numbers you draw from it -- the convergence is a property of averaging many independent random outcomes, not of the generator improving." },
+    { text: "Only the FIRST few rolls matter for the true probability, and later rolls are irrelevant", why: "Every roll contributes equally to the running average -- there's no special weight on early rolls. It's the total accumulated average across ALL rolls that converges toward the true probability." },
+  ]}
+/>
+
+## Summary
+
+A sample space enumerates every possible outcome; an event is a subset of it; and every valid
+probability assignment satisfies three axioms — non-negativity, `P(Ω)=1`, and additivity over
+mutually exclusive events. Simulation confirms the "long-run relative frequency" interpretation
+directly: as the number of trials grows, empirical frequencies converge to the theoretical
+probability, and the axioms hold exactly on simulated data. The next lesson covers conditional
+probability — how learning that one event occurred changes the probability of another.
+
+## Further reading
+
+- Blitzstein & Hwang, *Introduction to Probability*, Ch. 1 — the formal axiomatic treatment of
+  probability spaces, sample spaces, and events.

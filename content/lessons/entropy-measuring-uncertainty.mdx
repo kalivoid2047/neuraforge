@@ -1,0 +1,81 @@
+---
+slug: entropy-measuring-uncertainty
+month: 5
+week: 2
+ord: 1
+title: "Entropy: Measuring Uncertainty"
+code: "5.2.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute the entropy of a discrete probability distribution"
+  - "Explain entropy as the average number of bits needed to encode outcomes from a distribution"
+  - "Show that entropy is maximized by the uniform distribution and minimized by a certain outcome"
+prereqs:
+  - "Continuous Distributions and the Gaussian ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Entropy, Defined }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: measuring uncertainty itself, as a number</h2>
+
+Month 4 used cross-entropy loss without asking where the name "entropy" comes from. This week
+answers that directly, starting with **entropy** itself: a single number measuring how
+uncertain — how "spread out" — a probability distribution is. A coin that always lands heads
+has zero uncertainty; a fair coin has maximal uncertainty for a two-outcome distribution.
+Entropy makes "how uncertain" precise and computable.
+
+<h2 id="math">Entropy, defined</h2>
+
+For a discrete distribution `P` over outcomes:
+
+<MathBlock tex="H(P) = -\sum_i P(i) \log_2 P(i)" />
+
+Using `log₂` gives entropy the interpretation of **bits**: the average number of yes/no
+questions (bits) needed, in the best possible encoding scheme, to identify which outcome
+occurred. A fair coin needs exactly 1 bit per flip (`H=1`); a coin that always lands heads needs
+0 bits (`H=0`) — you already know the answer, no information is conveyed by observing it.
+
+<Callout kind="tip" title="Why log(0) doesn't break the formula">
+  If some outcome has `P(i)=0`, the term `P(i)\log_2 P(i)` is defined as `0` (not `-∞`), since
+  `x\log(x) \to 0` as `x \to 0`. Intuitively: an outcome that never happens contributes nothing
+  to the average number of bits needed, precisely because it's never actually being encoded.
+</Callout>
+
+<h2 id="python">Entropy across several distributions, verified directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef entropy(probs):\n    probs = np.array(probs)\n    nonzero = probs[probs > 0]   # skip P(i)=0 terms -- they contribute exactly 0, per the convention above\n    return -np.sum(nonzero * np.log2(nonzero))\n\n# a certain outcome: no uncertainty at all\ncertain = [1.0, 0.0]\nprint(f\"certain outcome [1.0, 0.0]: H = {entropy(certain):.4f} bits\")\n\n# a fair coin: maximal uncertainty for 2 outcomes\nfair_coin = [0.5, 0.5]\nprint(f\"fair coin [0.5, 0.5]: H = {entropy(fair_coin):.4f} bits\")\n\n# a biased coin: somewhere in between\nbiased_coin = [0.9, 0.1]\nprint(f\"biased coin [0.9, 0.1]: H = {entropy(biased_coin):.4f} bits\")\nprint()\n\n# for a fixed number of outcomes, entropy is maximized by the UNIFORM distribution -- verify for 4 outcomes\ndistributions = {\n    \"uniform      [.25,.25,.25,.25]\": [0.25, 0.25, 0.25, 0.25],\n    \"mild skew    [.4, .3, .2, .1]\": [0.4, 0.3, 0.2, 0.1],\n    \"strong skew  [.7, .1, .1, .1]\": [0.7, 0.1, 0.1, 0.1],\n    \"near-certain [.97,.01,.01,.01]\": [0.97, 0.01, 0.01, 0.01],\n}\nfor name, dist in distributions.items():\n    print(f\"{name}: H = {entropy(dist):.4f} bits\")\n\nmax_possible = np.log2(4)   # log2(n) is the maximum possible entropy for n equally-likely outcomes\nprint()\nprint(f\"maximum possible entropy for 4 outcomes (log2(4)): {max_possible:.4f} bits -- matches the uniform case exactly\")"}
+  output={"certain outcome [1.0, 0.0]: H = -0.0000 bits\nfair coin [0.5, 0.5]: H = 1.0000 bits\nbiased coin [0.9, 0.1]: H = 0.4690 bits\n\nuniform      [.25,.25,.25,.25]: H = 2.0000 bits\nmild skew    [.4, .3, .2, .1]: H = 1.8464 bits\nstrong skew  [.7, .1, .1, .1]: H = 1.3568 bits\nnear-certain [.97,.01,.01,.01]: H = 0.2419 bits\n\nmaximum possible entropy for 4 outcomes (log2(4)): 2.0000 bits -- matches the uniform case exactly"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the UNIFORM distribution have the highest possible entropy among all distributions over the same number of outcomes?"
+  correct={1}
+  options={[
+    { text: "Uniform distributions are simply defined to have maximum entropy, as a mathematical convention", why: "It's not a definitional convention -- it's a provable consequence of entropy's formula: spreading probability as evenly as possible across outcomes genuinely maximizes the -sum(p*log(p)) quantity, which the numerical comparison above confirms directly." },
+    { text: "Entropy measures uncertainty, and spreading probability as evenly as possible across all outcomes makes every outcome equally hard to predict in advance -- concentrating probability on fewer outcomes (as in the skewed examples) makes the result more predictable and therefore lowers uncertainty", why: "Correct — this is exactly the pattern verified above: as probability mass concentrates more heavily on one outcome (mild skew -> strong skew -> near-certain), entropy drops steadily, confirming that spreading mass out maximizes unpredictability." },
+    { text: "It only holds for exactly 2 outcomes, not for distributions with more categories", why: "The verification above used 4 outcomes, not 2, and the same maximization property held -- it's a general fact about entropy for any number of outcomes, not specific to the binary case." },
+    { text: "The uniform distribution happens to maximize entropy only because of how log2 is computed in this specific code", why: "This isn't a code-specific artifact -- it's a general mathematical property of the entropy formula itself, true regardless of implementation, base of the logarithm, or programming language." },
+  ]}
+/>
+
+## Summary
+
+Entropy, `H(P) = -Σ P(i)log₂P(i)`, measures a distribution's uncertainty in bits — the average
+number of yes/no questions needed to identify an outcome under an optimal encoding. It's zero
+for a certain outcome, and maximized (`log₂n` for `n` outcomes) exactly by the uniform
+distribution, verified directly above across several distributions of increasing skew. The next
+lesson extends this to *two* distributions at once: cross-entropy, revisited from an
+information-theoretic angle rather than just "the loss function Month 4 used."
+
+## Further reading
+
+- Cover & Thomas, *Elements of Information Theory*, Ch. 2 — the formal definition of entropy
+  and its interpretation as expected code length (Shannon's source coding theorem).

@@ -1,0 +1,93 @@
+---
+slug: continuous-distributions-gaussian
+month: 5
+week: 1
+ord: 5
+title: "Continuous Distributions and the Gaussian"
+code: "5.1.5"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why continuous random variables need a probability DENSITY function, not a PMF"
+  - "State the Gaussian (Normal) distribution's formula and the role of its mean and variance"
+  - "Verify the Gaussian PDF by comparing it against a histogram of simulated samples"
+prereqs:
+  - "Random Variables and Discrete Distributions ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Density Instead of Mass }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: when outcomes aren't a countable list</h2>
+
+A die roll has 6 possible outcomes; a coin flip has 2. But height, temperature, and (crucially
+for later this month) the weights inside a neural network can take *any* real value in some
+range — there are infinitely many possible outcomes, so no single outcome can have positive
+probability (`P(\text{height}=170.00000\ldots\text{cm})=0` exactly, for any exact value). A
+**probability density function (PDF)** handles this: instead of assigning probability to exact
+points, it describes probability per unit length, and actual probabilities come from the *area*
+under the curve over some range.
+
+<h2 id="math">Density instead of mass</h2>
+
+The **Gaussian (Normal) distribution**, by far the most important continuous distribution in
+practice:
+
+<MathBlock tex="f(x) = \frac{1}{\sqrt{2\pi\sigma^2}} \exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)" />
+
+`μ` (mean) sets the center of the bell curve; `σ²` (variance) sets its width. Unlike a PMF, `f(x)`
+itself is **not** a probability — it's a density, and can even exceed `1`. The actual
+probability of landing in some range `[a,b]` is the *integral* (the area under the curve) of
+`f(x)` from `a` to `b`.
+
+```python
+# reference only -- torch isn't available in this browser sandbox, but this IS pure math, verified below with real code
+# P(a <= X <= b) = integral of f(x) from a to b  -- an AREA, not a single f(x) value
+```
+
+<h2 id="python">The Gaussian PDF, verified against a histogram of real samples</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef gaussian_pdf(x, mu, sigma):\n    return (1 / np.sqrt(2 * np.pi * sigma**2)) * np.exp(-((x - mu)**2) / (2 * sigma**2))\n\nmu, sigma = 0.0, 1.0   # the standard normal distribution\n\n# generate a huge number of samples from a real Gaussian\nrng = np.random.default_rng(0)\nsamples = rng.normal(mu, sigma, size=2_000_000)\n\n# build a histogram (empirical density) and compare against the exact PDF formula\nbin_edges = np.linspace(-4, 4, 41)   # 40 bins from -4 to 4\nhist_counts, _ = np.histogram(samples, bins=bin_edges, density=True)   # density=True normalizes to match a PDF\nbin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2\n\nexact_pdf = gaussian_pdf(bin_centers, mu, sigma)\n\nprint(f\"{'x':>6} {'exact PDF f(x)':>16} {'empirical density':>18}\")\nfor i in range(0, 40, 4):\n    print(f\"{bin_centers[i]:>6.2f} {exact_pdf[i]:>16.4f} {hist_counts[i]:>18.4f}\")\n\nprint()\nmax_diff = np.max(np.abs(exact_pdf - hist_counts))\nprint(f\"max difference between exact PDF and empirical histogram: {max_diff:.4f}\")\nprint()\n\n# verify: P(-1 <= X <= 1) should be about 0.6827 (the '68%' in the 68-95-99.7 rule)\nempirical_within_1sigma = np.mean((samples >= -1) & (samples <= 1))\nprint(f\"empirical P(-1 <= X <= 1): {empirical_within_1sigma:.4f}  (known exact value: 0.6827)\")"}
+  output={"     x   exact PDF f(x)  empirical density\n -3.90           0.0002             0.0002\n -3.10           0.0033             0.0034\n -2.30           0.0283             0.0283\n -1.50           0.1295             0.1293\n -0.70           0.3123             0.3111\n  0.10           0.3970             0.3969\n  0.90           0.2661             0.2669\n  1.70           0.0940             0.0943\n  2.50           0.0175             0.0178\n  3.30           0.0017             0.0018\n\nmax difference between exact PDF and empirical histogram: 0.0016\n\nempirical P(-1 <= X <= 1): 0.6831  (known exact value: 0.6827)"}
+/>
+
+<Callout kind="tip" title="Why the Gaussian shows up everywhere">
+  Beyond describing naturally-occurring measurements, the Gaussian is the limiting distribution
+  the Central Limit Theorem (next lesson) predicts for *sums of many independent random
+  effects* — which is why it appears so often as a reasonable modeling assumption, and why it's
+  used deliberately as the initialization distribution for neural network weights (recall
+  `rng.normal(...)` initializing weights throughout Months 3 and 4).
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can f(x) at a single point NOT be interpreted as 'the probability of X equaling exactly x', unlike a PMF's P(X=x)?"
+  correct={3}
+  options={[
+    { text: "f(x) is always exactly 0 for continuous distributions, so there's nothing to interpret", why: "f(x) is generally NOT zero (as the Gaussian PDF's peak value near x=0 shows) -- it's the probability of an EXACT single value that is zero, not the density function's value." },
+    { text: "f(x) can only be computed for the Gaussian distribution specifically", why: "PDFs exist for continuous distributions generally, not just the Gaussian -- the Gaussian is simply one (very important) example used here." },
+    { text: "f(x) and P(X=x) are actually exactly the same thing for continuous random variables", why: "They are NOT the same -- P(X=x) is exactly 0 for any specific value x in a continuous distribution (there are infinitely many possible values), while f(x) is a density that can be nonzero (even greater than 1)." },
+    { text: "A continuous random variable has infinitely many possible exact values, so any single exact value necessarily has probability exactly 0 -- f(x) instead measures density (probability per unit length), and actual probabilities come from the AREA under f(x) over a range, not its value at one point", why: "Correct — this is exactly why probabilities for continuous random variables require integrating (finding area under the curve) over a range, rather than reading off a single density value, unlike a PMF." },
+  ]}
+/>
+
+## Summary
+
+Continuous random variables need a probability density function rather than a PMF, because any
+single exact value has probability zero — actual probabilities come from the area under the
+density curve over a range. The Gaussian distribution, `f(x) = (1/√(2πσ²))·exp(-(x-μ)²/2σ²)`,
+was verified above by matching its exact formula against a histogram of two million simulated
+samples, confirming both the shape and the classic "68% within one standard deviation" rule.
+This closes week one's probability foundations; week two turns to statistics — estimating these
+distributions' parameters from data, and the theorem that explains why the Gaussian appears so
+often in the first place.
+
+## Further reading
+
+- Blitzstein & Hwang, *Introduction to Probability*, Ch. 5 — continuous random variables,
+  density functions, and the Normal distribution's properties.

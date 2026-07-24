@@ -1,0 +1,91 @@
+---
+slug: naive-bayes-classifier
+month: 5
+week: 3
+ord: 5
+title: "Naive Bayes Text Classification"
+code: "5.3.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Derive the Naive Bayes classification rule from Bayes' theorem and the independence assumption"
+  - "Estimate word-given-class probabilities via MLE with Laplace smoothing"
+  - "Train and evaluate a working spam classifier from scratch"
+prereqs:
+  - "N-grams and Language Statistics ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Naive Bayes Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: every piece, assembled into a classifier</h2>
+
+**Naive Bayes** combines nearly everything this month has built: Bayes' theorem (week one)
+reverses `P(words | class)` into the `P(class | words)` actually wanted; bag-of-words (this
+week) represents a document as word counts; and MLE with smoothing (week two, extended here)
+estimates each word's probability given a class from training data. The "naive" part is a
+deliberate simplifying assumption — treating every word's occurrence as independent of every
+other, given the class — which is literally false for real language, but works surprisingly
+well in practice anyway.
+
+<h2 id="math">The Naive Bayes rule</h2>
+
+By Bayes' theorem, the class maximizing `P(\text{class} \mid \text{document})` is the same class
+maximizing `P(\text{document} \mid \text{class})\,P(\text{class})` (the denominator `P(\text{document})`
+is the same for every class being compared, so it doesn't affect *which* class wins). The naive
+independence assumption then factors the document likelihood into a product over its words:
+
+<MathBlock tex="P(\text{class} \mid \text{doc}) \propto P(\text{class}) \prod_{i} P(w_i \mid \text{class})" />
+
+Each `P(w_i|\text{class})` is estimated via MLE from training data, with **Laplace (additive)
+smoothing** to avoid a single unseen word forcing the entire product to zero:
+
+<MathBlock tex="P(w \mid c) = \frac{\text{count}(w, c) + 1}{\text{count}(\text{all words in } c) + |V|}" />
+
+`|V|` is the vocabulary size — the same "+1"-style smoothing idea from TF-IDF, applied here to
+keep every word's probability strictly positive.
+
+<Callout kind="tip" title="Working in log-space, exactly like the loss functions this month">
+  Multiplying many small probabilities together underflows to zero numerically for even
+  moderately long documents — precisely the same numerical issue MLE's log-likelihood (week two)
+  was designed around. Naive Bayes classifiers work in log-space for exactly that reason: sum
+  `log P(w_i|\text{class})` terms instead of multiplying raw probabilities, then compare sums.
+</Callout>
+
+<h2 id="python">A working Naive Bayes spam classifier, trained and evaluated from scratch</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [tok for tok in re.split(r'[^a-zA-Z]+', text.lower()) if tok]\n\n# a small labeled training set: (text, label) where label is 'spam' or 'ham'\ntrain_data = [\n    (\"win free money now\", \"spam\"),\n    (\"free prize click now\", \"spam\"),\n    (\"win a free vacation now\", \"spam\"),\n    (\"claim your free money prize\", \"spam\"),\n    (\"meeting scheduled for tomorrow\", \"ham\"),\n    (\"can we reschedule our meeting\", \"ham\"),\n    (\"please review the attached document\", \"ham\"),\n    (\"let us know your availability tomorrow\", \"ham\"),\n]\n\n# build vocabulary and per-class word counts\nvocab = set()\nclass_word_counts = {\"spam\": defaultdict(int), \"ham\": defaultdict(int)}\nclass_doc_counts = {\"spam\": 0, \"ham\": 0}\n\nfor text, label in train_data:\n    class_doc_counts[label] += 1\n    for word in tokenize(text):\n        vocab.add(word)\n        class_word_counts[label][word] += 1\n\nV = len(vocab)\ntotal_words = {c: sum(class_word_counts[c].values()) for c in [\"spam\", \"ham\"]}\nn_docs = sum(class_doc_counts.values())\n\ndef log_prior(c):\n    return np.log(class_doc_counts[c] / n_docs)\n\ndef log_likelihood_word(word, c):\n    count = class_word_counts[c][word]   # 0 if never seen in this class\n    return np.log((count + 1) / (total_words[c] + V))   # Laplace smoothing\n\ndef classify(text):\n    scores = {}\n    for c in [\"spam\", \"ham\"]:\n        score = log_prior(c)\n        for word in tokenize(text):\n            if word in vocab:   # ignore words never seen in ANY training document\n                score += log_likelihood_word(word, c)\n        scores[c] = score\n    predicted = max(scores, key=scores.get)\n    return predicted, scores\n\n# classify new, unseen test examples\ntest_examples = [\n    \"win free prize now\",\n    \"can we schedule a meeting tomorrow\",\n    \"free money click to claim\",\n    \"please send the document\",\n]\n\nfor text in test_examples:\n    predicted, scores = classify(text)\n    print(f\"'{text}'\")\n    print(f\"  log-scores: spam={scores['spam']:.3f}  ham={scores['ham']:.3f}  -> predicted: {predicted}\")\n\nprint()\nprint(f\"vocabulary size: {V}\")\nprint(f\"P(spam) prior: {np.exp(log_prior('spam')):.3f}   P(ham) prior: {np.exp(log_prior('ham')):.3f}\")"}
+  output={"'win free prize now'\n  log-scores: spam=-10.727  ham=-16.094  -> predicted: spam\n'can we schedule a meeting tomorrow'\n  log-scores: spam=-19.033  ham=-16.360  -> predicted: ham\n'free money click to claim'\n  log-scores: spam=-11.825  ham=-16.094  -> predicted: spam\n'please send the document'\n  log-scores: spam=-12.113  ham=-10.164  -> predicted: ham\n\nvocabulary size: 27\nP(spam) prior: 0.500   P(ham) prior: 0.500"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does this classifier use Laplace (+1) smoothing when estimating P(word | class), rather than the plain MLE formula count(word,class)/total_words(class)?"
+  correct={2}
+  options={[
+    { text: "Smoothing makes the classifier run faster", why: "Smoothing has no effect on computational speed -- it's a purely statistical adjustment to how probabilities are estimated, not a performance optimization." },
+    { text: "The plain MLE formula would give every word probability exactly 1, which is invalid", why: "The plain MLE formula (without smoothing) gives valid probabilities between 0 and 1 that sum to 1 across the vocabulary for each class -- the actual problem is specifically about words that were NEVER seen in a given class, not about the formula being invalid generally." },
+    { text: "Without smoothing, any word that never appeared in a class's training documents would get probability exactly 0 for that class, and since Naive Bayes multiplies (or sums logs of) per-word probabilities, a single unseen word would force that entire class's score to 0 (or log(0) = -infinity), regardless of how well every other word matched", why: "Correct — this is exactly the motivation given: Laplace smoothing prevents any single unseen word from catastrophically overwhelming the entire classification decision, by ensuring every word gets a small nonzero probability under every class." },
+    { text: "Smoothing is required by Bayes' theorem itself as a mathematical necessity", why: "Bayes' theorem itself doesn't require any smoothing -- smoothing is a practical estimation technique for handling unseen data (specifically the zero-count problem), not a component of the theorem's derivation." },
+  ]}
+/>
+
+## Week three summary
+
+This week built the full classical NLP pipeline: preprocessing (tokenize, lowercase, remove
+stopwords), bag-of-words vectorization, TF-IDF re-weighting, n-gram conditional probabilities,
+and finally Naive Bayes — a real, working text classifier combining Bayes' theorem, the
+independence assumption, and smoothed MLE estimation, verified above on a small spam/ham
+dataset. Every piece traces back to a specific earlier lesson this month, not a new unrelated
+technique. Week four builds the tooling needed to properly *evaluate* a classifier like this one,
+and assembles everything into the month's Text Classifier capstone.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 4 — Naive Bayes for text
+  classification, including Laplace smoothing and practical implementation considerations.
