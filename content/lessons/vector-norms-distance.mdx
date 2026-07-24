@@ -1,0 +1,86 @@
+---
+slug: vector-norms-distance
+month: 1
+week: 3
+ord: 3
+title: "Vector Norms & Distance"
+code: "1.3.3"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Compute the L2 (Euclidean) norm and explain its relationship to the Pythagorean theorem"
+  - "Compute the L1 norm and explain how it differs qualitatively from L2"
+  - "Use vector norms to compute the distance between two points"
+prereqs:
+  - "Vector Operations: Add, Scale, Dot Product ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: L2 and L1 }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">"How big is this vector?" has more than one honest answer</h2>
+
+A vector's **norm** is a measure of its size/length — but which notion of "size" you want
+depends on context, and different norms give genuinely different answers, not just different
+units. The two you'll meet constantly: **L2** (ordinary straight-line length) and **L1** (sum of
+absolute values, "taxicab distance").
+
+<h2 id="math">L2 and L1, defined</h2>
+
+<MathBlock tex="\|\vec{v}\|_2 = \sqrt{\sum_i v_i^2} \qquad \text{(Euclidean norm --- straight-line length)}" />
+<MathBlock tex="\|\vec{v}\|_1 = \sum_i |v_i| \qquad \text{(Manhattan/taxicab norm --- sum of absolute values)}" />
+
+L2 is exactly the Pythagorean theorem, generalized past 2D: for `v = [3, 4]`,
+`‖v‖₂ = √(3² + 4²) = √25 = 5` — the length of the hypotenuse. L1 answers a different question:
+if you could only move parallel to the axes (like navigating city blocks, hence "taxicab"), how
+far would you travel? For the same vector, `‖v‖₁ = |3| + |4| = 7` — more than the straight-line
+distance, because it can't cut diagonally.
+
+<h2 id="python">Computing both, and distance between two points</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nv = np.array([3, 4])\n\nl2 = np.sqrt(np.sum(v ** 2))\nl2_builtin = np.linalg.norm(v)               # default is L2\nl1 = np.sum(np.abs(v))\nl1_builtin = np.linalg.norm(v, ord=1)\n\nprint(f\"L2 norm (manual):  {l2}\")\nprint(f\"L2 norm (builtin): {l2_builtin}\")\nprint(f\"L1 norm (manual):  {l1}\")\nprint(f\"L1 norm (builtin): {l1_builtin}\")\n\n# distance between two points = norm of their difference\npoint_a = np.array([1, 1])\npoint_b = np.array([4, 5])\ndifference = point_b - point_a\neuclidean_distance = np.linalg.norm(difference)\nprint()\nprint(\"point_a:\", point_a, \" point_b:\", point_b)\nprint(\"difference vector:\", difference)\nprint(\"Euclidean distance between them:\", euclidean_distance)"}
+  output={"L2 norm (manual):  5.0\nL2 norm (builtin): 5.0\nL1 norm (manual):  7\nL1 norm (builtin): 7.0\n\npoint_a: [1 1]  point_b: [4 5]\ndifference vector: [3 4]\nEuclidean distance between them: 5.0"}
+/>
+
+<Callout kind="tip" title="Distance is just 'norm of the difference'">
+  This is a pattern worth internalizing early: "distance between two points" is always `‖a −
+  b‖` for whichever norm you care about. There's no separate distance formula to memorize —
+  it's the norm you already know, applied to the difference vector.
+</Callout>
+
+<Callout kind="warning" title="Why the choice of norm actually matters">
+  L1 and L2 aren't just different numbers for the same idea — they behave differently under
+  optimization. L1 tends to push small values all the way to exactly zero (useful for encouraging
+  "sparse" solutions — few nonzero parameters); L2 shrinks values smoothly toward zero without
+  usually reaching it exactly. You'll meet this distinction again as L1/L2 *regularization* when
+  training models later in this course.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="For the vector [3, 4], why is the L1 norm (7) larger than the L2 norm (5)?"
+  correct={0}
+  options={[
+    { text: "L1 sums the absolute component values directly (no diagonal shortcut); L2 measures straight-line length, which is always <= the sum of the components' absolute values", why: "Correct — L2's diagonal path is never longer than L1's axis-aligned path, by the triangle inequality." },
+    { text: "It's a coincidence specific to this vector -- L1 isn't generally larger than L2", why: "For any vector with more than one nonzero component, L1 >= L2 always holds, not just by coincidence here." },
+    { text: "L1 and L2 should always be equal; this is a calculation error", why: "They are genuinely different quantities by definition — this isn't an error." },
+    { text: "Because 3 and 4 are both positive numbers", why: "The sign of the components isn't the reason — L1 uses absolute values regardless of sign, and the L1 >= L2 relationship holds for negative components too." },
+  ]}
+/>
+
+## Summary
+
+A vector's norm measures its size, but "size" has multiple honest definitions: L2 (Euclidean,
+straight-line length, the Pythagorean theorem generalized) and L1 (Manhattan, sum of absolute
+values, axis-constrained travel). Distance between two points is always the norm of their
+difference vector — one formula, reused with whichever norm fits the situation. The choice
+between L1 and L2 has real downstream consequences, seen again later as regularization.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra*, chapter on norms and inner product spaces.

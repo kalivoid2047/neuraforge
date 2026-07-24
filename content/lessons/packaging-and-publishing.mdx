@@ -1,0 +1,110 @@
+---
+slug: packaging-and-publishing
+month: 1
+week: 2
+ord: 5
+title: "Packaging & Publishing to PyPI"
+code: "1.2.5"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Explain what pyproject.toml's [project] table declares about a package"
+  - "Describe the difference between TestPyPI and the real PyPI, and why this course uses TestPyPI"
+  - "Trace the steps from source code to an installable package"
+prereqs:
+  - "Git Workflow for AI Projects ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: pyproject, title: pyproject.toml }
+  - { anchor: publishing, title: Publishing }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">This week's skills, aimed at this month's capstone</h2>
+
+Every skill this week — testable code, pytest, logging, git hygiene — exists to support one
+concrete goal: this month's Forge Project is a **Matrix Calculator, packaged as a real,
+installable library and published to TestPyPI**. This lesson covers the last piece: turning a
+folder of `.py` files into something `pip install`-able.
+
+<Callout kind="tip" title="Why TestPyPI, not the real PyPI?">
+  TestPyPI (test.pypi.org) is a separate, fully functional instance of the Python Package Index,
+  meant exactly for practicing publishing without cluttering the real index with course
+  exercises or risking a name collision with a real published package. The workflow is
+  identical either way — TestPyPI is training wheels, not a toy.
+</Callout>
+
+<h2 id="pyproject">What pyproject.toml declares</h2>
+
+You've already seen `pyproject.toml` declare dependencies (lesson 1.1.2). The `[project]` table
+is what makes a project *packageable* — the metadata that ends up on its PyPI page:
+
+```toml
+[project]
+name = "matrix-calculator-yourname"
+version = "0.1.0"
+description = "A small, tested matrix calculator library"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+```
+
+`name` must be unique on whichever index you publish to (hence course convention: suffix your
+own name or a unique identifier). `version` follows semantic versioning (`major.minor.patch`) —
+you'll bump it every time you publish a meaningfully different release. `[build-system]`
+declares *how* your source becomes a distributable package; `hatchling` is one of several
+common, modern choices.
+
+<h2 id="publishing">From source to published package</h2>
+
+The path from your code to something someone else can `pip install`:
+
+1. **Build** — `uv build` (or `python -m build`) reads `pyproject.toml` and produces a `dist/`
+   folder containing a `.whl` (wheel — the installable binary-ish format) and a `.tar.gz`
+   (source distribution).
+2. **Check** — a built package should be installed into a *fresh* virtual environment and
+   smoke-tested before publishing; it's easy to accidentally leave out a file that works locally
+   only because it happens to already exist on your machine.
+3. **Publish** — `uv publish --index testpypi` (or `twine upload`) uploads the built
+   distributions to the index, using an API token for authentication — never your account
+   password directly.
+
+<Callout kind="danger" title="A published version cannot be un-published cleanly">
+  Once a version number is uploaded to an index, that exact version is generally locked —
+  indices refuse to let you re-upload the same version number even after deleting it, to
+  prevent a supply-chain attack where a malicious update silently replaces a trusted version.
+  If you find a mistake after publishing, bump the version number and publish again; don't try
+  to "fix" a version in place.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't you simply re-upload a corrected v0.1.0 after realizing it had a bug, using the same version number?"
+  correct={1}
+  options={[
+    { text: "pyproject.toml doesn't allow editing after the first publish", why: "pyproject.toml itself can always be edited — the restriction is on the package index side, for already-published version numbers." },
+    { text: "Package indices generally lock published version numbers permanently, specifically to prevent a version being silently swapped out from under users who already depend on it", why: "Correct — this is a deliberate supply-chain-integrity protection, not an arbitrary limitation." },
+    { text: "TestPyPI doesn't support re-uploading, but the real PyPI does", why: "Both TestPyPI and the real PyPI enforce this the same way — it isn't specific to the test index." },
+    { text: "It's technically possible but considered bad etiquette only", why: "It's not just etiquette — it's actively blocked by the index for already-published versions." },
+  ]}
+/>
+
+## Summary
+
+`pyproject.toml`'s `[project]` table declares the metadata that makes a codebase packageable —
+name, version, dependencies — and `[build-system]` declares how to build it. Publishing follows
+build → check in a fresh environment → upload, using TestPyPI to practice safely. Published
+version numbers are effectively permanent once uploaded, which is why version bumps (not
+in-place fixes) are the standard way to correct a published mistake.
+
+## Further reading
+
+- The Python Packaging Authority's *"Packaging Python Projects"* tutorial — the official,
+  up-to-date walkthrough this lesson summarizes.

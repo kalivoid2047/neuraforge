@@ -1,0 +1,89 @@
+---
+slug: unit-testing-pytest
+month: 1
+week: 2
+ord: 2
+title: "Unit Testing with pytest"
+code: "1.2.2"
+minutes: 75
+difficulty: 2
+objectives:
+  - "Write and run pytest test functions using plain assert statements"
+  - "Use pytest.raises to test that invalid input correctly triggers an error"
+  - "Explain the Arrange-Act-Assert structure and apply it to a new test"
+prereqs:
+  - "Writing Testable Code ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: errors, title: Testing Errors }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A test is just a function that checks a claim about your code</h2>
+
+`pytest` is the testing framework this entire course uses (it's what verifies your Forge
+Projects, and it's what the Neuraforge platform itself is tested with). The core idea is
+disarmingly simple: a test is a function, named `test_*`, that calls your code and uses plain
+Python `assert` statements to check the result is what you expected. No special assertion
+syntax to memorize — just `assert`.
+
+<Callout kind="tip" title="Arrange, Act, Assert">
+  Structure every test in three parts: **Arrange** (set up the inputs), **Act** (call the
+  function under test), **Assert** (check the result). This structure keeps tests readable even
+  months later, when you've forgotten exactly what you were checking.
+</Callout>
+
+<h2 id="python">Writing and running tests</h2>
+
+This cell simulates what running `pytest` would report — normally you'd run `pytest` from a
+terminal against a real `test_*.py` file, but the structure is identical to what you'll write
+on your own machine:
+
+<CodeCell
+  code={"# --- the code under test ---\ndef matrix_add(a, b):\n    \"\"\"Add two same-shape matrices, represented as lists of lists.\"\"\"\n    if len(a) != len(b) or any(len(row_a) != len(row_b) for row_a, row_b in zip(a, b)):\n        raise ValueError(\"matrices must have the same shape\")\n    return [[a[i][j] + b[i][j] for j in range(len(a[i]))] for i in range(len(a))]\n\n\n# --- tests, in the Arrange-Act-Assert style pytest expects ---\ndef test_matrix_add_basic():\n    # Arrange\n    a = [[1, 2], [3, 4]]\n    b = [[10, 20], [30, 40]]\n    # Act\n    result = matrix_add(a, b)\n    # Assert\n    assert result == [[11, 22], [33, 44]]\n\n\ndef test_matrix_add_with_zeros():\n    a = [[1, 2], [3, 4]]\n    zeros = [[0, 0], [0, 0]]\n    assert matrix_add(a, zeros) == a\n\n\n# --- a tiny test runner, standing in for the real `pytest` command ---\ntests = [test_matrix_add_basic, test_matrix_add_with_zeros]\nfor test in tests:\n    try:\n        test()\n        print(f\"PASSED  {test.__name__}\")\n    except AssertionError as e:\n        print(f\"FAILED  {test.__name__}: {e}\")"}
+  output={"PASSED  test_matrix_add_basic\nPASSED  test_matrix_add_with_zeros"}
+/>
+
+<h2 id="errors">Testing that bad input correctly raises an error</h2>
+
+Good tests don't only check the happy path — they check that your code fails *correctly* on bad
+input too. `pytest.raises` is the standard way to assert that a specific exception is raised:
+
+<CodeCell
+  code={"def matrix_add(a, b):\n    if len(a) != len(b) or any(len(row_a) != len(row_b) for row_a, row_b in zip(a, b)):\n        raise ValueError(\"matrices must have the same shape\")\n    return [[a[i][j] + b[i][j] for j in range(len(a[i]))] for i in range(len(a))]\n\n# In a real test file, this is written as:\n#\n#   import pytest\n#   def test_matrix_add_shape_mismatch():\n#       with pytest.raises(ValueError):\n#           matrix_add([[1, 2]], [[1, 2, 3]])\n#\n# Simulated here without the pytest import, same logic:\ndef assert_raises(exc_type, fn, *args):\n    try:\n        fn(*args)\n    except exc_type:\n        return True\n    raise AssertionError(f\"expected {exc_type.__name__} but nothing was raised\")\n\nresult = assert_raises(ValueError, matrix_add, [[1, 2]], [[1, 2, 3]])\nprint(\"PASSED  test_matrix_add_shape_mismatch:\", result)"}
+  output={"PASSED  test_matrix_add_shape_mismatch: True"}
+/>
+
+<Callout kind="warning" title="A test that can't fail is worth nothing">
+  Before trusting a new test, deliberately break it: comment out the real assertion, or change
+  the expected value to something wrong, and confirm the test actually fails. A test that passes
+  no matter what your code does isn't testing anything — this is a five-second sanity check
+  worth doing on every test you're not 100% sure about.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What does the Arrange-Act-Assert structure keep a test easy to do, months later?"
+  correct={0}
+  options={[
+    { text: "Read and understand — the three-part structure separates setup, the actual call, and the check, so it's clear what's being tested", why: "Correct — readability over time is the practical benefit." },
+    { text: "Run faster", why: "AAA structure is about organization/readability, not execution speed." },
+    { text: "Skip writing assertions", why: "AAA still requires assertions — it structures where they go, doesn't eliminate them." },
+    { text: "Avoid needing pytest at all", why: "AAA is a structuring convention usable with or without pytest — it doesn't replace the testing framework." },
+  ]}
+/>
+
+## Summary
+
+A pytest test is a `test_*` function using plain `assert` statements, structured as
+Arrange-Act-Assert for readability. `pytest.raises` verifies that bad input correctly triggers
+the expected exception, not just that good input produces the right output. A test that can't
+fail (verified by deliberately breaking the code under test) isn't actually testing anything.
+
+## Further reading
+
+- The official pytest documentation, *"Get Started"* — hands-on setup for running these tests
+  for real on your own machine.

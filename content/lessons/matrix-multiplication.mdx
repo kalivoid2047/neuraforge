@@ -1,0 +1,91 @@
+---
+slug: matrix-multiplication
+month: 1
+week: 4
+ord: 3
+title: "Matrix Multiplication, By Hand and In Code"
+code: "1.4.3"
+minutes: 90
+difficulty: 3
+objectives:
+  - "State the shape rule for matrix multiplication and predict the output shape"
+  - "Compute a matrix product by hand as a series of dot products"
+  - "Explain why matrix multiplication is not commutative in general"
+prereqs:
+  - "Matrix Operations: Add, Scale, Transpose ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Shape Rule }
+  - { anchor: stepper, title: Step Through One }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every dot product you learned last week, organized into a grid</h2>
+
+Matrix multiplication looks intimidating written out in full, but it's built entirely from one
+operation you already know cold: the dot product. `C = A @ B` computes every entry of `C` as
+the dot product of one row of `A` with one column of `B`. That's the whole mechanism — the
+apparent complexity is just doing this many times, once per output position.
+
+<Callout kind="tip" title="The one-sentence rule">
+  Entry `C[i][j]` is the dot product of row `i` of `A` and column `j` of `B`. Nothing else is
+  happening.
+</Callout>
+
+<h2 id="math">The shape rule</h2>
+
+For `A @ B` to be valid, `A`'s number of *columns* must equal `B`'s number of *rows* — the
+"inner" dimensions must match:
+
+<MathBlock tex="A_{(m \times n)} \; @ \; B_{(n \times p)} \;=\; C_{(m \times p)}" />
+
+The `n`'s must match (and disappear from the result); the output takes `A`'s row count and `B`'s
+column count. This single rule is worth memorizing cold — you'll use it to debug shape errors
+constantly for the rest of this course, including in every attention computation come Month 7.
+
+<h2 id="stepper">Step through one multiplication</h2>
+
+<MatrixMultiplyStepper />
+
+<h2 id="python">Computing it three ways</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nA = np.array([[1, 2], [3, 4]])         # shape (2, 2)\nB = np.array([[5, 6], [7, 8]])         # shape (2, 2)\n\n# --- Way 1: by hand, as explicit dot products (what's really happening) ---\ndef matmul_by_hand(A, B):\n    m, n = A.shape\n    n2, p = B.shape\n    assert n == n2, \"inner dimensions must match\"\n    C = np.zeros((m, p))\n    for i in range(m):\n        for j in range(p):\n            C[i, j] = A[i, :] @ B[:, j]     # row i of A dot column j of B\n    return C\n\nC_by_hand = matmul_by_hand(A, B)\nprint(\"by hand:\\n\", C_by_hand)\n\n# --- Way 2: np.matmul ---\nC_matmul = np.matmul(A, B)\nprint(\"np.matmul:\\n\", C_matmul)\n\n# --- Way 3: the @ operator (preferred, most readable) ---\nC_at = A @ B\nprint(\"A @ B:\\n\", C_at)\n\nprint(\"all three match?\", np.allclose(C_by_hand, C_matmul) and np.allclose(C_matmul, C_at))\n\n# order matters!\nprint()\nprint(\"A @ B:\\n\", A @ B)\nprint(\"B @ A:\\n\", B @ A)\nprint(\"A @ B == B @ A?\", np.array_equal(A @ B, B @ A))"}
+  output={"by hand:\n [[19. 22.]\n [43. 50.]]\nnp.matmul:\n [[19 22]\n [43 50]]\nA @ B:\n [[19 22]\n [43 50]]\nall three match? True\n\nA @ B:\n [[19 22]\n [43 50]]\nB @ A:\n [[23 34]\n [31 46]]\nA @ B == B @ A?  False"}
+/>
+
+<Callout kind="danger" title="Matrix multiplication is NOT commutative">
+  `A @ B ≠ B @ A` in general — order matters, unlike ordinary number multiplication. This isn't
+  a rare edge case; it's the normal situation, and it's a common source of bugs when translating
+  math notation (where order is written carefully and deliberately) into code. When you see
+  `AB` in a formula, the order is never arbitrary.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A has shape (3, 5) and B has shape (5, 2). What is the shape of A @ B, and would B @ A even be valid?"
+  correct={0}
+  options={[
+    { text: "A @ B has shape (3, 2); B @ A is NOT valid (5,2) inner dim 2 doesn't match (3,5) inner dim 3", why: "Correct — outer dims 3 and 2 give (3,2), and B@A would need B's columns (2) to match A's rows (3), which fails." },
+    { text: "A @ B has shape (5, 5); B @ A has shape (2, 2)", why: "Neither shape is right — A@B's shape comes from A's ROW count and B's COLUMN count, i.e. (3, 2), not (5,5)." },
+    { text: "Both A @ B and B @ A have shape (3, 2)", why: "B @ A isn't valid at all here — B's columns (2) don't match A's rows (3)." },
+    { text: "Neither A @ B nor B @ A is valid", why: "A @ B IS valid: A's columns (5) match B's rows (5) exactly." },
+  ]}
+/>
+
+## Summary
+
+Matrix multiplication computes each output entry as a dot product of a row from the left matrix
+and a column from the right matrix, requiring the left matrix's column count to match the right
+matrix's row count — `(m,n) @ (n,p) = (m,p)`. Order matters: `A @ B` and `B @ A` are generally
+different (and often one isn't even valid), unlike ordinary number multiplication. This single
+operation, applied repeatedly, is the computational core of essentially every neural network
+layer you'll build for the rest of this course.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Linear Algebra"* — the matrix multiplication episode visualizes
+  this rule especially well.

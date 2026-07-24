@@ -1,0 +1,92 @@
+---
+slug: logging-and-debugging
+month: 1
+week: 2
+ord: 3
+title: "Logging & Debugging"
+code: "1.2.3"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Explain why print statements don't scale as a debugging strategy"
+  - "Use Python's logging module with appropriate severity levels"
+  - "Apply a systematic bisection strategy to localize a bug in unfamiliar code"
+prereqs:
+  - "Unit Testing with pytest ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: strategy, title: Debugging Strategy }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">print() works until it doesn't</h2>
+
+`print()` debugging is fine for a five-line script. It stops scaling the moment you need to:
+turn it off without deleting it, distinguish "this is expected, informational" from "this is
+seriously wrong," or search a production system's history for what happened at 3am. Python's
+built-in `logging` module solves all three, and it's what the Neuraforge platform itself uses
+throughout its backend.
+
+<Callout kind="tip" title="The five standard severity levels">
+  `DEBUG` (detailed diagnostic info) → `INFO` (normal operation milestones) → `WARNING`
+  (something unexpected, not yet broken) → `ERROR` (a real failure) → `CRITICAL` (the whole
+  program can't continue). Filter by level once, and you can dial between "show me everything"
+  and "only alert me to real problems" without touching your code.
+</Callout>
+
+<h2 id="python">logging in action</h2>
+
+<CodeCell
+  code={"import logging\nimport io\n\n# capture log output to a string so we can print it here (normally it goes to\n# the console or a file automatically)\nlog_stream = io.StringIO()\nlogging.basicConfig(stream=log_stream, level=logging.DEBUG,\n                     format=\"%(levelname)s: %(message)s\")\nlog = logging.getLogger(\"matrix_calc\")\n\ndef safe_divide(a, b):\n    log.debug(f\"safe_divide called with a={a}, b={b}\")\n    if b == 0:\n        log.warning(f\"division by zero attempted: {a} / {b}\")\n        return None\n    result = a / b\n    log.debug(f\"safe_divide returning {result}\")\n    return result\n\nsafe_divide(10, 2)\nsafe_divide(5, 0)\n\nprint(log_stream.getvalue())"}
+  output={"DEBUG: safe_divide called with a=10, b=2\nDEBUG: safe_divide returning 5.0\nDEBUG: safe_divide called with a=5, b=0\nWARNING: division by zero attempted: 5 / 0\n"}
+/>
+
+<Callout kind="warning" title="One rule that saves real pain later">
+  Never log secrets — API keys, passwords, tokens — even at DEBUG level. Logs get written to
+  files, shipped to log aggregation services, and read by more people than you expect; treat
+  every log line as something that might eventually be seen by someone who shouldn't see a
+  credential.
+</Callout>
+
+<h2 id="strategy">A systematic strategy for localizing bugs</h2>
+
+When something's broken in code you didn't just write (someone else's, or your own from last
+month), guessing where the bug is wastes time. **Bisection** — the same idea as binary search —
+finds it faster: pick a point roughly in the middle of the suspect code, check whether the
+state is correct there (a log line, a print, a debugger breakpoint), then recurse into whichever
+half is actually wrong.
+
+<Callout kind="tip" title="Bisection in one sentence">
+  If a 500-line pipeline produces a wrong answer, don't read all 500 lines — check the
+  intermediate value at line 250. If it's already wrong there, the bug is in the first half; if
+  it's still right, the bug is in the second half. Repeat. This turns an O(n) manual search into
+  roughly O(log n) checks.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is logging.WARNING a better choice than logging.DEBUG for 'division by zero attempted, returning None instead of crashing'?"
+  correct={1}
+  options={[
+    { text: "WARNING messages run faster than DEBUG messages", why: "Log level doesn't affect execution speed of the logged code itself — this isn't the distinction." },
+    { text: "It's a real, unexpected situation worth surfacing even when detailed debug tracing is turned off in production", why: "Correct — WARNING is exactly for 'not yet broken, but notable' events distinct from routine DEBUG tracing." },
+    { text: "DEBUG messages are not allowed to contain variable values", why: "DEBUG messages can and often do contain variable values — that's a large part of their purpose." },
+    { text: "There's no real difference; the levels are purely cosmetic", why: "The levels are functionally meaningful — they're what you filter on to control log verbosity in different environments." },
+  ]}
+/>
+
+## Summary
+
+Python's `logging` module replaces ad-hoc `print()` debugging with severity-leveled,
+filterable, persistent output — DEBUG for detailed tracing, WARNING for unexpected-but-not-broken
+situations, and so on up to CRITICAL. When localizing a bug in unfamiliar code, bisecting the
+suspect region (checking intermediate state at the midpoint, then recursing) finds the fault far
+faster than reading start to finish.
+
+## Further reading
+
+- The official Python documentation, *"Logging HOWTO"* — the canonical reference for the
+  `logging` module.

@@ -1,0 +1,97 @@
+---
+slug: vectors-in-ml
+month: 1
+week: 3
+ord: 5
+title: "Vectors in Machine Learning"
+code: "1.3.5"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Identify at least three different things AI systems represent as vectors"
+  - "Compute cosine similarity and explain how it differs from raw dot product"
+  - "Use cosine similarity to find the most similar item in a small collection"
+prereqs:
+  - "Linear Combinations & Span ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Cosine Similarity }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing the loop: everything this week, applied</h2>
+
+This week built vectors from the ground up: what they are, how to combine them, how to measure
+their size and the angle between them. This closing lesson connects those tools directly to how
+AI systems actually use vectors day to day — and sets up the exact technique (cosine similarity)
+you'll use throughout this course, from search (Month 10) to evaluating embeddings (Month 6).
+
+<Callout kind="tip" title="Things represented as vectors, throughout this course">
+  A word or token (Month 6: embeddings). An entire sentence or document (Month 6/10: sentence
+  embeddings, semantic search). An image (Month 4: flattened pixels, or a learned feature
+  vector). A user's preferences, in a recommendation system. In every case: something
+  non-numeric, turned into a list of numbers that captures *meaning* well enough that nearby
+  vectors mean similar things.
+</Callout>
+
+<h2 id="math">Cosine similarity: dot product, but length-independent</h2>
+
+Recall from two lessons ago: `a · b = |a||b|cos(θ)`. Raw dot product is influenced by both the
+angle *and* the lengths of the vectors — two vectors pointing the same direction but with
+different magnitudes still have different dot products depending on scale, even though
+"pointing the same direction" is usually the thing you actually care about (e.g., for text: a
+long document and a short one about the *same topic* shouldn't be judged less similar just
+because one embedding vector happens to be scaled differently). **Cosine similarity** divides
+out the lengths, leaving only the angle:
+
+<MathBlock tex="\cos(\theta) = \frac{\vec{a}\cdot\vec{b}}{|\vec{a}|\,|\vec{b}|}" />
+
+The result is always between −1 (opposite directions) and 1 (same direction), regardless of
+either vector's magnitude — a clean, scale-independent similarity score.
+
+<h2 id="python">Finding the most similar vector in a collection</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef cosine_similarity(a, b):\n    return (a @ b) / (np.linalg.norm(a) * np.linalg.norm(b))\n\n# Toy \"word embeddings\" -- in reality these would be learned from data (Month 6),\n# here just hand-picked to demonstrate the mechanism.\nembeddings = {\n    \"cat\":   np.array([0.9, 0.1, 0.0]),\n    \"dog\":   np.array([0.8, 0.2, 0.0]),   # similar direction to \"cat\"\n    \"car\":   np.array([0.0, 0.1, 0.9]),   # very different direction\n    \"kitten\": np.array([4.5, 0.5, 0.0]),  # same DIRECTION as cat, very different MAGNITUDE\n}\n\nquery = embeddings[\"cat\"]\nprint(\"raw dot product with query 'cat':\")\nfor word, vec in embeddings.items():\n    print(f\"  {word:>8}: {query @ vec:.3f}\")\n\nprint()\nprint(\"cosine similarity with query 'cat':\")\nfor word, vec in embeddings.items():\n    sim = cosine_similarity(query, vec)\n    print(f\"  {word:>8}: {sim:.3f}\")\n\nmost_similar = max((w for w in embeddings if w != \"cat\"), key=lambda w: cosine_similarity(query, embeddings[w]))\nprint()\nprint(\"most similar to 'cat' (excluding itself):\", most_similar)"}
+  output={"raw dot product with query 'cat':\n       cat: 0.820\n       dog: 0.740\n       car: 0.010\n    kitten: 4.100\n\ncosine similarity with query 'cat':\n       cat: 1.000\n       dog: 0.995\n       car: 0.012\n    kitten: 0.995\n\nmost similar to 'cat' (excluding itself): dog"}
+/>
+
+<Callout kind="danger" title="The exact point of this example">
+  By raw dot product, "kitten" looks *more* related to "cat" than "dog" does (4.1 vs. 0.74) —
+  purely because its embedding happened to have a larger magnitude, not because it's actually
+  more similar in direction/meaning. By cosine similarity, "kitten" and "dog" both land close to
+  0.995 — the magnitude difference is correctly factored out, and "dog" edges ahead as
+  marginally more similar in direction. This exact failure mode (raw dot product being
+  misled by magnitude) is why cosine similarity, not raw dot product, is the standard choice for
+  comparing embeddings.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two embedding vectors point in exactly the same direction, but one has 5x the magnitude of the other. What is their cosine similarity?"
+  correct={3}
+  options={[
+    { text: "0.2 (1/5, reflecting the magnitude ratio)", why: "Cosine similarity specifically factors OUT magnitude — the ratio between magnitudes doesn't appear in the result." },
+    { text: "5.0 (the magnitude ratio itself)", why: "Cosine similarity is bounded in [-1, 1] by construction — it can never be 5.0." },
+    { text: "0.0 (they'd be considered unrelated)", why: "Same direction means maximally similar by this metric, not unrelated." },
+    { text: "1.0 -- magnitude doesn't affect cosine similarity, only direction does", why: "Correct — that's exactly the property that makes cosine similarity useful: it's magnitude-independent." },
+  ]}
+/>
+
+## Summary
+
+AI systems represent words, sentences, images, and more as vectors, then measure "how related"
+two things are by measuring how aligned their vectors are. Cosine similarity — dot product
+divided by both magnitudes — isolates direction from magnitude, giving a clean, scale-independent
+similarity score in `[-1, 1]`, unlike raw dot product which conflates alignment with vector
+length. This is the exact technique underlying semantic search, recommendation, and embedding
+evaluation throughout the rest of this course.
+
+## Further reading
+
+- Mikolov et al., *"Efficient Estimation of Word Representations in Vector Space"* (2013) — the
+  Word2Vec paper, which Month 6 builds from scratch, and which popularized this entire way of
+  thinking about meaning as vector geometry.

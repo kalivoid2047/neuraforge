@@ -1,0 +1,84 @@
+---
+slug: matrix-operations
+month: 1
+week: 4
+ord: 2
+title: "Matrix Operations: Add, Scale, Transpose"
+code: "1.4.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Compute matrix addition and scalar multiplication, and state their shape requirements"
+  - "Compute the transpose of a matrix and predict its resulting shape"
+  - "Identify a symmetric matrix from its relationship to its own transpose"
+prereqs:
+  - "What Is a Matrix? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Transpose }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Familiar operations, one new one</h2>
+
+Matrix addition and scalar multiplication work exactly like their vector counterparts from last
+week, applied element-by-element — no new ideas needed there. The genuinely new operation this
+lesson introduces is the **transpose**: flip a matrix over its diagonal, turning rows into
+columns and columns into rows. It looks like a small bookkeeping operation; it turns out to be
+essential to matrix multiplication (next lesson) and to nearly every neural network layer you'll
+implement later in this course.
+
+<h2 id="math">The transpose</h2>
+
+<MathBlock tex="(A^{\top})_{ij} = A_{ji}" />
+
+If `A` has shape `(m, n)`, then `A^T` has shape `(n, m)` — rows and columns swap counts. Entry
+`(i, j)` of the transpose is entry `(j, i)` of the original.
+
+<Callout kind="tip" title="A matrix equal to its own transpose is symmetric">
+  If `A = A^T`, `A` is called **symmetric** — necessarily square (`m = n`), with entry `(i,j)`
+  always equal to entry `(j,i)`. Symmetric matrices show up constantly: covariance matrices,
+  similarity/distance matrices, and (much later) attention weight patterns in certain
+  architectural variants.
+</Callout>
+
+<h2 id="python">All three operations</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nA = np.array([[1, 2, 3], [4, 5, 6]])       # shape (2, 3)\nB = np.array([[10, 20, 30], [40, 50, 60]]) # shape (2, 3)\n\n# addition -- requires matching shapes\nprint(\"A + B:\\n\", A + B)\n\n# scalar multiplication\nprint(\"2 * A:\\n\", 2 * A)\n\n# transpose\nA_T = A.T\nprint(\"A shape:\", A.shape, \" A.T shape:\", A_T.shape)\nprint(\"A.T:\\n\", A_T)\n\n# a symmetric matrix\nS = np.array([[1, 2, 3], [2, 5, 6], [3, 6, 9]])\nprint()\nprint(\"S:\\n\", S)\nprint(\"S.T:\\n\", S.T)\nprint(\"S is symmetric (S == S.T)?\", np.array_equal(S, S.T))\n\n# a NON-symmetric square matrix, for contrast\nN = np.array([[1, 2], [3, 4]])\nprint(\"N is symmetric (N == N.T)?\", np.array_equal(N, N.T))"}
+  output={"A + B:\n [[11 22 33]\n [44 55 66]]\n2 * A:\n [[ 2  4  6]\n [ 8 10 12]]\nA shape: (2, 3)  A.T shape: (3, 2)\nA.T:\n [[1 4]\n [2 5]\n [3 6]]\n\nS:\n [[1 2 3]\n [2 5 6]\n [3 6 9]]\nS.T:\n [[1 2 3]\n [2 5 6]\n [3 6 9]]\nS is symmetric (S == S.T)? True\nN is symmetric (N == N.T)? False"}
+/>
+
+<Callout kind="warning" title="Pitfall: addition requires identical shapes (not broadcastable-compatible)">
+  Unlike some operations you met with broadcasting, matrix addition genuinely requires both
+  matrices to have the *exact same shape* — there's no meaningful "add a (2,3) and a (3,2)."
+  (Broadcasting between a matrix and a *vector*, like you saw in Week 1, is a different, valid
+  case — this warning is specifically about adding two matrices of mismatched shape to each
+  other.)
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A matrix has shape (3, 7). What is the shape of its transpose?"
+  correct={2}
+  options={[
+    { text: "(3, 7) -- transpose doesn't change shape", why: "Transpose swaps rows and columns, which changes the shape unless the matrix is square." },
+    { text: "(7, 7)", why: "The transpose of a (3,7) matrix isn't square — it correctly has different row/column counts, just swapped." },
+    { text: "(7, 3)", why: "Correct — transpose swaps the row and column counts exactly." },
+    { text: "(3, 3)", why: "This would only be correct if the original matrix were already (3,3) — a (3,7) matrix's transpose is (7,3)." },
+  ]}
+/>
+
+## Summary
+
+Matrix addition and scalar multiplication work element-wise, requiring matching shapes for
+addition. The transpose swaps rows and columns — a `(m, n)` matrix becomes `(n, m)` — and a
+matrix equal to its own transpose is called symmetric. These operations, especially the
+transpose, are the building blocks the next lesson's matrix multiplication depends on directly.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra* — matrix operations and symmetric matrices.

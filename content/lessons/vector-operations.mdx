@@ -1,0 +1,88 @@
+---
+slug: vector-operations
+month: 1
+week: 3
+ord: 2
+title: "Vector Operations: Add, Scale, Dot Product"
+code: "1.3.2"
+minutes: 75
+difficulty: 2
+objectives:
+  - "Compute vector addition and scalar multiplication, geometrically and in code"
+  - "Compute the dot product two ways and connect them: algebraic sum vs. cos(angle)"
+  - "Use the dot product to test whether two vectors are orthogonal"
+prereqs:
+  - "What Is a Vector? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Dot Product, Two Ways }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Three operations, and one of them is doing quiet double duty</h2>
+
+Vector addition and scalar multiplication are exactly what they sound like: add corresponding
+components, or scale every component by the same number. The **dot product** is the one worth
+slowing down for — it looks like simple arithmetic but secretly measures *how aligned* two
+vectors are, and that single fact is the computational seed of attention (Month 7), of
+similarity search, and of most of what "AI understands meaning" actually reduces to
+mechanically.
+
+<h2 id="math">The dot product, two equivalent ways</h2>
+
+**Algebraically** — multiply corresponding components, sum the results:
+
+<MathBlock tex="\vec{a}\cdot\vec{b} = \sum_{i=1}^{n} a_i b_i" />
+
+**Geometrically** — the same number equals the product of both lengths times the cosine of the
+angle between them:
+
+<MathBlock tex="\vec{a}\cdot\vec{b} = |\vec{a}|\,|\vec{b}|\cos\theta" />
+
+These are the *same value*, computed two different ways — proving that isn't this lesson's job
+(it's a standard exercise in any linear algebra text), but the consequence is what matters:
+since `|a|` and `|b|` are always positive, the *sign* of the dot product tells you about the
+angle directly. Positive → angle less than 90°. Zero → exactly 90° (orthogonal). Negative →
+angle greater than 90°.
+
+<h2 id="python">All three operations, and reading the dot product's sign</h2>
+
+<CodeCell
+  code={"import numpy as np\n\na = np.array([1, 2, 3])\nb = np.array([4, 5, 6])\n\n# addition -- component-wise\nprint(\"a + b:\", a + b)\n\n# scalar multiplication\nprint(\"3 * a:\", 3 * a)\n\n# dot product -- two ways to compute it, same result\ndot_manual = sum(a[i] * b[i] for i in range(len(a)))\ndot_numpy = np.dot(a, b)           # or: a @ b\nprint(\"dot (manual sum):\", dot_manual)\nprint(\"dot (np.dot):    \", dot_numpy)\nprint(\"dot (a @ b):     \", a @ b)\n\n# reading the SIGN of the dot product\nsame_direction = np.array([1, 0])\nsimilar = np.array([1, 1])\nperpendicular = np.array([0, 1])\nopposite = np.array([-1, 0])\n\nfor name, v in [(\"same direction\", same_direction), (\"~45 degrees\", similar),\n                (\"perpendicular\", perpendicular), (\"opposite direction\", opposite)]:\n    d = np.array([1, 0]) @ v\n    sign = \"positive (angle < 90)\" if d > 0 else \"zero (exactly 90)\" if d == 0 else \"negative (angle > 90)\"\n    print(f\"{name:>20}: dot={d:>2}  ->  {sign}\")"}
+  output={"a + b: [5 7 9]\n3 * a: [3 6 9]\ndot (manual sum): 32\ndot (np.dot):     32\ndot (a @ b):      32\n      same direction: dot= 1  ->  positive (angle < 90)\n         ~45 degrees: dot= 1  ->  positive (angle < 90)\n       perpendicular: dot= 0  ->  zero (exactly 90)\n     opposite direction: dot=-1  ->  negative (angle > 90)"}
+/>
+
+<Callout kind="tip" title="Why this matters for AI, concretely">
+  "How similar are these two word embeddings?" is, mechanically, almost always "compute their
+  dot product (or a close relative of it, cosine similarity)." Two words with similar meaning
+  end up as vectors pointing in similar directions, learned automatically from data — Month 6
+  builds exactly this.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two vectors have a dot product of exactly 0. What does this tell you about the angle between them?"
+  correct={2}
+  options={[
+    { text: "They point in the same direction", why: "Same direction gives a POSITIVE dot product (assuming nonzero vectors), not zero." },
+    { text: "They point in exactly opposite directions", why: "Opposite directions give a NEGATIVE dot product, not zero." },
+    { text: "They are orthogonal (perpendicular) -- the angle between them is 90 degrees", why: "Correct — cos(90°) = 0, which is exactly why a zero dot product signals orthogonality." },
+    { text: "Nothing -- the dot product doesn't relate to angle", why: "The dot product is directly tied to the angle via |a||b|cos(theta) — this is one of its most useful properties." },
+  ]}
+/>
+
+## Summary
+
+Vector addition and scalar multiplication work component-wise. The dot product
+(`sum(a_i * b_i)`) equals `|a||b|cos(θ)` — the same value computed two ways — which means its
+*sign* directly reveals whether the angle between two vectors is acute (positive), exactly
+90° (zero, orthogonal), or obtuse (negative). This is the computational basis for measuring
+similarity between vectors throughout AI.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Linear Algebra"* video series — an outstanding visual treatment of
+  the dot product's geometric meaning.

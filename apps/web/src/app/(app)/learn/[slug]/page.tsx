@@ -110,9 +110,19 @@ export default async function LessonPage({ params }: { params: Promise<{ slug: s
           ) : (
             <span />
           )}
-          {next ? (
+          {next && next.month === frontmatter.month ? (
             <Link href={`/learn/${next.slug}`}>
               <Button>{next.code} {next.title} →</Button>
+            </Link>
+          ) : next ? (
+            // Months between this one and `next` aren't authored yet — say so,
+            // rather than presenting a cross-month jump as the next lesson in
+            // sequence (found while authoring Month 1: Month 1 → Month 7 read
+            // as a seamless "next," silently skipping months 2-6).
+            <Link href={`/learn/${next.slug}`}>
+              <Button variant="secondary">
+                Month complete 🔨 — jump to {next.code} {next.title} →
+              </Button>
             </Link>
           ) : (
             <Button disabled>Month complete 🔨</Button>

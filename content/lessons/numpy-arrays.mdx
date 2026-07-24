@@ -1,0 +1,84 @@
+---
+slug: numpy-arrays
+month: 1
+week: 1
+ord: 4
+title: "NumPy Arrays: The Foundation"
+code: "1.1.4"
+minutes: 75
+difficulty: 2
+objectives:
+  - "Create NumPy arrays multiple ways and inspect their shape, dtype, and size"
+  - "Explain why NumPy arrays require a single, fixed dtype for all elements"
+  - "Perform element-wise arithmetic on arrays without writing a loop"
+prereqs:
+  - "Python Data Structures for Numerical Work ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: operations, title: Element-wise Ops }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One data type, packed tightly, operated on in bulk</h2>
+
+A NumPy array (`ndarray`) is a grid of values, **all of the same data type**, stored in one
+contiguous block of memory. That single constraint — uniform dtype — is exactly what makes it
+fast: NumPy knows in advance exactly how many bytes each element takes and can hand the whole
+block to highly optimized, compiled code that processes it in bulk, instead of Python having to
+check each element's type one at a time.
+
+<Callout kind="tip" title="The trade you're making">
+  A Python list can hold `[1, "two", 3.0, [4]]` — anything, mixed. A NumPy array cannot; every
+  element shares one dtype (usually a fixed-size number type like `float64` or `int32`). You
+  give up flexibility and get speed and memory efficiency in return — the right trade for
+  numerical data, the wrong trade for a general-purpose container.
+</Callout>
+
+<h2 id="python">Creating arrays and inspecting them</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# from a Python list\na = np.array([1, 2, 3, 4, 5])\nprint(\"from list:\", a, \" dtype:\", a.dtype, \" shape:\", a.shape)\n\n# 2D array (a matrix) -- from a list of lists\nm = np.array([[1, 2, 3], [4, 5, 6]])\nprint(\"2D shape:\", m.shape, \" (2 rows, 3 columns)\")\n\n# common constructors\nzeros = np.zeros(4)\nones = np.ones((2, 3))\nrange_arr = np.arange(0, 10, 2)     # like Python's range(), but returns an array\nlinspace_arr = np.linspace(0, 1, 5)  # 5 evenly spaced points from 0 to 1\n\nprint(\"zeros:   \", zeros)\nprint(\"ones:\\n\", ones)\nprint(\"arange:  \", range_arr)\nprint(\"linspace:\", linspace_arr)\n\n# dtype is explicit and matters\nints = np.array([1, 2, 3], dtype=np.int32)\nfloats = np.array([1, 2, 3], dtype=np.float64)\nprint(\"int32 array:\", ints, ints.dtype)\nprint(\"float64 array:\", floats, floats.dtype)"}
+  output={"from list: [1 2 3 4 5]  dtype: int64  shape: (5,)\n2D shape: (2, 3)  (2 rows, 3 columns)\nzeros:    [0. 0. 0. 0.]\nones:\n [[1. 1. 1.]\n [1. 1. 1.]]\narange:   [0 2 4 6 8]\nlinspace: [0.   0.25 0.5  0.75 1.  ]\nint32 array: [1 2 3] int32\nfloat64 array: [1. 2. 3.] float64"}
+/>
+
+<h2 id="operations">Element-wise operations</h2>
+
+<CodeCell
+  code={"import numpy as np\n\na = np.array([1, 2, 3, 4])\nb = np.array([10, 20, 30, 40])\n\nprint(\"a + b:\", a + b)\nprint(\"a * b:\", a * b)     # element-wise multiply, NOT matrix multiplication\nprint(\"a ** 2:\", a ** 2)\nprint(\"b / a:\", b / a)\nprint(\"a > 2:\", a > 2)      # comparisons produce a boolean array"}
+  output={"a + b: [11 22 33 44]\na * b: [10 40 90 160]\na ** 2: [ 1  4  9 16]\nb / a: [10. 10. 10. 10.]\na > 2: [False False  True  True]"}
+/>
+
+<Callout kind="danger" title="Pitfall: * is element-wise, not matrix multiplication">
+  `a * b` between two arrays multiplies corresponding elements — it is **not** matrix
+  multiplication, even for 2D arrays. Matrix multiplication uses `@` or `np.matmul()`, covered
+  in Week 4. Using `*` when you meant `@` is one of the most common NumPy bugs beginners hit,
+  and it usually doesn't crash — it just silently computes the wrong thing.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why must every element of a NumPy array share the same dtype?"
+  correct={1}
+  options={[
+    { text: "It's an arbitrary historical limitation with no real benefit", why: "It's a deliberate design choice, not an accidental limitation — see the next option." },
+    { text: "A uniform, known-in-advance element size lets NumPy store data compactly and process it with optimized bulk operations", why: "Correct — this uniformity is exactly what makes vectorized operations fast." },
+    { text: "Mixed dtypes would make arrays impossible to print", why: "Printing isn't the constraint — memory layout and bulk-operation performance are." },
+    { text: "Only integer dtypes are actually allowed", why: "float, bool, complex, and other dtypes are all fully supported — the constraint is uniformity, not a restriction to integers." },
+  ]}
+/>
+
+## Summary
+
+NumPy arrays store elements of one uniform dtype in contiguous memory, which lets bulk
+operations run in optimized compiled code rather than a Python-level loop. Element-wise
+operators (`+`, `*`, `**`, comparisons) apply position-by-position across arrays — note
+carefully that `*` is element-wise multiplication, not matrix multiplication, which you'll meet
+properly in Week 4.
+
+## Further reading
+
+- The official NumPy documentation, *"NumPy: the absolute basics for beginners"* — a good
+  companion to this lesson.

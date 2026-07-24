@@ -1,0 +1,76 @@
+---
+slug: writing-testable-code
+month: 1
+week: 2
+ord: 1
+title: "Writing Testable Code"
+code: "1.2.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Distinguish a pure function from one with side effects"
+  - "Explain why pure functions are dramatically easier to test"
+  - "Refactor a function with hidden dependencies into a testable, pure form"
+prereqs:
+  - "Array Indexing & Broadcasting ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The best time to think about testing is before you write the function</h2>
+
+You'll write real automated tests next lesson. This lesson is about a habit that makes testing
+*possible* in the first place: preferring **pure functions** — functions whose output depends
+only on their inputs, with no hidden state and no side effects (no reading global variables, no
+printing, no modifying files, no relying on "what time it is").
+
+<Callout kind="tip" title="Pure function, defined">
+  Given the same inputs, a pure function always returns the same output, and calling it doesn't
+  change anything else in the world (no mutated globals, no I/O). `def add(a, b): return a + b`
+  is pure. `def add_and_log(a, b): print(...); return a + b` is not — it has a side effect
+  (printing) even though the return value is still predictable.
+</Callout>
+
+<h2 id="python">Impure vs. pure, side by side</h2>
+
+<CodeCell
+  code={"# --- IMPURE: depends on hidden global state ---\ntotal = 0\n\ndef add_to_total(x):\n    global total\n    total += x\n    return total\n\nprint(\"impure call 1:\", add_to_total(5))\nprint(\"impure call 2:\", add_to_total(5))   # SAME input, DIFFERENT output!\nprint(\"-> depends on how many times it's been called before -- hard to test in isolation\")\nprint()\n\n# --- PURE: same inputs always give the same output ---\ndef running_sum(previous_total, x):\n    return previous_total + x\n\nprint(\"pure call 1:\", running_sum(0, 5))\nprint(\"pure call 2:\", running_sum(0, 5))   # SAME inputs, SAME output, every time\nprint(\"-> trivially testable: call it, check the return value, done\")"}
+  output={"impure call 1: 5\nimpure call 2: 10\n-> depends on how many times it's been called before -- hard to test in isolation\n\npure call 1: 5\npure call 2: 5\n-> trivially testable: call it, check the return value, done"}
+/>
+
+<Callout kind="warning" title="Pure doesn't mean 'no side effects ever' in a real program">
+  Real programs need side effects somewhere — writing files, printing, calling APIs. The
+  practical goal isn't "zero side effects anywhere," it's **isolating** them: keep your core
+  logic (the part with bugs worth catching) pure and testable, and push side effects to thin
+  wrapper functions at the edges. Next lesson's tests will almost entirely target pure functions
+  for exactly this reason — they're the ones worth (and easy to) test thoroughly.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why are pure functions dramatically easier to write automated tests for?"
+  correct={2}
+  options={[
+    { text: "Pure functions run faster than impure ones", why: "Purity is unrelated to execution speed — this isn't the reason." },
+    { text: "Pure functions never contain bugs", why: "Purity doesn't prevent bugs — a pure function can still compute the wrong thing. It just makes verifying correctness easier." },
+    { text: "A test just needs to call the function with known inputs and check the output — no setup of hidden state, no risk of test order affecting results", why: "Correct — determinism and no hidden state are exactly what makes a test simple and reliable." },
+    { text: "Pure functions don't need to be tested at all", why: "Pure functions absolutely still need tests — they're just much easier to write correctly." },
+  ]}
+/>
+
+## Summary
+
+A pure function's output depends only on its inputs, with no hidden state or side effects —
+which makes it trivial to test: call it, check the return value. Real programs need side
+effects somewhere, but isolating them to thin edges and keeping core logic pure is what makes
+the bulk of a codebase actually testable, which is exactly what the next lesson's `pytest` tests
+will target.
+
+## Further reading
+
+- Hunt & Thomas, *"The Pragmatic Programmer"* — a widely-read treatment of writing maintainable,
+  testable code.

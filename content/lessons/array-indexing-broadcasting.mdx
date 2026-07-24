@@ -1,0 +1,88 @@
+---
+slug: array-indexing-broadcasting
+month: 1
+week: 1
+ord: 5
+title: "Array Indexing & Broadcasting"
+code: "1.1.5"
+minutes: 75
+difficulty: 2
+objectives:
+  - "Slice and index NumPy arrays, including boolean masking"
+  - "State the broadcasting rule and predict whether two shapes are compatible"
+  - "Use broadcasting to avoid an explicit loop when combining differently-shaped arrays"
+prereqs:
+  - "NumPy Arrays: The Foundation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: indexing, title: Indexing }
+  - { anchor: broadcasting, title: Broadcasting }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two skills that make NumPy actually pleasant to use</h2>
+
+Creating arrays and doing element-wise math (last lesson) covers the basics. This lesson covers
+the two skills that make NumPy genuinely *convenient* rather than just fast: flexible ways to
+select subsets of an array (indexing), and a rule that lets arrays of *different* shapes combine
+without you manually reshaping them first (broadcasting). You'll use both in essentially every
+lesson from here through Month 12.
+
+<h2 id="indexing">Indexing and slicing</h2>
+
+<CodeCell
+  code={"import numpy as np\n\na = np.array([10, 20, 30, 40, 50])\nprint(\"a[0]:     \", a[0])\nprint(\"a[-1]:    \", a[-1])          # last element\nprint(\"a[1:4]:   \", a[1:4])         # slice: indices 1, 2, 3 (4 excluded)\nprint(\"a[::2]:   \", a[::2])         # every other element\nprint(\"a[::-1]:  \", a[::-1])        # reversed\n\n# boolean masking: select elements matching a condition\nmask = a > 25\nprint(\"mask:     \", mask)\nprint(\"a[mask]:  \", a[mask])        # only elements where mask is True\nprint(\"a[a > 25]:\", a[a > 25])      # same thing, written inline\n\n# 2D indexing\nm = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])\nprint(\"m[1, 2]:  \", m[1, 2])        # row 1, column 2\nprint(\"m[0]:     \", m[0])           # entire row 0\nprint(\"m[:, 1]:  \", m[:, 1])        # entire column 1"}
+  output={"a[0]:      10\na[-1]:     50\na[1:4]:    [20 30 40]\na[::2]:    [10 30 50]\na[::-1]:   [50 40 30 20 10]\nmask:      [False False  True  True  True]\na[mask]:   [30 40 50]\na[a > 25]: [30 40 50]\nm[1, 2]:   6\nm[0]:      [1 2 3]\nm[:, 1]:   [2 5 8]"}
+/>
+
+<h2 id="broadcasting">Broadcasting: combining different shapes</h2>
+
+You've already used a simple case of broadcasting without naming it: `array * 2` — a single
+number (shape `()`) combined with an array (shape `(n,)`). Broadcasting is the general rule
+NumPy uses to make operations between different-shaped arrays work without you manually
+duplicating data. The rule, comparing shapes from the *right*:
+
+<Callout kind="tip" title="The broadcasting rule">
+  Two dimensions are compatible if they're equal, **or** one of them is 1 (in which case it's
+  stretched to match). Working from the trailing (rightmost) dimension inward, if every pair of
+  dimensions is compatible this way, the shapes broadcast together.
+</Callout>
+
+<CodeCell
+  code={"import numpy as np\n\n# A (3, 4) matrix and a (4,) vector -- shapes differ, but broadcast:\n# matrix: (3, 4)\n# vector:    (4,)   <- treated as (1, 4), then the 1 stretches to match 3\nmatrix = np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])\nvector = np.array([100, 200, 300, 400])\n\nresult = matrix + vector\nprint(\"matrix shape:\", matrix.shape, \" vector shape:\", vector.shape)\nprint(\"result shape:\", result.shape)\nprint(result)\nprint()\nprint(\"-- the vector was added to EVERY row, with no loop written --\")\n\n# A shape that does NOT broadcast: (3, 4) and (3,)\ntry:\n    matrix + np.array([1, 2, 3])\nexcept ValueError as e:\n    print(\"expected failure:\", e)"}
+  output={"matrix shape: (3, 4)  vector shape: (4,)\nresult shape: (3, 4)\n[[101 202 303 404]\n [105 206 307 408]\n [109 210 311 412]]\n\n-- the vector was added to EVERY row, with no loop written --\nexpected failure: operands could not be broadcast together with (3,4) (3,4) (3,)"}
+/>
+
+<Callout kind="warning" title="When broadcasting fails, check the trailing dimensions">
+  `(3, 4)` and `(3,)` don't broadcast because comparing from the right, `4` (last dim of the
+  matrix) and `3` (the vector's only dim) are neither equal nor is either one `1`. Reshaping the
+  vector to `(3, 1)` instead would broadcast fine — it would add a different number to each
+  *row* rather than each column. This "which axis does my vector line up with" question is the
+  single most common source of broadcasting bugs; when in doubt, print `.shape` on everything.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A matrix has shape (5, 3). Which of these vector shapes broadcasts successfully against it?"
+  correct={1}
+  options={[
+    { text: "(5,)", why: "Comparing from the right: 3 vs 5 — neither equal nor 1. This does NOT broadcast against (5, 3)." },
+    { text: "(3,)", why: "Comparing from the right: 3 vs 3 — equal, broadcasts fine (adds the vector to every row)." },
+    { text: "(2,)", why: "Comparing from the right: 3 vs 2 — neither equal nor 1. Does not broadcast." },
+    { text: "(4,)", why: "Comparing from the right: 3 vs 4 — neither equal nor 1. Does not broadcast." },
+  ]}
+/>
+
+## Summary
+
+NumPy indexing supports single elements, slices, and boolean masks (`a[a > threshold]`) for
+selecting subsets without writing a loop. Broadcasting lets arrays of different — but
+compatible — shapes combine directly: comparing dimensions from the right, they're compatible
+if equal or one of them is 1. Both are essential daily-use tools for the rest of this course.
+
+## Further reading
+
+- The official NumPy documentation, *"Broadcasting"* — the canonical reference with more
+  worked examples.

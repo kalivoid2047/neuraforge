@@ -1,0 +1,91 @@
+---
+slug: why-python-for-ai
+month: 1
+week: 1
+ord: 1
+title: "Why Python for AI?"
+code: "1.1.1"
+minutes: 45
+difficulty: 1
+objectives:
+  - "Explain what makes Python the dominant language for AI/ML work, specifically"
+  - "Identify the core scientific Python stack you'll use throughout this course"
+  - "Run your first NumPy computation and read its output"
+prereqs: []
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: stack, title: The Stack }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Welcome to month one</h2>
+
+Before any neural networks, any attention mechanisms, any of the exciting parts — you need
+comfortable footing in the tools every lesson from here on assumes. This first lesson is
+deliberately light: get Python and NumPy in front of you, run something, see it work. Everything
+else in this course builds on the habit of "read a little, run a little, check what happened,"
+starting right now.
+
+<Callout kind="tip" title="Why Python specifically, not C++ or Julia or R?">
+  It's not that Python is the *fastest* language — it usually isn't. It won because of
+  ecosystem: NumPy, PyTorch, and virtually every ML research paper's reference implementation
+  are Python-first, so the fastest path from an idea to running code goes through Python. Under
+  the hood, the heavy numerical work (matrix multiplication, gradients) runs in highly optimized
+  C/C++/CUDA — Python is the *interface* to that speed, not the thing doing the arithmetic
+  itself.
+</Callout>
+
+<h2 id="stack">The scientific Python stack, at a glance</h2>
+
+You'll meet these libraries constantly over the next 12 months:
+
+- **NumPy** — arrays and the vectorized math operations this entire course is built on
+  (starting this month).
+- **PyTorch** — automatic differentiation and GPU-accelerated tensors (from Month 4 onward).
+- **pytest** — how you'll verify your code actually does what you think it does (next week).
+
+<Callout kind="history" title="A brief note on where this all came from">
+  NumPy traces back to "Numeric," created by Jim Hugunin in 1995, later merged with a competing
+  library to become NumPy in 2006. It predates the deep learning boom by over a decade — the
+  scientific Python ecosystem was mature and battle-tested well before it became the substrate
+  for the AI revolution built on top of it.
+</Callout>
+
+<h2 id="python">Your first computation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# a vector: an ordered list of numbers\nv = np.array([1, 2, 3, 4])\nprint(\"vector:\", v)\nprint(\"shape: \", v.shape)\nprint(\"sum:   \", v.sum())\nprint(\"mean:  \", v.mean())\nprint(\"doubled:\", v * 2)"}
+  output={"vector: [1 2 3 4]\nshape:  (4,)\nsum:    10\nmean:   2.5\ndoubled: [2 4 6 8]"}
+/>
+
+Notice `v * 2` multiplied *every element* by 2 in one expression — no loop written. This is
+called **vectorization**, and it's the single most important habit this course will drill into
+you: whenever you catch yourself about to write a `for` loop over numbers, there is almost
+always a NumPy operation that does the same thing faster and in one line. You'll see exactly why
+that matters (both for clarity and for real performance) as the course progresses.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is Python the dominant language for AI/ML despite not being the fastest language?"
+  correct={2}
+  options={[
+    { text: "Python code runs faster than C++ once compiled", why: "Python isn't compiled to native speed the way C++ is — this isn't the reason." },
+    { text: "AI models can only be written in Python", why: "Models can be and are implemented in other languages — Python is a convention, not a requirement." },
+    { text: "The ecosystem (NumPy, PyTorch, research code) is Python-first, and it delegates the actual heavy computation to optimized C/C++/CUDA underneath", why: "Correct — Python is the interface; the speed comes from what it calls into." },
+    { text: "Python has built-in GPU support", why: "Python itself has no built-in GPU support — that comes from libraries like PyTorch, which is a separate reason from Python's own design." },
+  ]}
+/>
+
+## Summary
+
+Python won as the AI/ML language of choice not through raw speed but through ecosystem —
+NumPy, PyTorch, and the research community all converged on it, with the actual numerical
+heavy-lifting delegated to optimized C/C++/CUDA underneath. Vectorization — using NumPy
+operations instead of explicit loops — is the core habit this course builds starting today.
+
+## Further reading
+
+- Harris et al., *"Array Programming with NumPy"* (2020, *Nature*) — the NumPy paper.

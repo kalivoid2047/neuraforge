@@ -1,0 +1,90 @@
+---
+slug: what-is-a-vector
+month: 1
+week: 3
+ord: 1
+title: "What Is a Vector?"
+code: "1.3.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Define a vector as both a geometric arrow and a list of numbers, and connect the two views"
+  - "Represent vectors as NumPy arrays and identify their dimension"
+  - "Explain why AI represents words, images, and concepts as vectors"
+prereqs:
+  - "Packaging & Publishing to PyPI ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Views, One Object }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Starting the math half of month one</h2>
+
+Weeks 1–2 built programming habits. Weeks 3–4 build the math foundation the rest of this course
+leans on constantly: vectors this week, matrices next week — both leading directly into this
+month's Matrix Calculator project. Nothing here is new notation for its own sake; every idea
+introduced this week reappears, used for real, starting in Month 2.
+
+<h2 id="math">Two views of the same object</h2>
+
+A vector has (at least) two equally valid ways to think about it, and fluently switching
+between them is the actual skill this lesson builds:
+
+<Callout kind="tip" title="Geometric view vs. list-of-numbers view">
+  **Geometric**: an arrow with a length and a direction, anchored at the origin.
+  **Algebraic**: an ordered list of numbers, `[x, y]` or `[x, y, z]` or, for AI purposes, often
+  hundreds or thousands of numbers long. A 2D arrow pointing to `(3, 4)` and the list `[3, 4]`
+  are *the same object*, described two ways.
+</Callout>
+
+In AI, you'll almost never draw an arrow — a "word embedding" vector might have 768 numbers,
+impossible to visualize geometrically in any literal sense. But the geometric intuition (length,
+direction, angle between two vectors) still transfers and still guides intuition, even at 768
+dimensions where you can no longer draw the picture.
+
+<MathBlock tex="\vec{v} = \begin{pmatrix}3\\4\end{pmatrix} \quad\text{or equivalently}\quad \vec{v} = [3, 4]" />
+
+<h2 id="python">Vectors as NumPy arrays</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# A 2D vector\nv2d = np.array([3, 4])\nprint(\"2D vector:\", v2d, \" dimension:\", len(v2d))\n\n# A 3D vector\nv3d = np.array([1, 0, -2])\nprint(\"3D vector:\", v3d, \" dimension:\", len(v3d))\n\n# A 5D vector -- past the point you could draw it, but it's exactly the same KIND of object\nv5d = np.array([0.1, -0.3, 0.7, 0.0, 1.2])\nprint(\"5D vector:\", v5d, \" dimension:\", len(v5d))\nprint()\nprint(\"all three are 1D NumPy arrays -- only their LENGTH (dimension) differs:\")\nfor name, v in [(\"v2d\", v2d), (\"v3d\", v3d), (\"v5d\", v5d)]:\n    print(f\"  {name}: shape={v.shape}\")"}
+  output={"2D vector: [3 4]  dimension: 2\n3D vector: [ 1  0 -2]  dimension: 3\n5D vector: [ 0.1 -0.3  0.7  0.   1.2]  dimension: 5\n\nall three are 1D NumPy arrays -- only their LENGTH (dimension) differs:\n  v2d: shape=(2,)\n  v3d: shape=(3,)\n  v5d: shape=(5,)"}
+/>
+
+<Callout kind="history" title="Why AI represents everything as vectors">
+  A word, an image, a user's preferences — none of these are naturally numbers. Representing
+  them as vectors (a process called "embedding," which Month 6 covers in depth) lets every tool
+  built for numerical vectors — distance, similarity, the entire apparatus of linear algebra —
+  apply directly. This single choice (represent things as vectors) is arguably the foundational
+  design decision underlying essentially all of modern AI.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A word embedding vector has 768 numbers. Why is the geometric ('arrow') intuition for vectors still useful even though you can't literally draw a 768-dimensional arrow?"
+  correct={1}
+  options={[
+    { text: "It isn't useful — high-dimensional vectors need a completely different mental model", why: "The geometric intuition (length, direction, angle) is exactly what carries over and continues to guide real intuition, even without a literal drawing." },
+    { text: "Concepts like length, direction, and angle between vectors are still mathematically well-defined at any dimension, even though you can't draw the picture", why: "Correct — the algebra generalizes cleanly even where the geometric picture can't." },
+    { text: "768-dimensional vectors are secretly stored as 2D vectors internally", why: "They are genuinely 768-dimensional, not a disguised lower dimension." },
+    { text: "Because 768 happens to be a power of 2", why: "The dimensionality's specific value (or whether it's a power of 2) is unrelated to why the geometric intuition still applies." },
+  ]}
+/>
+
+## Summary
+
+A vector is simultaneously a geometric arrow (length and direction) and an ordered list of
+numbers — the same object, two views, and fluent movement between them is what this lesson
+builds. NumPy represents vectors as 1D arrays of any length; AI systems use vectors of hundreds
+or thousands of dimensions to represent words, images, and other non-numeric concepts
+numerically, which is the foundational move that makes the rest of linear algebra applicable to
+AI at all.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra* — the standard textbook reference for this entire
+  week's material.

@@ -1,0 +1,85 @@
+---
+slug: python-for-numerical-work
+month: 1
+week: 1
+ord: 3
+title: "Python Data Structures for Numerical Work"
+code: "1.1.3"
+minutes: 60
+difficulty: 1
+objectives:
+  - "Use Python lists, tuples, and dicts appropriately for small-scale bookkeeping"
+  - "Identify why plain Python lists are a poor fit for large-scale numerical computation"
+  - "Measure the actual performance gap between a Python loop and a vectorized alternative"
+prereqs:
+  - "Virtual Environments & uv ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: measuring, title: Measuring the Gap }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The right tool depends on the job</h2>
+
+Python's built-in list, tuple, and dict are excellent general-purpose tools — for configuration,
+bookkeeping, small collections, anything where flexibility matters more than raw numeric
+throughput. But they were never designed for large-scale numerical computation, and the reasons
+why are worth understanding before you meet their replacement (NumPy arrays) in the next lesson.
+
+<Callout kind="tip" title="Quick reference: which structure for which job">
+  **List** — an ordered, mutable sequence: good for "a bunch of things I'll add/remove from."
+  **Tuple** — an ordered, immutable sequence: good for fixed-size records, like `(x, y)` coordinates.
+  **Dict** — key-value lookup: good for "find the value associated with this name," fast lookup by key.
+</Callout>
+
+<h2 id="python">Where plain Python starts to strain</h2>
+
+<CodeCell
+  code={"# Plain Python: a list of numbers, doubled -- element by element\nnumbers = [1, 2, 3, 4, 5]\ndoubled = []\nfor n in numbers:\n    doubled.append(n * 2)\nprint(\"doubled (loop):\", doubled)\n\n# Same result, list comprehension -- more Pythonic, but still one Python-level\n# operation PER ELEMENT under the hood.\ndoubled_comprehension = [n * 2 for n in numbers]\nprint(\"doubled (comprehension):\", doubled_comprehension)\n\n# Each element is its own separate Python object, with its own memory overhead\n# and its own type-check on every operation -- fine for 5 numbers, a real cost at scale.\nimport sys\nprint(\"a single Python int object takes\", sys.getsizeof(1_000_000), \"bytes just for the number 1000000\")"}
+  output={"doubled (loop): [2, 4, 6, 8, 10]\ndoubled (comprehension): [2, 4, 6, 8, 10]\na single Python int object takes 28 bytes just for the number 1000000"}
+/>
+
+28 bytes to store one number that would take 8 bytes as a raw 64-bit float — because a Python
+`int` is a full object with type information and reference-counting overhead, not a raw number
+in memory. A list of a million such numbers pays that overhead a million times over, plus the
+list itself stores pointers to each of those separately-allocated objects, scattered in memory.
+
+<h2 id="measuring">Measuring the actual gap</h2>
+
+<CodeCell
+  code={"import time\nimport numpy as np\n\nn = 200_000\npython_list = list(range(n))\nnumpy_array = np.arange(n)\n\nstart = time.perf_counter()\ndoubled_list = [x * 2 for x in python_list]\npython_time = time.perf_counter() - start\n\nstart = time.perf_counter()\ndoubled_array = numpy_array * 2\nnumpy_time = time.perf_counter() - start\n\nprint(f\"Python list comprehension: {python_time*1000:.2f} ms\")\nprint(f\"NumPy vectorized:          {numpy_time*1000:.2f} ms\")\nprint(f\"NumPy is roughly {python_time / max(numpy_time, 1e-9):.0f}x faster on this machine, for this size\")"}
+  output={"Python list comprehension: 12.40 ms\nNumPy vectorized:          0.35 ms\nNumPy is roughly 35x faster on this machine, for this size"}
+/>
+
+<Callout kind="warning" title="The exact multiplier will vary">
+  Run this yourself — the exact numbers depend entirely on your machine, and can easily range
+  from 10x to 100x+ depending on array size and what operation you measure. The *direction* of
+  the result (NumPy meaningfully faster) is the reliable part; the *exact multiplier* is not.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does a Python list of a million numbers use significantly more memory than a NumPy array of the same million numbers?"
+  correct={0}
+  options={[
+    { text: "Each element in a Python list is a separate full object (with type info, reference count) plus a pointer to it, versus raw packed numbers in a NumPy array", why: "Correct — this is the fundamental memory-layout difference." },
+    { text: "Python lists are always sorted, which requires extra memory", why: "Python lists have no sorting requirement or overhead related to ordering." },
+    { text: "NumPy arrays compress their data", why: "NumPy arrays store raw values, not compressed data — the savings come from avoiding per-element object overhead, not compression." },
+    { text: "There's no real memory difference, only a speed difference", why: "There is a real, measurable memory difference — object overhead is real memory cost, not just a speed issue." },
+  ]}
+/>
+
+## Summary
+
+Python's built-in list, tuple, and dict are the right tools for general bookkeeping, but each
+number in a Python list is a full separate object with real memory and per-operation overhead —
+which becomes expensive at the scale numerical/AI code operates at. NumPy arrays (next lesson)
+solve this by storing raw, packed numbers and operating on them in bulk, which is both more
+memory-efficient and often dramatically faster.
+
+## Further reading
+
+- The Python documentation on built-in types — a good baseline before contrasting with NumPy.

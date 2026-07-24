@@ -1,0 +1,86 @@
+---
+slug: linear-combinations-span
+month: 1
+week: 3
+ord: 4
+title: "Linear Combinations & Span"
+code: "1.3.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Construct a linear combination of vectors and compute its result"
+  - "Explain what the span of a set of vectors means"
+  - "Determine whether two 2D vectors are linearly independent"
+prereqs:
+  - "Vector Norms & Distance ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every vector you'll ever combine is built from a handful of "ingredient" vectors</h2>
+
+A **linear combination** of vectors is just: scale each one by some number, then add them all
+together. That's it — the concept is that simple. What makes it powerful is the question it
+lets you ask: given a fixed small set of "ingredient" vectors, what's the full *set* of vectors
+you can reach by combining them in every possible way? That reachable set is called their
+**span**.
+
+<h2 id="math">Linear combination and span, defined</h2>
+
+<MathBlock tex="c_1\vec{v}_1 + c_2\vec{v}_2 + \cdots + c_n\vec{v}_n \qquad \text{(a linear combination, for any scalars } c_1,\ldots,c_n\text{)}" />
+
+The **span** of `{v_1, ..., v_n}` is the set of *every possible* linear combination — every
+choice of scalars. Two vectors are **linearly independent** if neither can be written as a
+scalar multiple of the other (in 2D specifically) — informally, if they point in genuinely
+different directions, not just opposite ways along the same line.
+
+<Callout kind="tip" title="Why this matters, concretely">
+  Two linearly independent 2D vectors span the *entire* 2D plane — any point in 2D can be
+  reached by some combination of them. This is the seed idea behind a "basis" (a minimal
+  spanning set) and, much later in this course, behind understanding what a neural network
+  layer's weight matrix can and cannot represent.
+</Callout>
+
+<h2 id="python">Building combinations, and testing independence</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nv1 = np.array([1, 0])\nv2 = np.array([0, 1])\n\n# ANY 2D point is some linear combination of v1 and v2 (the standard basis)\ntarget = np.array([3, -2])\ncombination = 3 * v1 + (-2) * v2\nprint(\"3*v1 + -2*v2 =\", combination, \" matches target?\", np.array_equal(combination, target))\n\n# Two vectors are linearly DEPENDENT if one is a scalar multiple of the other\na = np.array([2, 4])\nb = np.array([1, 2])   # b * 2 == a\nratio = a / b\nprint(\"a / b (element-wise):\", ratio, \"-- constant ratio means DEPENDENT (same direction)\")\n\n# Two independent vectors: no constant ratio exists\nc = np.array([1, 0])\nd = np.array([0, 1])\nprint(\"c / d (element-wise):\", c / d, \"-- undefined/inconsistent ratio -> INDEPENDENT\")\n\ndef are_2d_independent(u, v):\n    # In 2D, u and v are independent iff this \"cross product\" determinant is nonzero\n    return u[0] * v[1] - u[1] * v[0] != 0\n\nprint()\nprint(\"a, b independent?\", are_2d_independent(a, b))\nprint(\"c, d independent?\", are_2d_independent(c, d))"}
+  output={"3*v1 + -2*v2 = [ 3 -2]  matches target? True\na / b (element-wise): [2. 2.] -- constant ratio means DEPENDENT (same direction)\nc / d (element-wise): [inf  0.] -- undefined/inconsistent ratio -> INDEPENDENT\n\na, b independent? False\nc, d independent? True"}
+/>
+
+<Callout kind="warning" title="Pitfall: the determinant test only works in 2D, as written">
+  `u[0]*v[1] - u[1]*v[0]` is the 2×2 determinant test — it only applies to pairs of 2D vectors.
+  Testing independence for higher-dimensional or larger sets of vectors uses a more general tool
+  (row reduction / rank), which you'll meet properly next week once matrices are introduced.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="v1 = [2, 4] and v2 = [1, 2]. Are they linearly independent, and what does the span of {v1, v2} look like?"
+  correct={1}
+  options={[
+    { text: "Independent; their span is the entire 2D plane", why: "They are NOT independent — v1 is exactly 2*v2, pointing in the same direction." },
+    { text: "Dependent (v1 = 2*v2); their span is just a single line through the origin, not the full plane", why: "Correct — two dependent vectors in 2D can only reach points along one line, never the full plane." },
+    { text: "Independent; their span is a single line", why: "This combination (independent + line span) doesn't occur — independent vectors in 2D span the full plane, not a line." },
+    { text: "Dependent; their span is the entire 2D plane", why: "Dependent vectors can never span the full plane — that requires independence." },
+  ]}
+/>
+
+## Summary
+
+A linear combination scales and sums a set of vectors; their span is the complete set of points
+reachable that way. Two vectors are linearly independent if neither is a scalar multiple of the
+other — in 2D, two independent vectors span the entire plane, while dependent vectors are stuck
+spanning only a single line. This idea of "what can be reached by combining a fixed set of
+vectors" reappears throughout linear algebra and, eventually, in understanding neural network
+representational capacity.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Linear Algebra"* — the span/linear-independence episode in
+  particular pairs well with this lesson.

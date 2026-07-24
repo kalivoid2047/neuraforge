@@ -1,0 +1,93 @@
+---
+slug: git-workflow
+month: 1
+week: 2
+ord: 4
+title: "Git Workflow for AI Projects"
+code: "1.2.4"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Write a commit message that explains why a change was made, not just what changed"
+  - "Explain why large data/model files don't belong directly in git history"
+  - "Describe a minimal branch-per-feature workflow suitable for a solo or small-team project"
+prereqs:
+  - "Logging & Debugging ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: commits, title: Commit Messages }
+  - { anchor: bigfiles, title: The Big-File Problem }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Git for AI projects has one extra wrinkle: big files</h2>
+
+You likely already know git's basics — commit, branch, merge. This lesson isn't a git tutorial
+from scratch; it's the handful of habits specific to AI/ML projects, where "just commit
+everything" runs into a problem regular software projects rarely face: trained model weights
+and datasets can be gigabytes, and git was never designed to store history for files that size
+efficiently.
+
+<h2 id="commits">Commit messages that explain "why," not just "what"</h2>
+
+<Callout kind="tip" title="A useful test for any commit message">
+  If your commit message just restates the diff ("changed matrix_add function"), it's not adding
+  information — anyone can already see that from the diff itself. A good commit message answers
+  the question the diff *can't*: why was this change made? What problem, bug, or requirement
+  drove it?
+</Callout>
+
+Compare:
+
+```
+# Low-value: restates the diff
+fix bug in matrix_add
+
+# High-value: explains the reasoning the diff alone can't show
+matrix_add: validate shapes before adding, not after
+
+Previously a shape mismatch silently zero-padded the shorter row instead
+of raising an error, which masked a real bug in the calling code for two
+days before someone noticed the output looked wrong.
+```
+
+<h2 id="bigfiles">Why trained models and datasets don't belong in git history</h2>
+
+Git stores every version of every committed file, forever, in its history — great for source
+code (small, text, changes are meaningful diffs), a poor fit for a 500MB model checkpoint
+(binary, doesn't diff meaningfully, and every retrain adds another 500MB to the repository's
+permanent history, even if you later delete the file). A repository that accumulates dozens of
+old model checkpoints in its history becomes gigabytes just to clone, forever.
+
+<Callout kind="warning" title="The standard fix, briefly">
+  Large binary artifacts (datasets, checkpoints) typically live outside git entirely — object
+  storage (S3-compatible, or a local path), referenced by a small text file (a path, a URL, a
+  hash) that *is* safe to commit. Tools like Git LFS exist to blur this line, but the simplest
+  and most portable habit is: **if it's not source code or small config, don't commit it.**
+  `.gitignore` is your first line of defense here.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is committing a 2GB trained model checkpoint directly into git history a problem, even if you delete the file later?"
+  correct={2}
+  options={[
+    { text: "git refuses to commit files over 100MB", why: "git itself has no universal hard size limit (some hosts do, but that's a host policy, not git itself) — and the real issue is different." },
+    { text: "Binary files can't be committed to git at all", why: "git can absolutely store binary files — the issue is efficiency and permanent history bloat, not an inability to store them." },
+    { text: "git retains every committed version in history permanently by default — deleting the file later doesn't remove the old 2GB blob from history", why: "Correct — this is exactly why the repository stays large to clone even after 'deleting' the file in a later commit." },
+    { text: "It would overwrite the source code", why: "Committing a large file doesn't overwrite unrelated source files — this isn't a real risk from big files specifically." },
+  ]}
+/>
+
+## Summary
+
+Commit messages should explain *why* a change was made — the diff already shows *what* changed.
+Large binary artifacts (trained models, datasets) don't belong directly in git history, because
+git retains every committed version permanently, even after later deletion — they belong in
+external storage referenced by a small, git-safe pointer file instead.
+
+## Further reading
+
+- Chacon & Straub, *Pro Git* (free online) — the standard, thorough git reference.

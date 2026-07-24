@@ -1,0 +1,92 @@
+---
+slug: venv-and-uv
+month: 1
+week: 1
+ord: 2
+title: "Virtual Environments & uv"
+code: "1.1.2"
+minutes: 60
+difficulty: 1
+objectives:
+  - "Explain what problem virtual environments solve"
+  - "Distinguish a project's dependencies (pyproject.toml) from its exact locked versions (uv.lock)"
+  - "Reason about why this course (and Neuraforge itself) uses uv instead of Docker"
+prereqs:
+  - "Why Python for AI? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: lockfiles, title: Lockfiles }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One computer, many projects, conflicting needs</h2>
+
+Say Project A needs NumPy 1.24, and Project B needs NumPy 2.0. If you install packages
+"globally" (system-wide), you can only have one version at a time — installing B's version
+breaks A. A **virtual environment** is an isolated, self-contained Python installation *per
+project*: each project gets its own private set of installed packages, with zero risk of one
+project's dependencies clashing with another's.
+
+<Callout kind="tip" title="The core idea, in one sentence">
+  A virtual environment is a folder containing a private copy of Python and its installed
+  packages, activated per-project, so different projects never fight over dependency versions.
+</Callout>
+
+<h2 id="lockfiles">Dependencies vs. locked versions</h2>
+
+Real projects distinguish two related but different files:
+
+- **`pyproject.toml`** — states *what* your project depends on, often with a version range
+  (`numpy>=2.1`). This is what a human edits.
+- **`uv.lock`** — records the *exact* version of every package (and every dependency of every
+  dependency) that was actually resolved and installed, down to the exact build. This is what a
+  machine generates and everyone else's environment is built from, guaranteeing you get
+  identical results to your teammates.
+
+<Callout kind="history" title="Why uv, and why not Docker?">
+  This course — and the Neuraforge platform you're using right now — deliberately avoids Docker
+  for environment management (see ADR-0002 in the platform's own architecture docs). `uv`
+  (a modern, extremely fast Python package/environment manager) gives the same reproducibility
+  guarantee — an exact, locked dependency set, byte-for-byte reproducible on any machine —
+  without the overhead of containers. For a single-language Python project, a lockfile plus a
+  virtual environment already solves the reproducibility problem Docker is often reached for.
+</Callout>
+
+<h2 id="python">Seeing isolation in action</h2>
+
+You can't literally run shell commands inside this browser cell, but here's what the isolation
+guarantee looks like once you have two environments, expressed as a check you could run on your
+own machine:
+
+<CodeCell
+  code={"import sys\n\n# When a virtual environment is ACTIVE, sys.prefix points inside the venv folder,\n# not at the system Python installation.\nprint(\"Python executable in use:\", sys.executable)\nprint(\"Python version:\", sys.version.split()[0])\n\n# This is what you'd check on your own machine after `uv venv && source .venv/bin/activate`:\n# sys.executable should point INSIDE your project's .venv/ folder, not /usr/bin/python3.\nprint()\nprint(\"On your own machine, run this same check before and after activating a venv --\")\nprint(\"sys.executable should change to point inside .venv/ once the venv is active.\")"}
+  output={"Python executable in use: /usr/bin/python3\nPython version: 3.12.0\n\nOn your own machine, run this same check before and after activating a venv --\nsys.executable should change to point inside .venv/ once the venv is active.\n(exact output depends on your own environment -- the point is what CHANGES, not this specific path)"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What's the key difference between pyproject.toml and uv.lock?"
+  correct={1}
+  options={[
+    { text: "pyproject.toml is for production, uv.lock is for development only", why: "Both files matter in both environments — this isn't the distinction." },
+    { text: "pyproject.toml states dependency ranges a human edits; uv.lock records the exact resolved versions, machine-generated for reproducibility", why: "Correct." },
+    { text: "They're two names for the same file", why: "They're genuinely different files with different purposes and different content." },
+    { text: "uv.lock is optional and can be safely deleted with no consequences", why: "Deleting it means losing the exact reproducible version pins — a real consequence, not a safe no-op." },
+  ]}
+/>
+
+## Summary
+
+Virtual environments isolate a project's installed packages from the rest of the system and
+from other projects, preventing dependency version conflicts. `pyproject.toml` declares what a
+project needs (as ranges); `uv.lock` pins exactly what was resolved, guaranteeing byte-identical
+environments across machines — the same reproducibility goal Docker is often used for, achieved
+here without containers.
+
+## Further reading
+
+- The `uv` documentation (astral.sh/uv) — the tool this course and the Neuraforge platform use
+  throughout.

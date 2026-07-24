@@ -1,0 +1,83 @@
+---
+slug: matrix-calculator-capstone
+month: 1
+week: 4
+ord: 5
+title: "Building the Matrix Calculator"
+code: "1.4.5"
+minutes: 120
+difficulty: 3
+objectives:
+  - "Assemble this month's operations into one tested, packageable library"
+  - "Structure a small library with a clear public API separate from its internals"
+  - "Map each Forge Project requirement to the specific lesson that taught it"
+prereqs:
+  - "Identity, Inverse, and Solving Systems ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: mapping, title: Requirement Mapping }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Every lesson this month, assembled</h2>
+
+This is month one's capstone lesson: a working matrix calculator library, built from exactly
+the pieces the last three weeks covered — vectors, matrix operations, matrix multiplication,
+inverses and solving systems — wrapped in tests, ready to package and publish. Nothing here
+is new math; this is entirely about assembly, structure, and the software-engineering habits
+from Week 2.
+
+<Callout kind="tip" title="Public API vs. internals">
+  A well-structured small library has a clear boundary: a few public functions users are meant
+  to call (`add`, `multiply`, `solve`, ...), and internal helpers they're not meant to depend on
+  directly. This isn't about hiding code — it's about giving yourself freedom to change internal
+  details later without breaking anyone (including future-you) who depends on the public API.
+</Callout>
+
+<h2 id="python">A minimal, tested matrix calculator</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# --- public API: what users of this library actually call ---\n\ndef add(a, b):\n    \"\"\"Add two matrices/vectors of the same shape.\"\"\"\n    a, b = np.asarray(a), np.asarray(b)\n    if a.shape != b.shape:\n        raise ValueError(f\"shape mismatch: {a.shape} vs {b.shape}\")\n    return a + b\n\ndef multiply(a, b):\n    \"\"\"Matrix-multiply a and b, validating the shape rule first.\"\"\"\n    a, b = np.asarray(a), np.asarray(b)\n    if a.shape[-1] != b.shape[0]:\n        raise ValueError(f\"inner dimensions must match: {a.shape} @ {b.shape}\")\n    return a @ b\n\ndef solve(A, b):\n    \"\"\"Solve the linear system Ax = b.\"\"\"\n    A, b = np.asarray(A), np.asarray(b)\n    if A.shape[0] != A.shape[1]:\n        raise ValueError(\"A must be square to solve Ax = b\")\n    try:\n        return np.linalg.solve(A, b)\n    except np.linalg.LinAlgError as e:\n        raise ValueError(f\"system has no unique solution: {e}\")\n\n\n# --- tests: the Arrange-Act-Assert pattern from Week 2, applied to THIS library ---\n\ndef test_add_matching_shapes():\n    result = add([[1, 2]], [[10, 20]])\n    assert np.array_equal(result, [[11, 22]])\n\ndef test_add_rejects_mismatched_shapes():\n    try:\n        add([[1, 2]], [[1, 2, 3]])\n        assert False, \"expected ValueError\"\n    except ValueError:\n        pass\n\ndef test_multiply_shape_rule():\n    result = multiply([[1, 2], [3, 4]], [[5, 6], [7, 8]])\n    assert np.array_equal(result, [[19, 22], [43, 50]])\n\ndef test_solve_recovers_known_solution():\n    A = [[2, 1], [1, 3]]\n    b = [5, 10]\n    x = solve(A, b)\n    assert np.allclose(A @ np.array(x), b)\n\ntests = [test_add_matching_shapes, test_add_rejects_mismatched_shapes,\n         test_multiply_shape_rule, test_solve_recovers_known_solution]\nfor test in tests:\n    try:\n        test()\n        print(f\"PASSED  {test.__name__}\")\n    except AssertionError as e:\n        print(f\"FAILED  {test.__name__}: {e}\")"}
+  output={"PASSED  test_add_matching_shapes\nPASSED  test_add_rejects_mismatched_shapes\nPASSED  test_multiply_shape_rule\nPASSED  test_solve_recovers_known_solution"}
+/>
+
+<h2 id="mapping">Where each project requirement was actually taught</h2>
+
+<Callout kind="tip" title="This month's Forge Project, traced back to its lessons">
+  **A tested library** — Week 2 (writing testable code, pytest). **Matrix operations
+  (add, multiply, transpose)** — Week 4, lessons 1–3. **Solving linear systems** — Week 4,
+  lesson 4 (this lesson's `solve` function). **Clear error messages on invalid input** — the
+  shape-validation habit from Week 2's error-testing section, applied throughout. **Published to
+  TestPyPI** — Week 2, lesson 5 (`pyproject.toml`, build, publish). Every requirement traces to
+  a specific, already-completed lesson — the capstone isn't new material, it's proof you can
+  combine what you've already learned into something real.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does `multiply()` validate shapes and raise a clear ValueError before calling `a @ b`, instead of just letting NumPy's own error surface?"
+  correct={1}
+  options={[
+    { text: "NumPy doesn't raise an error on shape mismatches, so validation is required to catch it at all", why: "NumPy does raise its own error on incompatible shapes — this isn't about catching something NumPy misses." },
+    { text: "A library's public API should give callers a clear, specific, predictable error rather than leaking an internal implementation detail's raw error message", why: "Correct — this is the practical benefit of validating at the public-API boundary, tying back to Week 2's testable-code and error-handling habits." },
+    { text: "It makes the function run faster", why: "Validation adds a small check, not a performance improvement — that's not the motivation here." },
+    { text: "It's required by TestPyPI for publishing", why: "TestPyPI has no such requirement — this is a code-quality choice, not a publishing rule." },
+  ]}
+/>
+
+## Summary
+
+This capstone combines everything from month one: vector/matrix operations, matrix
+multiplication, solving linear systems, all wrapped in tests following the Arrange-Act-Assert
+pattern, ready to package (`pyproject.toml`) and publish (TestPyPI) exactly as Week 2 covered.
+Every requirement in the Forge Project brief traces back to a specific lesson — this is
+integration, not new material, and it's exactly the shape (small, tested, well-scoped, real)
+of every Forge Project for the rest of this course.
+
+## Further reading
+
+- Revisit *"Writing Testable Code"* (1.2.1) and *"Packaging & Publishing to PyPI"* (1.2.5) —
+  this lesson is where their payoff actually lands.
