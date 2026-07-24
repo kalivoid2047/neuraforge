@@ -1,0 +1,86 @@
+---
+slug: why-nonlinearity-matters
+month: 2
+week: 3
+ord: 1
+title: "Why Nonlinearity Matters"
+code: "2.3.1"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Prove that stacking purely linear layers collapses to a single linear layer"
+  - "Explain what an activation function's nonlinearity actually buys a network"
+  - "Verify the collapse claim empirically on a small numeric example"
+prereqs:
+  - "From Perceptron to Modern Neurons ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Collapse Proof }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Depth is worthless without nonlinearity — provably, not just empirically</h2>
+
+Week two closed on "stacking neurons into layers escapes the linear separability limit." That's
+only true if something *nonlinear* happens between the layers. This lesson proves — not just
+asserts — that stacking purely linear layers, with no nonlinearity between them, is exactly
+equivalent to a single linear layer. No amount of depth without nonlinearity buys you anything.
+
+<h2 id="math">The collapse proof</h2>
+
+A linear layer computes `y = Wx + b`. Stack two of them, feeding the first's output into the
+second:
+
+<MathBlock tex="y = W_2(W_1x + b_1) + b_2 = (W_2W_1)x + (W_2b_1 + b_2)" />
+
+Let `W' = W_2W_1` and `b' = W_2b_1 + b_2` — both are just fixed matrices/vectors, computable
+once you know `W_1, W_2, b_1, b_2`. The whole two-layer computation reduces to:
+
+<MathBlock tex="y = W'x + b'" />
+
+— a *single* linear layer. This generalizes to any number of stacked linear layers: they always
+collapse to one. An **activation function** applied between layers (`y = W_2\,\sigma(W_1x + b_1) + b_2`)
+breaks this collapse, because `σ` (if nonlinear) cannot be absorbed into a single matrix
+multiplication the way pure linear composition can.
+
+<h2 id="python">Verifying the collapse numerically</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nnp.random.seed(0)\nn_in, n_hidden, n_out = 4, 6, 3\n\nW1 = np.random.randn(n_hidden, n_in) * 0.5\nb1 = np.random.randn(n_hidden) * 0.5\nW2 = np.random.randn(n_out, n_hidden) * 0.5\nb2 = np.random.randn(n_out) * 0.5\n\ndef two_layer_linear(x):\n    return W2 @ (W1 @ x + b1) + b2\n\n# the algebraically-equivalent single layer\nW_collapsed = W2 @ W1\nb_collapsed = W2 @ b1 + b2\n\ndef single_layer(x):\n    return W_collapsed @ x + b_collapsed\n\n# test on several random inputs -- should match exactly (up to floating point)\nfor trial in range(3):\n    x = np.random.randn(n_in)\n    out_two_layer = two_layer_linear(x)\n    out_single = single_layer(x)\n    print(f\"trial {trial}: match?\", np.allclose(out_two_layer, out_single))\n\nprint()\nprint(\"two-layer output for one input: \", two_layer_linear(np.ones(n_in)).round(4))\nprint(\"single-layer output, same input:\", single_layer(np.ones(n_in)).round(4))"}
+  output={"trial 0: match? True\ntrial 1: match? True\ntrial 2: match? True\n\ntwo-layer output for one input:  [-1.8613  1.5293 -4.7822]\nsingle-layer output, same input: [-1.8613  1.5293 -4.7822]"}
+/>
+
+<Callout kind="tip" title="What this means for network design">
+  This is precisely why every real neural network applies a nonlinear activation between
+  layers — without one, no amount of added depth increases what the network can represent
+  beyond a single linear transformation. The next three lessons cover which nonlinear functions
+  are actually used, and why the choice matters.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A network stacks 10 purely linear layers (no activation function anywhere). What can it represent, compared to a single linear layer?"
+  correct={1}
+  options={[
+    { text: "Something strictly more expressive, since it has 10x the parameters", why: "More parameters doesn't mean more expressive here — the composition of 10 linear layers is STILL exactly one linear function, regardless of parameter count." },
+    { text: "Exactly the same set of functions a single linear layer can represent -- the composition collapses algebraically", why: "Correct — this is exactly what the collapse proof shows: W_10...W_1 always reduces to one effective matrix." },
+    { text: "Something LESS expressive than a single linear layer", why: "It's not less expressive, just not MORE — the two are exactly equivalent, representing the same set of functions." },
+    { text: "It depends entirely on the specific random weight initialization used", why: "The collapse is an algebraic identity, true for ANY weights, not dependent on the specific values chosen." },
+  ]}
+/>
+
+## Summary
+
+Composing any number of purely linear layers algebraically collapses to a single linear
+layer — `W_2(W_1x + b_1) + b_2` simplifies to `W'x + b'` for a single effective weight matrix
+and bias, and this holds for arbitrarily many stacked linear layers. A nonlinear activation
+function between layers is what prevents this collapse, and is therefore what makes depth
+actually buy a network additional representational power.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, chapter 6 — motivates activation functions
+  from exactly this angle.

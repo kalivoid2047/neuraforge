@@ -1,0 +1,82 @@
+---
+slug: forward-pass-numpy
+month: 2
+week: 4
+ord: 3
+title: "Forward Pass in Pure NumPy"
+code: "2.4.3"
+minutes: 90
+difficulty: 3
+objectives:
+  - "Extend a single-example forward pass to process a batch of examples at once"
+  - "Correctly adapt matrix shapes and orientations for batched computation"
+  - "Benchmark batched vs. looped forward passes and quantify the speedup"
+prereqs:
+  - "Stacking Layers: The Multi-Layer Perceptron ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Batching the Computation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">One more vectorization step: many examples, not just many neurons</h2>
+
+Last lesson's MLP processes one input vector at a time. Real training and inference process
+**batches** — many examples at once — for the same reason Month 1 pushed vectorization over
+loops: a batched matrix operation is dramatically faster than looping over examples one by one,
+and every deep learning framework is built around batched computation as the default, not the
+exception.
+
+<h2 id="math">Batching: stack examples as rows, adjust the multiplication order</h2>
+
+Instead of one input vector `x` of shape `(n,)`, a batch is a matrix `X` of shape
+`(batch_size, n)` — one row per example. The layer computation adapts:
+
+<MathBlock tex="Z = XW^{\top} + b \qquad X \in \mathbb{R}^{(\text{batch}\times n)},\; W \in \mathbb{R}^{(m\times n)},\; Z \in \mathbb{R}^{(\text{batch}\times m)}" />
+
+Notice `W` is now **transposed** compared to the single-example version (`W @ x` becomes
+`X @ W.T`) — this is purely about making the shapes line up correctly for batched matrix
+multiplication (`(batch, n) @ (n, m) = (batch, m)`), not a conceptual change; `b` broadcasts
+across the batch dimension exactly as Month 1's broadcasting lesson covered.
+
+<h2 id="python">Batched forward pass, and the speedup it buys</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport time\n\ndef relu(z):\n    return np.maximum(0, z)\n\ndef softmax_batch(z):\n    exp_z = np.exp(z - z.max(axis=-1, keepdims=True))\n    return exp_z / exp_z.sum(axis=-1, keepdims=True)\n\nclass BatchedMLP:\n    def __init__(self, layer_sizes, seed=0):\n        rng = np.random.RandomState(seed)\n        self.weights = [rng.randn(layer_sizes[i+1], layer_sizes[i]) * np.sqrt(2 / layer_sizes[i])\n                         for i in range(len(layer_sizes) - 1)]\n        self.biases = [np.zeros(layer_sizes[i+1]) for i in range(len(layer_sizes) - 1)]\n\n    def forward_single(self, x):\n        for i, (W, b) in enumerate(zip(self.weights, self.biases)):\n            z = W @ x + b\n            x = softmax_batch(z) if i == len(self.weights) - 1 else relu(z)\n        return x\n\n    def forward_batch(self, X):\n        for i, (W, b) in enumerate(zip(self.weights, self.biases)):\n            Z = X @ W.T + b\n            X = softmax_batch(Z) if i == len(self.weights) - 1 else relu(Z)\n        return X\n\nmodel = BatchedMLP([20, 64, 64, 10])\nbatch_size = 500\nX = np.random.randn(batch_size, 20)\n\n# --- looped: one example at a time ---\nstart = time.perf_counter()\nlooped_results = np.array([model.forward_single(X[i]) for i in range(batch_size)])\nlooped_time = time.perf_counter() - start\n\n# --- batched: all examples at once ---\nstart = time.perf_counter()\nbatched_results = model.forward_batch(X)\nbatched_time = time.perf_counter() - start\n\nprint(\"looped output shape: \", looped_results.shape)\nprint(\"batched output shape:\", batched_results.shape)\nprint(\"results match?\", np.allclose(looped_results, batched_results, atol=1e-6))\nprint()\nprint(f\"looped time:  {looped_time*1000:.2f} ms\")\nprint(f\"batched time: {batched_time*1000:.2f} ms\")\nprint(f\"speedup: {looped_time / max(batched_time, 1e-9):.1f}x\")"}
+  output={"looped output shape:  (500, 10)\nbatched output shape: (500, 10)\nresults match? True\n\nlooped time:  10.12 ms\nbatched time: 3.18 ms\nspeedup: 3.2x"}
+/>
+
+<Callout kind="warning" title="The exact speedup number will vary">
+  As with Month 1's original loop-vs-vectorized benchmark, the exact multiplier depends on your
+  machine, batch size, and layer sizes — run it yourself. The *direction* (batched meaningfully
+  faster) is the reliable, reproducible part.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the batched layer computation use X @ W.T instead of W @ X?"
+  correct={0}
+  options={[
+    { text: "X has shape (batch, n) and W has shape (m, n); X @ W.T gives (batch, n) @ (n, m) = (batch, m), matching the shape rule from Month 1", why: "Correct — this is purely a shape-compatibility requirement, not a conceptual change from the single-example version." },
+    { text: "W @ X would compute a mathematically different, incorrect result even with compatible shapes", why: "If the shapes happened to be compatible, the issue is specifically that they usually AREN'T without this arrangement — it's a shape/orientation issue, not a 'different math' issue." },
+    { text: "Transposing W makes the computation run faster", why: "The transpose itself doesn't provide the speedup — the speedup comes from batching all examples into one matmul instead of looping, not from the transpose operation." },
+    { text: "It's an arbitrary convention with no shape-based justification", why: "It's not arbitrary — it's specifically required for the (batch, n) @ (n, m) shapes to be compatible per the matrix multiplication rule." },
+  ]}
+/>
+
+## Summary
+
+Batching stacks multiple examples as rows of a matrix `X` (shape `(batch, n)`), requiring the
+weight matrix to be transposed (`X @ W.T`) so the shapes align per Month 1's matrix
+multiplication rule — otherwise identical to the single-example forward pass, just computing
+many examples in one operation instead of looping. This delivers the same kind of speedup
+Month 1's vectorization lessons demonstrated, and it's how every real training pipeline
+processes data.
+
+## Further reading
+
+- Revisit *"Python Data Structures for Numerical Work"* (1.1.3) — the original loop-vs-vectorized
+  benchmark this lesson directly extends to neural network layers.

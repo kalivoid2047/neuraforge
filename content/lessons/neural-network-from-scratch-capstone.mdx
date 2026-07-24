@@ -1,0 +1,78 @@
+---
+slug: neural-network-from-scratch-capstone
+month: 2
+week: 4
+ord: 5
+title: "Building the Neural Network From Scratch"
+code: "2.4.5"
+minutes: 120
+difficulty: 3
+objectives:
+  - "Assemble a complete, tested MLP class: architecture, forward pass, and loss"
+  - "Write tests verifying shape correctness and known-output behavior, per Month 1's testing habits"
+  - "Explain precisely what this capstone can and cannot yet do, and why"
+prereqs:
+  - "Loss Functions for Classification & Regression ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: scope, title: What This Can't Do Yet }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Everything this month, assembled and tested</h2>
+
+This capstone combines every piece from the last four weeks: an MLP architecture (week four),
+ReLU and softmax activations (week three), matrix-vectorized layers built on Month 1's linear
+algebra, and cross-entropy loss (this week) — wrapped in the tests Month 1's Week 2 taught you
+to write. What it does *not* yet do is learn: adjusting weights to reduce the loss requires
+gradients and backpropagation, which is next month's entire subject. This is a complete,
+correct, tested forward-pass network — the "does it compute the right thing, for given weights"
+half of a neural network, not yet the "does it learn good weights" half.
+
+<h2 id="python">A complete, tested MLP with loss computation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(z):\n    return np.maximum(0, z)\n\ndef softmax(z):\n    exp_z = np.exp(z - z.max(axis=-1, keepdims=True))\n    return exp_z / exp_z.sum(axis=-1, keepdims=True)\n\ndef cross_entropy(y_true_idx, y_pred_probs):\n    return -np.log(y_pred_probs[y_true_idx] + 1e-12)\n\n\nclass NeuralNetwork:\n    \"\"\"A feedforward classifier: configurable layer sizes, ReLU hidden layers,\n    softmax output, cross-entropy loss.\"\"\"\n\n    def __init__(self, layer_sizes, seed=0):\n        if len(layer_sizes) < 2:\n            raise ValueError(\"need at least an input and output layer\")\n        rng = np.random.RandomState(seed)\n        self.weights = [rng.randn(layer_sizes[i+1], layer_sizes[i]) * np.sqrt(2 / layer_sizes[i])\n                         for i in range(len(layer_sizes) - 1)]\n        self.biases = [np.zeros(layer_sizes[i+1]) for i in range(len(layer_sizes) - 1)]\n\n    def predict_proba(self, x):\n        x = np.asarray(x)\n        for i, (W, b) in enumerate(zip(self.weights, self.biases)):\n            z = W @ x + b\n            x = softmax(z) if i == len(self.weights) - 1 else relu(z)\n        return x\n\n    def predict(self, x):\n        return int(np.argmax(self.predict_proba(x)))\n\n    def loss(self, x, true_class_idx):\n        probs = self.predict_proba(x)\n        return cross_entropy(true_class_idx, probs)\n\n\n# --- tests, Arrange-Act-Assert, per Month 1 Week 2's habits ---\n\ndef test_output_is_valid_probability_distribution():\n    net = NeuralNetwork([4, 8, 3])\n    probs = net.predict_proba(np.array([1.0, 0.5, -0.2, 0.1]))\n    assert probs.shape == (3,)\n    assert np.isclose(probs.sum(), 1.0)\n    assert (probs >= 0).all()\n\ndef test_rejects_too_few_layers():\n    try:\n        NeuralNetwork([5])\n        assert False, \"expected ValueError\"\n    except ValueError:\n        pass\n\ndef test_predict_returns_valid_class_index():\n    net = NeuralNetwork([4, 8, 3])\n    pred = net.predict(np.array([1.0, 0.5, -0.2, 0.1]))\n    assert pred in (0, 1, 2)\n\ndef test_loss_is_lower_for_higher_assigned_probability():\n    net = NeuralNetwork([4, 8, 3])\n    x = np.array([1.0, 0.5, -0.2, 0.1])\n    probs = net.predict_proba(x)\n    best_class = int(np.argmax(probs))\n    worst_class = int(np.argmin(probs))\n    assert net.loss(x, best_class) < net.loss(x, worst_class)\n\ntests = [test_output_is_valid_probability_distribution, test_rejects_too_few_layers,\n         test_predict_returns_valid_class_index, test_loss_is_lower_for_higher_assigned_probability]\nfor test in tests:\n    try:\n        test()\n        print(f\"PASSED  {test.__name__}\")\n    except AssertionError as e:\n        print(f\"FAILED  {test.__name__}: {e}\")"}
+  output={"PASSED  test_output_is_valid_probability_distribution\nPASSED  test_rejects_too_few_layers\nPASSED  test_predict_returns_valid_class_index\nPASSED  test_loss_is_lower_for_higher_assigned_probability"}
+/>
+
+<h2 id="scope">What this can't do yet, and why that's OK</h2>
+
+<Callout kind="warning" title="This network cannot learn -- yet, by design">
+  Every weight above comes from random initialization and stays exactly there — there is no
+  mechanism in this lesson's code for the loss to actually decrease over time. That requires
+  computing *how* each weight should change to reduce the loss (its gradient), which requires
+  backpropagation: the calculus (Month 3 opens with derivatives and the chain rule) that makes
+  gradient computation for an arbitrarily deep network tractable. This capstone deliberately
+  stops at "correct, tested, forward computation" — that boundary is not a shortcut, it's
+  exactly where this month's material ends and next month's begins.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="This capstone's NeuralNetwork class produces different outputs for different random seeds, but running the same seed twice always gives the same output. Does this network 'learn' in any sense?"
+  correct={1}
+  options={[
+    { text: "Yes, different seeds represent different learned states", why: "Different seeds just mean different INITIAL random weights — nothing in this code updates weights based on data, so no learning has occurred regardless of seed." },
+    { text: "No -- weights are fixed at initialization and never updated in response to data or loss; that requires backpropagation, covered next month", why: "Correct — this network computes a deterministic function of its (randomly chosen, but fixed) weights; nothing here adjusts them based on how right or wrong its predictions are." },
+    { text: "Yes, because the loss function measures how wrong it is", why: "Merely MEASURING wrongness isn't learning — learning requires actually using that measurement to update the weights, which this code doesn't do." },
+    { text: "It's impossible to tell without seeing training data", why: "It's fully determinable from the code alone — there's no weight-update step anywhere in this class." },
+  ]}
+/>
+
+## Summary
+
+This capstone assembles a complete, tested feedforward classifier — configurable architecture,
+matrix-vectorized layers, ReLU/softmax activations, and cross-entropy loss — verified with the
+same Arrange-Act-Assert testing discipline Month 1 established. It deliberately does not learn:
+weights are fixed at random initialization, and turning this into a trainable network requires
+backpropagation, which is the entire subject of Month 3, starting with derivatives and the
+chain rule.
+
+## Further reading
+
+- Nielsen, *Neural Networks and Deep Learning* (free online) — chapter 1 builds almost exactly
+  this same forward-pass network, as a bridge into the backpropagation chapters that follow.

@@ -1,0 +1,83 @@
+---
+slug: orthogonality
+month: 2
+week: 1
+ord: 4
+title: "Orthogonality & Orthogonal Projections"
+code: "2.1.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Test whether a set of vectors is mutually orthogonal"
+  - "Explain why orthonormal bases make projection dramatically simpler"
+  - "Project a vector onto a multi-dimensional subspace spanned by orthonormal vectors"
+prereqs:
+  - "Vector Projections ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Orthonormal Bases }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">When your reference directions don't interfere with each other</h2>
+
+A set of vectors is **orthogonal** if every pair among them is perpendicular (dot product
+zero). If they're also each unit length, the set is **orthonormal**. This might sound like a
+narrow special case, but orthonormal sets are worth building toward deliberately: projecting
+onto them is dramatically simpler than projecting onto an arbitrary basis, because each
+direction can be handled completely independently, with zero interference from the others.
+
+<Callout kind="tip" title="Why 'no interference' matters">
+  If `b1` and `b2` are orthogonal, projecting a vector onto `b1` tells you nothing that overlaps
+  with projecting onto `b2` — each captures a genuinely separate piece of information. This is
+  exactly why orthonormal bases (like the standard x/y/z axes) feel so natural to work with:
+  moving along one axis never secretly changes your position along another.
+</Callout>
+
+<h2 id="math">Projecting onto an orthonormal basis</h2>
+
+For an *orthonormal* set `{e_1, ..., e_k}` (each unit length, all mutually perpendicular), the
+projection formula from last lesson simplifies: since `e_i · e_i = 1`, the division disappears
+entirely:
+
+<MathBlock tex="\mathrm{proj}_{\vec{e}_i}(\vec{a}) = (\vec{a}\cdot\vec{e}_i)\,\vec{e}_i" />
+
+And the projection onto the *entire subspace* spanned by `{e_1, ..., e_k}` is just the sum of
+the individual projections — no cross-terms, no interaction between them:
+
+<MathBlock tex="\mathrm{proj}_{\text{subspace}}(\vec{a}) = \sum_{i=1}^{k} (\vec{a}\cdot\vec{e}_i)\,\vec{e}_i" />
+
+<h2 id="python">Testing orthonormality, then projecting onto a subspace</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef is_orthonormal(vectors, tol=1e-9):\n    n = len(vectors)\n    for i in range(n):\n        length = np.linalg.norm(vectors[i])\n        if abs(length - 1.0) > tol:\n            return False, f\"vector {i} has length {length:.4f}, not 1\"\n        for j in range(i + 1, n):\n            dot = vectors[i] @ vectors[j]\n            if abs(dot) > tol:\n                return False, f\"vectors {i} and {j} are not orthogonal (dot={dot:.4f})\"\n    return True, \"orthonormal\"\n\ne1 = np.array([1.0, 0.0, 0.0])\ne2 = np.array([0.0, 1.0, 0.0])\ne3 = np.array([0.0, 0.0, 1.0])\nprint(\"standard basis orthonormal?\", is_orthonormal([e1, e2, e3]))\n\nnot_orthogonal = np.array([1.0, 1.0, 0.0]) / np.sqrt(2)\nprint(\"e1 and a diagonal vector orthonormal?\", is_orthonormal([e1, not_orthogonal]))\n\n# project a vector onto the subspace spanned by {e1, e2} (the xy-plane)\na = np.array([3.0, 4.0, 5.0])\nsubspace_basis = [e1, e2]\nprojection = sum((a @ e) * e for e in subspace_basis)\nprint()\nprint(\"a:\", a)\nprint(\"projection onto xy-plane subspace:\", projection)\nprint(\"-> the z-component (5.0) is entirely dropped -- e1,e2 don't reach in that direction\")"}
+  output={"standard basis orthonormal? (True, 'orthonormal')\ne1 and a diagonal vector orthonormal? (False, 'vectors 0 and 1 are not orthogonal (dot=0.7071)')\n\na: [3. 4. 5.]\nprojection onto xy-plane subspace: [3. 4. 0.]\n-> the z-component (5.0) is entirely dropped -- e1,e2 don't reach in that direction"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does projecting onto an orthonormal basis {e1, e2, ..., ek} let you just sum the individual projections, with no cross-terms to worry about?"
+  correct={0}
+  options={[
+    { text: "Because the basis vectors are mutually perpendicular, each e_i captures a completely independent piece of information that the others can't overlap with", why: "Correct — orthogonality is exactly the 'no interference between directions' property that makes summation valid." },
+    { text: "Because summation always works for any set of vectors, orthonormal or not", why: "It does NOT generally work for a non-orthonormal set — cross-terms/overlap would corrupt the result." },
+    { text: "Because orthonormal vectors are always exactly the standard basis (x, y, z axes)", why: "Orthonormal bases are not limited to the standard axes — any mutually perpendicular, unit-length set qualifies, in any orientation." },
+    { text: "It doesn't actually work correctly in more than 2 dimensions", why: "It works correctly in any number of dimensions — the property generalizes cleanly, which is part of why it's so useful." },
+  ]}
+/>
+
+## Summary
+
+An orthonormal set of vectors is mutually perpendicular and unit length, which makes projecting
+onto the subspace they span reduce to a simple sum of independent per-direction projections —
+no cross-terms, because orthogonality guarantees each direction captures information the others
+can't overlap with. This "clean decomposition" property is why orthonormal bases are the
+default choice whenever one is available or constructible.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra* — orthogonal and orthonormal bases, and the
+  Gram-Schmidt process for constructing them from an arbitrary basis.

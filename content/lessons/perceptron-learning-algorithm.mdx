@@ -1,0 +1,83 @@
+---
+slug: perceptron-learning-algorithm
+month: 2
+week: 2
+ord: 3
+title: "The Perceptron Learning Algorithm"
+code: "2.2.3"
+minutes: 90
+difficulty: 3
+objectives:
+  - "State the perceptron update rule and explain each term's role"
+  - "Implement the perceptron learning algorithm from scratch and train it on labeled data"
+  - "Explain the perceptron convergence guarantee and its precondition"
+prereqs:
+  - "The Perceptron Model ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Update Rule }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Learn from mistakes, one example at a time</h2>
+
+Rather than hand-designing weights (last lesson), the perceptron learning algorithm starts from
+essentially nothing (weights at zero) and improves them by looking at one labeled training
+example at a time: if the current weights get it wrong, nudge them in the direction that would
+have made this specific example more likely to classify correctly. Repeat over the whole
+dataset, possibly many passes, until it stops making mistakes.
+
+<h2 id="math">The update rule</h2>
+
+For each training example `(x, y)` where `y` is the true label (0 or 1):
+
+<MathBlock tex="\hat{y} = \mathrm{predict}(x) \qquad w \leftarrow w + \eta(y - \hat{y})x \qquad b \leftarrow b + \eta(y - \hat{y})" />
+
+`η` (eta) is the **learning rate**, a small positive number controlling step size. Notice: if
+the prediction is already correct (`y = ŷ`), `(y − ŷ) = 0` and *nothing changes* — the
+algorithm only updates on mistakes. If it predicted 0 but the true label was 1, `(y − ŷ) = 1`,
+and the weights shift *toward* `x` (making that input more likely to trigger a positive
+prediction next time). If it predicted 1 but should have predicted 0, weights shift *away* from
+`x`.
+
+<h2 id="python">Training a perceptron from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nclass Perceptron:\n    def __init__(self, n_inputs, learning_rate=0.1):\n        self.weights = np.zeros(n_inputs)\n        self.bias = 0.0\n        self.lr = learning_rate\n\n    def predict(self, x):\n        z = self.weights @ x + self.bias\n        return 1 if z >= 0 else 0\n\n    def train_one_epoch(self, X, y):\n        mistakes = 0\n        for xi, yi in zip(X, y):\n            pred = self.predict(xi)\n            error = yi - pred\n            if error != 0:\n                mistakes += 1\n                self.weights += self.lr * error * xi\n                self.bias += self.lr * error\n        return mistakes\n\n# Training data for AND -- no hand-set weights this time, the algorithm finds them\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([0, 0, 0, 1])   # AND truth table\n\nmodel = Perceptron(n_inputs=2)\nfor epoch in range(10):\n    mistakes = model.train_one_epoch(X, y)\n    print(f\"epoch {epoch}: mistakes={mistakes}, weights={model.weights.round(2)}, bias={model.bias:.2f}\")\n    if mistakes == 0:\n        print(\"converged -- zero mistakes on the full training set\")\n        break\n\nprint()\nprint(\"final predictions:\")\nfor xi, yi in zip(X, y):\n    print(f\"  input={xi}, true={yi}, predicted={model.predict(xi)}\")"}
+  output={"epoch 0: mistakes=2, weights=[0.1 0.1], bias=0.00\nepoch 1: mistakes=3, weights=[0.2 0.1], bias=-0.10\nepoch 2: mistakes=3, weights=[0.2 0.1], bias=-0.20\nepoch 3: mistakes=0, weights=[0.2 0.1], bias=-0.20\nconverged -- zero mistakes on the full training set\n\nfinal predictions:\n  input=[0 0], true=0, predicted=0\n  input=[0 1], true=0, predicted=0\n  input=[1 0], true=0, predicted=0\n  input=[1 1], true=1, predicted=1"}
+/>
+
+<Callout kind="tip" title="The convergence guarantee">
+  The perceptron convergence theorem guarantees this algorithm finds a perfectly separating set
+  of weights **in a finite number of steps, if the data is linearly separable** — a straight
+  line (or, in higher dimensions, a hyperplane) that perfectly divides the two classes actually
+  exists. If the data *isn't* linearly separable, the algorithm never converges — it keeps
+  making mistakes forever, oscillating rather than settling. The next lesson explores exactly
+  this failure case.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="In the perceptron update rule, why does nothing change when a training example is already classified correctly?"
+  correct={0}
+  options={[
+    { text: "(y - y_hat) = 0 when the prediction matches the true label, making the entire update term zero regardless of x or the learning rate", why: "Correct — the error term is the multiplicative factor on the whole update, and zero error means zero update." },
+    { text: "The algorithm skips correctly-classified examples entirely, never even checking them", why: "The algorithm DOES check every example (that's how it knows nothing needs to change) — it just computes an update that happens to be zero." },
+    { text: "The learning rate is automatically set to zero for correct predictions", why: "The learning rate stays fixed throughout training — it's the ERROR term that becomes zero, not the learning rate itself." },
+    { text: "It's a bug that should be fixed", why: "This is the intended, correct behavior — only updating on mistakes is exactly how the algorithm is designed to work." },
+  ]}
+/>
+
+## Summary
+
+The perceptron learning algorithm updates weights only when a prediction is wrong, nudging them
+toward (or away from) the misclassified input, scaled by the learning rate. It's guaranteed to
+converge to a perfect classifier in finite steps — but only if the data is linearly separable;
+next lesson examines exactly what happens (and why) when it isn't.
+
+## Further reading
+
+- Novikoff, *"On Convergence Proofs for Perceptrons"* (1962) — the formal convergence proof.

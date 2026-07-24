@@ -1,0 +1,82 @@
+---
+slug: softmax-multiclass
+month: 2
+week: 3
+ord: 4
+title: "Softmax for Multi-Class Output"
+code: "2.3.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Compute softmax and verify its output forms a valid probability distribution"
+  - "Explain why raw exponentials overflow and how the max-subtraction trick fixes it"
+  - "Distinguish softmax's role (output layer) from ReLU/sigmoid's role (hidden layers)"
+prereqs:
+  - "ReLU and Its Variants ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Softmax Formula }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Turning raw scores into a probability distribution over classes</h2>
+
+You've actually already used softmax — it appeared inside scaled dot-product attention back in
+Month 7's preview material and will reappear there in full in Month 7 proper. Here it plays a
+different, equally central role: the standard **output layer activation** for multi-class
+classification, converting a network's raw output scores ("logits") into a proper probability
+distribution over the possible classes.
+
+<h2 id="math">The formula, and why it needs a numerical trick</h2>
+
+<MathBlock tex="\mathrm{softmax}(z)_i = \frac{e^{z_i}}{\sum_j e^{z_j}}" />
+
+Every output is positive, and they all sum to exactly 1 — a valid probability distribution over
+however many classes there are. The raw formula has a real numerical problem though:
+`e^z` overflows for even moderately large `z` (Python floats overflow to `inf` around `z ≈
+709`), which is well within the range of values a network's raw output layer can actually
+produce.
+
+<Callout kind="warning" title="The max-subtraction trick">
+  Since `softmax(z) = softmax(z - c)` for *any* constant `c` (the constant cancels in the
+  numerator/denominator ratio), subtracting `max(z)` from every element before exponentiating
+  guarantees the largest exponent is exactly `e^0 = 1` — no overflow possible — while leaving
+  the final result mathematically identical. Every serious softmax implementation does this;
+  it's not optional numerical hygiene, it's required for correctness at realistic input scales.
+</Callout>
+
+<h2 id="python">Implementing it correctly, and proving the trick doesn't change the result</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax_naive(z):\n    exp_z = np.exp(z)\n    return exp_z / exp_z.sum()\n\ndef softmax_stable(z):\n    exp_z = np.exp(z - z.max())\n    return exp_z / exp_z.sum()\n\n# small inputs: both versions agree\nz_small = np.array([1.0, 2.0, 3.0])\nprint(\"naive: \", softmax_naive(z_small).round(4))\nprint(\"stable:\", softmax_stable(z_small).round(4))\nprint(\"sums to 1?\", np.isclose(softmax_stable(z_small).sum(), 1.0))\n\n# large inputs: naive version breaks\nz_large = np.array([1000.0, 1001.0, 1002.0])\nprint()\nprint(\"large inputs:\", z_large)\ntry:\n    result = softmax_naive(z_large)\n    print(\"naive result:\", result, \"(likely NaN -- inf/inf)\")\nexcept Exception as e:\n    print(\"naive raised:\", e)\n\nresult_stable = softmax_stable(z_large)\nprint(\"stable result:\", result_stable.round(4), \"-- correct, no overflow\")"}
+  output={"naive:  [0.09   0.2447 0.6652]\nstable: [0.09   0.2447 0.6652]\nsums to 1? True\n\nlarge inputs: [1000. 1001. 1002.]\nnaive result: [nan nan nan] (likely NaN -- inf/inf)\nstable result: [0.09   0.2447 0.6652] -- correct, no overflow"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does subtracting max(z) from every element before exponentiating leave softmax's final output unchanged?"
+  correct={3}
+  options={[
+    { text: "It doesn't leave the output unchanged -- it's an approximation that trades accuracy for stability", why: "It's mathematically exact, not an approximation — this is a common but incorrect assumption about the trick." },
+    { text: "Because softmax only cares about the LARGEST value, not the others", why: "Softmax genuinely depends on every element, not just the max — this isn't why the trick works." },
+    { text: "Because subtraction and exponentiation cancel out completely", why: "They don't fully cancel — e^(z-c) is not e^z, it's e^z scaled by a constant factor e^-c. The cancellation happens specifically in the softmax RATIO, not in the exponentiation itself." },
+    { text: "The constant subtracted appears as the same multiplicative factor in both the numerator and every term of the denominator's sum, so it cancels exactly in the ratio", why: "Correct — e^(z_i-c)/sum(e^(z_j-c)) = e^(-c)e^(z_i) / (e^(-c)*sum(e^(z_j))), and the e^(-c) factors cancel exactly." },
+  ]}
+/>
+
+## Summary
+
+Softmax converts raw scores into a valid probability distribution (`e^z_i / Σe^z_j`, positive,
+summing to 1), making it the standard multi-class output-layer activation. The raw formula
+overflows at realistic input magnitudes; subtracting the max value before exponentiating fixes
+this exactly (not approximately) because the shift cancels in the ratio, while eliminating any
+risk of overflow. Softmax plays a fundamentally different role than ReLU/sigmoid — output-layer
+class probabilities, not a general hidden-layer nonlinearity.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, §4.1 — numerical stability considerations
+  including this exact trick, in the broader context of numerically stable deep learning code.

@@ -1,0 +1,81 @@
+---
+slug: choosing-an-activation
+month: 2
+week: 3
+ord: 5
+title: "Choosing an Activation Function"
+code: "2.3.5"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Match a network layer's role (hidden vs. output, task type) to an appropriate activation"
+  - "Build a decision checklist for activation function selection"
+  - "Implement a small network that correctly uses different activations for different layers"
+prereqs:
+  - "Softmax for Multi-Class Output ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: checklist, title: A Practical Checklist }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: putting it all together</h2>
+
+This week covered sigmoid, tanh, ReLU, Leaky ReLU, GELU, and softmax individually. In practice,
+a single network typically uses *different* activations in different places — a specific choice
+for hidden layers, a different, task-dependent choice for the output layer. This closing lesson
+is about making that choice deliberately rather than by habit.
+
+<h2 id="checklist">A practical decision checklist</h2>
+
+<Callout kind="tip" title="Hidden layers">
+  Default to **ReLU** (fast, simple, works well in most cases) or **GELU** (smoother, standard
+  in modern Transformers, slightly more expensive). Reach for **Leaky ReLU** specifically if
+  you're observing dying-neuron symptoms (many activations stuck at exactly zero). Sigmoid and
+  tanh are rarely the right choice for hidden layers today, given their saturation issues — you
+  will mostly see them explained for historical/conceptual reasons, as this week did.
+</Callout>
+
+<Callout kind="tip" title="Output layers, by task">
+  **Binary classification** (2 classes): a single **sigmoid** output, interpreted as
+  `P(class = 1)`. **Multi-class classification** (mutually exclusive classes): **softmax** over
+  one output per class. **Regression** (predicting a continuous number): typically **no
+  activation at all** (a "linear" output layer) — you generally don't want to artificially
+  bound a regression target's range unless the target itself is naturally bounded.
+</Callout>
+
+<h2 id="python">A small network using the right activation in the right place</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(z):\n    return np.maximum(0, z)\n\ndef softmax(z):\n    exp_z = np.exp(z - z.max(axis=-1, keepdims=True))\n    return exp_z / exp_z.sum(axis=-1, keepdims=True)\n\nclass SimpleClassifier:\n    \"\"\"Hidden layer: ReLU. Output layer: softmax (multi-class classification).\"\"\"\n    def __init__(self, n_in, n_hidden, n_classes, seed=0):\n        rng = np.random.RandomState(seed)\n        self.W1 = rng.randn(n_hidden, n_in) * 0.5\n        self.b1 = np.zeros(n_hidden)\n        self.W2 = rng.randn(n_classes, n_hidden) * 0.5\n        self.b2 = np.zeros(n_classes)\n\n    def forward(self, x):\n        hidden = relu(self.W1 @ x + self.b1)     # ReLU: hidden layer\n        logits = self.W2 @ hidden + self.b2\n        return softmax(logits)                    # softmax: output layer, multi-class\n\nmodel = SimpleClassifier(n_in=4, n_hidden=8, n_classes=3)\nx = np.array([1.0, -0.5, 0.3, 2.0])\nprobs = model.forward(x)\n\nprint(\"class probabilities:\", probs.round(4))\nprint(\"sums to 1?\", np.isclose(probs.sum(), 1.0))\nprint(\"predicted class:\", np.argmax(probs))"}
+  output={"class probabilities: [0.3454 0.2586 0.396 ]\nsums to 1? True\npredicted class: 2"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="You're building a network to predict a house's price (a continuous dollar amount) from its features. What should the output layer's activation be?"
+  correct={1}
+  options={[
+    { text: "Softmax, since it's the standard output activation", why: "Softmax produces a probability distribution over discrete classes — a house price is a single continuous number, not a set of class probabilities." },
+    { text: "No activation (a linear output layer)", why: "Correct — regression targets are typically unbounded continuous values, so you don't want to artificially squash the output's range with sigmoid/tanh/softmax." },
+    { text: "Sigmoid, since it bounds the output to a fixed range", why: "Bounding to (0,1) would make it impossible to ever predict a price outside that narrow range — the wrong choice for an unbounded regression target." },
+    { text: "ReLU, since it's the modern default", why: "ReLU forces the output to be non-negative, which would be wrong if the model needs to represent, e.g., a normalized/centered price that can go negative — and more generally, ReLU is a hidden-layer choice, not a typical output-layer one for plain regression." },
+  ]}
+/>
+
+## Summary
+
+Activation choice depends on role: ReLU/GELU for hidden layers by default (Leaky ReLU if
+dying-neuron symptoms appear), sigmoid for binary-classification output, softmax for
+multi-class-classification output, and typically no activation at all for regression output.
+This closes out the activation-function toolkit; week four assembles everything from this month
+— perceptrons, activations, and Month 1's matrix operations — into a full forward pass and this
+month's Neural Network From Scratch capstone.
+
+## Further reading
+
+- Goodfellow, Bengio & Courville, *Deep Learning*, chapter 6 — a comprehensive reference on
+  activation function selection across architectures and tasks.

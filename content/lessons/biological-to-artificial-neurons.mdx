@@ -1,0 +1,91 @@
+---
+slug: biological-to-artificial-neurons
+month: 2
+week: 2
+ord: 1
+title: "From Biological to Artificial Neurons"
+code: "2.2.1"
+minutes: 45
+difficulty: 2
+objectives:
+  - "Describe the biological neuron features that inspired the artificial neuron"
+  - "Identify where the biological analogy breaks down"
+  - "State the three-part structure every artificial neuron shares: inputs, weights, activation"
+prereqs:
+  - "Matrix Norms & Condition Numbers ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: history, title: History }
+  - { anchor: structure, title: The Three-Part Structure }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: from linear algebra to the first "neural" model</h2>
+
+Everything in week one — eigenvectors, projections, norms — was preparation. This week
+introduces the **perceptron**, the earliest artificial neuron model and the direct ancestor of
+every neural network you'll build for the rest of this course. It's named for a loose analogy
+to biological neurons, worth understanding both for the intuition it provides and for where it
+genuinely stops applying.
+
+<h2 id="history">A brief, honest history</h2>
+
+<Callout kind="history" title="McCulloch & Pitts (1943), then Rosenblatt (1958)">
+  A biological neuron receives electrical/chemical signals from many other neurons through
+  connections called synapses, each with a different "strength." If the combined incoming
+  signal exceeds some threshold, the neuron "fires," sending its own signal onward. McCulloch
+  and Pitts formalized a simplified mathematical version of this in 1943; Frank Rosenblatt built
+  it into a trainable model — the perceptron — in 1958, complete with a learning algorithm
+  (next lesson) and, notably, actual hardware built to run it.
+</Callout>
+
+<Callout kind="warning" title="Where the biological analogy breaks down">
+  Real neurons are vastly more complex than this model suggests: they communicate with discrete
+  electrical spikes (not smooth continuous values), operate on timescales and with chemical
+  mechanisms the artificial model ignores entirely, and a real brain's learning process bears
+  only a loose resemblance to gradient-based training (Month 3). Treat "artificial neuron" as a
+  useful *name* and a starting *intuition*, not a claim that this model faithfully simulates
+  biology — it doesn't, and modern deep learning research has largely moved past the biological
+  framing as a source of new ideas.
+</Callout>
+
+<h2 id="structure">The three-part structure, informally</h2>
+
+Every artificial neuron, from the 1958 perceptron to a modern Transformer's attention head,
+shares this shape:
+
+1. **Inputs** — some numbers coming in (from data, or from other neurons).
+2. **Weights** — one learned number per input, controlling how much that input matters.
+3. **Activation** — combine inputs and weights into one number, then apply a decision rule.
+
+The next four lessons build exactly this, precisely: how the inputs and weights combine (the
+perceptron model), how the weights get learned from data (the learning algorithm), what the
+model can and can't represent (linear separability), and how this simple structure connects
+forward to every modern architecture.
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is it important to treat the biological-neuron analogy as intuition rather than a literal claim about how the artificial model works?"
+  correct={1}
+  options={[
+    { text: "The analogy is entirely wrong and provides no useful intuition at all", why: "It does provide genuinely useful starting intuition (weighted inputs, a firing threshold) — the issue is treating it as literally accurate, not that it's worthless." },
+    { text: "Real neurons involve mechanisms (spiking, timing, chemistry) the simplified model ignores entirely, and modern deep learning has largely moved past biological framing for new ideas", why: "Correct — this is a real, meaningful gap worth being clear-eyed about rather than glossing over." },
+    { text: "Because artificial neurons were invented before real neurons were discovered", why: "This is factually backwards — biological neurons were studied first and directly inspired the artificial model, not the reverse." },
+    { text: "Because artificial neural networks don't use weights at all", why: "Weights are absolutely central to artificial neurons — this claim is simply false." },
+  ]}
+/>
+
+## Summary
+
+The artificial neuron takes loose inspiration from biological neurons — weighted incoming
+signals, a threshold-based decision — formalized by McCulloch and Pitts (1943) and made
+trainable by Rosenblatt's perceptron (1958). The biological analogy is useful for intuition but
+breaks down under scrutiny; every artificial neuron since shares the same three-part structure
+(inputs, weights, activation), which the rest of this week builds precisely.
+
+## Further reading
+
+- Rosenblatt, *"The Perceptron: A Probabilistic Model for Information Storage and Organization
+  in the Brain"* (1958) — the original paper.

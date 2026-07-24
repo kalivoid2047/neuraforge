@@ -1,0 +1,90 @@
+---
+slug: eigenvalues-eigenvectors-intuition
+month: 2
+week: 1
+ord: 1
+title: "Eigenvalues & Eigenvectors: Intuition"
+code: "2.1.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain what makes a vector special with respect to a given matrix transformation"
+  - "State the eigenvalue equation and interpret each term geometrically"
+  - "Verify by hand whether a given vector is an eigenvector of a given matrix"
+prereqs:
+  - "Building the Matrix Calculator ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Eigenvalue Equation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Welcome to month two — and to a matrix as a transformation, not just a grid</h2>
+
+Month 1 treated a matrix mostly as a grid of numbers you could add, multiply, and invert. This
+month opens with a different, equally important view: a matrix as a **transformation** — feed
+it a vector, it hands back a new vector, usually rotated and stretched in some direction.
+
+Most vectors, transformed this way, change direction. But for any given matrix, there's a
+special set of vectors that *don't* — a matrix might stretch or shrink them, but never rotate
+them off their own line. Those are **eigenvectors**, and the amount they're stretched by is
+their **eigenvalue**.
+
+<Callout kind="tip" title="The one-sentence definition">
+  An eigenvector of matrix `A` is a nonzero vector that, when multiplied by `A`, comes back out
+  scaled by some number `λ` (the eigenvalue) — same direction (or exactly reversed), never
+  rotated to a genuinely different direction.
+</Callout>
+
+<h2 id="math">The eigenvalue equation</h2>
+
+<MathBlock tex="A\vec{v} = \lambda\vec{v}" />
+
+Read left to right: apply matrix `A` to vector `v`. Read the right side: this equals `v`,
+simply scaled by the number `λ`. Whenever both sides are equal for some nonzero `v`, that `v` is
+an eigenvector of `A`, and `λ` is its eigenvalue. Most vectors don't satisfy this for a given
+`A` — eigenvectors are the exception, not the rule, which is exactly why they're worth naming
+and studying separately.
+
+<h2 id="python">Checking candidates by hand</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nA = np.array([[2, 0], [0, 3]])\n\ndef check_eigenvector(A, v, label):\n    Av = A @ v\n    # Compare ratios only over v's NONZERO components (dividing by a zero\n    # component gives 0/0 = NaN, which would wrongly fail a valid eigenvector).\n    # Where v IS zero, Av must also be zero for a scalar-multiple relationship.\n    nonzero = v != 0\n    ratios = Av[nonzero] / v[nonzero]\n    consistent = np.allclose(ratios, ratios[0])\n    zero_components_ok = np.allclose(Av[~nonzero], 0) if (~nonzero).any() else True\n    is_eigenvector = consistent and zero_components_ok\n    print(f\"{label}: v={v}, A@v={Av}\", end=\"  \")\n    if is_eigenvector:\n        print(f\"-> EIGENVECTOR, eigenvalue = {ratios[0]:.2f}\")\n    else:\n        print(\"-> NOT an eigenvector (A@v is not a scalar multiple of v)\")\n\ncheck_eigenvector(A, np.array([1.0, 0.0]), \"candidate 1\")\ncheck_eigenvector(A, np.array([0.0, 1.0]), \"candidate 2\")\ncheck_eigenvector(A, np.array([1.0, 1.0]), \"candidate 3\")\ncheck_eigenvector(A, np.array([2.0, 0.0]), \"candidate 4 (same direction as 1, different length)\")"}
+  output={"candidate 1: v=[1. 0.], A@v=[2. 0.]  -> EIGENVECTOR, eigenvalue = 2.00\ncandidate 2: v=[0. 1.], A@v=[0. 3.]  -> EIGENVECTOR, eigenvalue = 3.00\ncandidate 3: v=[1. 1.], A@v=[2. 3.]  -> NOT an eigenvector (A@v is not a scalar multiple of v)\ncandidate 4 (same direction as 1, different length): v=[2. 0.], A@v=[4. 0.]  -> EIGENVECTOR, eigenvalue = 2.00"}
+/>
+
+<Callout kind="warning" title="Eigenvectors aren't unique -- eigenSPACES are">
+  Candidates 1 and 4 point in the same direction and both check out as eigenvectors with the
+  same eigenvalue — any nonzero scalar multiple of an eigenvector is also an eigenvector, with
+  the *same* eigenvalue. What's meaningful is the *direction* (technically, the line through the
+  origin it defines), not any one specific vector along it. By convention, eigenvectors are
+  often reported normalized to unit length to pick one canonical representative.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A @ v produces a vector pointing in a genuinely different direction than v. What does this tell you?"
+  correct={1}
+  options={[
+    { text: "v is an eigenvector with a negative eigenvalue", why: "A negative eigenvalue means A@v points in the EXACTLY OPPOSITE direction (still the same line), not a genuinely different, unrelated direction." },
+    { text: "v is NOT an eigenvector of A", why: "Correct — by definition, an eigenvector's direction (or exact opposite) is preserved; any other outcome means it isn't one." },
+    { text: "A must be singular", why: "Whether A is singular is unrelated to whether a specific v happens to be one of its eigenvectors." },
+    { text: "This is impossible for any real matrix", why: "It's completely normal — MOST vectors are not eigenvectors of a given matrix; this is the expected case, not an impossible one." },
+  ]}
+/>
+
+## Summary
+
+An eigenvector of matrix `A` is a nonzero vector whose direction `A` preserves — `Av = λv` for
+some scalar `λ`, its eigenvalue. Most vectors don't have this property for a given matrix;
+eigenvectors are a special, matrix-specific set of directions. Any nonzero scalar multiple of an
+eigenvector is also an eigenvector with the same eigenvalue — what matters is the direction, not
+any particular vector along it.
+
+## Further reading
+
+- 3Blue1Brown, *"Essence of Linear Algebra"* — the eigenvectors and eigenvalues episode is an
+  outstanding visual companion to this lesson.

@@ -1,0 +1,103 @@
+---
+slug: perceptron-to-modern-neurons
+month: 2
+week: 2
+ord: 5
+title: "From Perceptron to Modern Neurons"
+code: "2.2.5"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Identify the two changes that turn a 1958 perceptron into a modern artificial neuron"
+  - "Explain why a smooth activation function is necessary for gradient-based training"
+  - "Preview how stacking neurons into layers escapes the linear separability limit"
+prereqs:
+  - "Linear Separability & XOR ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Smooth Activation }
+  - { anchor: math2, title: Stacking Layers }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: what actually changed since 1958</h2>
+
+The modern artificial neuron used in every network for the rest of this course is remarkably
+close to Rosenblatt's original perceptron — the same weighted sum, the same bias. Exactly two
+changes separate them, and both exist to solve problems this week has already surfaced:
+XOR's linear-separability wall, and (not yet covered, but coming in Month 3) how to actually
+train multiple layers of neurons together.
+
+<h2 id="math">Change 1: a smooth activation, not a hard threshold</h2>
+
+The perceptron's step function (`1` if `z ≥ 0` else `0`) is discontinuous — it jumps instantly
+from 0 to 1 with no gradient information anywhere except that single jump point (where the
+gradient is technically undefined). Training multiple layers together (Month 3's
+backpropagation) needs to compute *how much* changing a weight would improve the output — which
+requires a smoothly varying, differentiable function, not a hard jump. This lesson doesn't
+derive gradients yet (Month 3 does), but the motivating problem is worth previewing now:
+
+<MathBlock tex="\text{perceptron: } \hat{y} = \mathrm{step}(z) \qquad \text{modern: } \hat{y} = \sigma(z) \text{ (a smooth function, e.g. sigmoid)}" />
+
+Next week covers exactly which smooth functions (`σ`) are used in practice and why.
+
+<h2 id="math2">Change 2: many neurons, stacked in layers</h2>
+
+A single neuron, however its activation is chosen, is still fundamentally computing one
+weighted sum — it's still limited to linear decision boundaries in the SAME sense a perceptron
+is (a smooth activation doesn't by itself fix XOR). The real escape from linear separability is
+**stacking neurons into layers**: a first layer of several neurons, each learning a different
+linear boundary, feeding into a second layer that combines their outputs. Week four builds this
+precisely; for now, the key insight to hold onto:
+
+<Callout kind="tip" title="Why depth (not just a smoother activation) fixes XOR">
+  A first-layer neuron could learn "is `x1 OR x2` true," another could learn "is `x1 AND x2`
+  true" — individually still linear boundaries, each perfectly capable on their own. A
+  second-layer neuron can then combine those two outputs (`OR` minus `AND`, informally) to
+  reconstruct XOR — the *combination* of two linear boundaries is what a single linear boundary
+  could never express alone.
+</Callout>
+
+<h2 id="python">Previewing the shape of the solution (weights hand-set, not yet learned)</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef step(z):\n    return 1 if z >= 0 else 0\n\n# Layer 1: two neurons, hand-set to compute OR and AND respectively\ndef layer1(x):\n    or_output = step(1.0 * x[0] + 1.0 * x[1] - 0.5)     # OR\n    and_output = step(1.0 * x[0] + 1.0 * x[1] - 1.5)    # AND\n    return np.array([or_output, and_output])\n\n# Layer 2: one neuron combining layer 1's outputs: OR=1 AND AND=0 -> XOR\ndef layer2(h):\n    return step(1.0 * h[0] - 1.0 * h[1] - 0.5)   # \"OR is true, AND is false\"\n\ndef two_layer_xor(x):\n    h = layer1(x)\n    return layer2(h)\n\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny_xor = [0, 1, 1, 0]\n\nprint(\"two-layer network computing XOR (weights hand-set, not learned):\")\nfor xi, yi in zip(X, y_xor):\n    pred = two_layer_xor(xi)\n    match = \"correct\" if pred == yi else \"WRONG\"\n    print(f\"  input={xi}, true XOR={yi}, network output={pred}  ({match})\")"}
+  output={"two-layer network computing XOR (weights hand-set, not learned):\n  input=[0 0], true XOR=0, network output=0  (correct)\n  input=[0 1], true XOR=1, network output=1  (correct)\n  input=[1 0], true XOR=1, network output=1  (correct)\n  input=[1 1], true XOR=0, network output=0  (correct)"}
+/>
+
+<Callout kind="tip" title="Hand-set today, learned starting Month 3">
+  Every weight above was chosen by hand, exactly like the AND/OR gates from two lessons ago —
+  the point here is purely to demonstrate that a two-layer network *can* represent XOR, escaping
+  the single-perceptron wall. Learning these weights automatically from data, for networks far
+  too large to hand-design, is exactly what backpropagation (Month 3) provides.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Does simply replacing the perceptron's step function with a smooth activation function (like sigmoid), on its own, fix the XOR problem?"
+  correct={2}
+  options={[
+    { text: "Yes, smoothness alone is sufficient", why: "Smoothness alone does not add representational capacity — a single smoothed neuron is still fundamentally a linear decision boundary in the same sense as the step-function perceptron." },
+    { text: "No, XOR is fundamentally unsolvable by any neural network", why: "XOR IS solvable by a neural network — specifically a multi-layer one, as this lesson's two-layer example demonstrates." },
+    { text: "No — a single neuron (smooth or not) is still a linear boundary; escaping XOR requires stacking multiple neurons in layers", why: "Correct — smoothness solves the training/gradient problem; depth (multiple layers) solves the representational-capacity problem. They're different fixes for different issues." },
+    { text: "Yes, but only if the learning rate is increased", why: "The learning rate has no bearing on what a single neuron can represent — this is a capacity question, not a training-speed question." },
+  ]}
+/>
+
+## Summary
+
+Two changes separate the 1958 perceptron from a modern artificial neuron: a smooth,
+differentiable activation function (enabling gradient-based training, Month 3) and stacking
+multiple neurons into layers (escaping the linear-separability limit XOR exposed). Neither
+change alone is sufficient — smoothness fixes trainability, depth fixes representational
+capacity — but together they're the foundation of every network built for the rest of this
+course.
+
+## Further reading
+
+- Rumelhart, Hinton & Williams, *"Learning Representations by Back-Propagating Errors"*
+  (1986) — the paper that made training multi-layer networks practical, previewed here and
+  covered in full in Month 3.

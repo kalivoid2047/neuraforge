@@ -1,0 +1,85 @@
+---
+slug: sigmoid-and-tanh
+month: 2
+week: 3
+ord: 2
+title: "Sigmoid & Tanh"
+code: "2.3.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute sigmoid and tanh and state the range each one squashes its input into"
+  - "Derive the relationship between tanh and sigmoid"
+  - "Explain the vanishing gradient problem as it applies to both functions"
+prereqs:
+  - "Why Nonlinearity Matters ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Two Functions }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The historical default activation functions</h2>
+
+Sigmoid and tanh were the standard activation functions for the first few decades of neural
+network research (largely superseded by ReLU for hidden layers, next lesson — but still
+important, and sigmoid remains the standard choice for binary-classification output layers).
+Both take any real number and **squash** it into a bounded range, smoothly.
+
+<h2 id="math">Sigmoid and tanh, defined</h2>
+
+<MathBlock tex="\sigma(z) = \frac{1}{1+e^{-z}} \qquad \text{range: } (0, 1)" />
+<MathBlock tex="\tanh(z) = \frac{e^{z}-e^{-z}}{e^{z}+e^{-z}} \qquad \text{range: } (-1, 1)" />
+
+They're closely related — tanh is a rescaled, shifted sigmoid:
+
+<MathBlock tex="\tanh(z) = 2\sigma(2z) - 1" />
+
+Sigmoid's `(0, 1)` range makes it a natural choice for outputs meant to represent a probability.
+Tanh's `(-1, 1)` range is zero-centered, which in practice tends to help optimization slightly
+compared to sigmoid's always-positive output — a detail worth knowing, though the bigger issue
+both share is more important:
+
+<Callout kind="danger" title="The vanishing gradient problem">
+  Both functions **saturate** at extreme input values — their output flattens out near 0 or 1
+  (sigmoid) or −1 or 1 (tanh), meaning their *slope* (gradient) approaches zero. During
+  backpropagation (Month 3), a near-zero gradient at any layer multiplies through everything
+  before it, shrinking the gradient signal that reaches earlier layers — in deep networks, this
+  can make early layers train extremely slowly or not at all. This single issue is a major part
+  of why ReLU (next lesson) displaced sigmoid/tanh as the default choice for hidden layers.
+</Callout>
+
+<h2 id="python">Computing both, and seeing saturation directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef tanh(z):\n    return (np.exp(z) - np.exp(-z)) / (np.exp(z) + np.exp(-z))\n\nz = np.array([-10, -2, -1, 0, 1, 2, 10], dtype=float)\nprint(\"z:      \", z)\nprint(\"sigmoid:\", sigmoid(z).round(4))\nprint(\"tanh:   \", tanh(z).round(4))\nprint(\"np.tanh:\", np.tanh(z).round(4), \"(matches our hand-written version)\")\n\n# verify the sigmoid/tanh relationship\nprint()\nprint(\"tanh(z) == 2*sigmoid(2z) - 1 ?\", np.allclose(tanh(z), 2 * sigmoid(2 * z) - 1))\n\n# gradients (derivatives), to see saturation directly\ndef sigmoid_grad(z):\n    s = sigmoid(z)\n    return s * (1 - s)\n\ndef tanh_grad(z):\n    return 1 - tanh(z) ** 2\n\nprint()\nprint(\"sigmoid gradient at z:\", sigmoid_grad(z).round(6))\nprint(\"tanh gradient at z:   \", tanh_grad(z).round(6))\nprint(\"-> gradients near z=+-10 are essentially zero -- this is saturation\")"}
+  output={"z:       [-10.  -2.  -1.   0.   1.   2.  10.]\nsigmoid: [0.     0.1192 0.2689 0.5    0.7311 0.8808 1.    ]\ntanh:    [-1.     -0.964  -0.7616  0.      0.7616  0.964   1.    ]\nnp.tanh: [-1.     -0.964  -0.7616  0.      0.7616  0.964   1.    ] (matches our hand-written version)\n\ntanh(z) == 2*sigmoid(2z) - 1 ? True\n\nsigmoid gradient at z: [4.50000e-05 1.04994e-01 1.96612e-01 2.50000e-01 1.96612e-01 1.04994e-01\n 4.50000e-05]\ntanh gradient at z:    [0.       0.070651 0.419974 1.       0.419974 0.070651 0.      ]\n-> gradients near z=+-10 are essentially zero -- this is saturation"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does a near-zero gradient at one layer of a deep network affect training of EARLIER layers, not just that layer itself?"
+  correct={2}
+  options={[
+    { text: "It doesn't -- gradient issues are local to whichever layer saturates", why: "It's not local — backpropagation's chain rule means gradients from later layers multiply into earlier layers' gradient computations." },
+    { text: "Because sigmoid and tanh are only used in the first layer", why: "Sigmoid/tanh (historically) could be used in any layer, not just the first — this isn't the reason." },
+    { text: "Backpropagation computes earlier layers' gradients by multiplying through later layers' gradients (chain rule), so a near-zero factor anywhere shrinks everything upstream of it", why: "Correct — this chain-rule multiplication is exactly the mechanism behind the vanishing gradient problem, previewing Month 3's backpropagation in detail." },
+    { text: "It only affects the very last layer's weights", why: "The opposite is true — it's EARLIER layers (further from the output) that suffer most, since more multiplications by small gradients compound." },
+  ]}
+/>
+
+## Summary
+
+Sigmoid squashes to `(0, 1)`, tanh to `(−1, 1)` — closely related functions (`tanh(z) =
+2σ(2z) − 1`), both historically standard but both prone to saturation: at extreme inputs, their
+gradient approaches zero, which compounds through backpropagation's chain rule to slow or stall
+training in deep networks (the vanishing gradient problem). This is the main motivation for
+ReLU, covered next.
+
+## Further reading
+
+- Glorot & Bengio, *"Understanding the Difficulty of Training Deep Feedforward Neural
+  Networks"* (2010) — an influential empirical study of exactly this saturation problem.

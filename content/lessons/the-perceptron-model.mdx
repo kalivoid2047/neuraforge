@@ -1,0 +1,84 @@
+---
+slug: the-perceptron-model
+month: 2
+week: 2
+ord: 2
+title: "The Perceptron Model"
+code: "2.2.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Write the perceptron's weighted-sum-plus-threshold formula precisely"
+  - "Explain the role of the bias term and why weights alone aren't enough"
+  - "Implement a perceptron's forward computation from scratch in pure Python"
+prereqs:
+  - "From Biological to Artificial Neurons ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Formula }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A weighted vote, then a yes/no decision</h2>
+
+A perceptron takes several numeric inputs, each multiplied by its own learned weight, sums them
+up, and outputs one of two classes based on whether that sum clears a threshold. It's a linear
+classifier — literally the dot product from Month 1, plus a decision rule.
+
+<h2 id="math">The formula, precisely</h2>
+
+<MathBlock tex="z = \vec{w}\cdot\vec{x} + b, \qquad \hat{y} = \begin{cases}1 & \text{if } z \ge 0\\ 0 & \text{if } z < 0\end{cases}" />
+
+`w` is the weight vector (one weight per input feature), `x` is the input vector, and `b` is the
+**bias** — a single extra learned number, independent of any input, that shifts the decision
+threshold.
+
+<Callout kind="tip" title="Why the bias term is necessary, not decorative">
+  Without `b`, the decision boundary `w·x = 0` is forced to pass exactly through the origin —
+  every perceptron without a bias can only separate classes along a line (or plane) through
+  `(0, 0, ...)`. Real data is essentially never conveniently centered that way. The bias is what
+  lets the decision boundary sit anywhere, not just through the origin — genuinely necessary
+  representational capacity, not a minor convenience.
+</Callout>
+
+<h2 id="python">Implementing the forward computation</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nclass Perceptron:\n    def __init__(self, n_inputs):\n        self.weights = np.zeros(n_inputs)\n        self.bias = 0.0\n\n    def forward(self, x):\n        z = self.weights @ x + self.bias\n        return 1 if z >= 0 else 0\n\n# A hand-set perceptron implementing logical AND for two binary inputs\nand_gate = Perceptron(n_inputs=2)\nand_gate.weights = np.array([1.0, 1.0])\nand_gate.bias = -1.5   # requires BOTH inputs to be 1 for the sum (2.0) to clear -1.5\n\nprint(\"AND gate, by hand-set weights:\")\nfor x1 in [0, 1]:\n    for x2 in [0, 1]:\n        x = np.array([x1, x2])\n        output = and_gate.forward(x)\n        print(f\"  AND({x1}, {x2}) = {output}\")\n\n# A hand-set perceptron implementing logical OR\nor_gate = Perceptron(n_inputs=2)\nor_gate.weights = np.array([1.0, 1.0])\nor_gate.bias = -0.5    # ANY single 1 (sum >= 1.0) clears -0.5\n\nprint()\nprint(\"OR gate, by hand-set weights:\")\nfor x1 in [0, 1]:\n    for x2 in [0, 1]:\n        x = np.array([x1, x2])\n        output = or_gate.forward(x)\n        print(f\"  OR({x1}, {x2}) = {output}\")"}
+  output={"AND gate, by hand-set weights:\n  AND(0, 0) = 0\n  AND(0, 1) = 0\n  AND(1, 0) = 0\n  AND(1, 1) = 1\n\nOR gate, by hand-set weights:\n  OR(0, 0) = 0\n  OR(0, 1) = 1\n  OR(1, 0) = 1\n  OR(1, 1) = 1"}
+/>
+
+<Callout kind="tip" title="These weights were hand-designed, not learned -- yet">
+  Finding `bias = -1.5` for AND and `bias = -0.5` for OR by hand is exactly the kind of thing
+  you don't want to do for real problems with dozens or thousands of inputs. The next lesson
+  builds the **learning algorithm** that finds good weights and bias automatically from labeled
+  examples, instead of you guessing them.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't a perceptron without a bias term (b=0 always) represent a decision boundary that doesn't pass through the origin?"
+  correct={2}
+  options={[
+    { text: "It's a limitation of the weights, not the missing bias", why: "The weights alone can rotate the decision boundary's angle, but without a bias they cannot shift it away from the origin — that's specifically the bias's job." },
+    { text: "It can represent any boundary; the bias is purely for convenience", why: "It genuinely cannot represent an off-origin boundary without a bias — this is a real representational limitation, not just inconvenience." },
+    { text: "z = w.x = 0 is satisfied by x=0 regardless of w, so the boundary is forced through the origin without a separate constant term to shift it", why: "Correct — w.x is always zero at the origin no matter what w is, so the decision boundary z=0 always passes through it unless b shifts things." },
+    { text: "Perceptrons never need to separate off-origin data in practice", why: "Real data is essentially never conveniently centered at the origin — this is a real, common practical need, not a rare edge case." },
+  ]}
+/>
+
+## Summary
+
+A perceptron computes `z = w·x + b`, then outputs 1 if `z ≥ 0` and 0 otherwise — a dot product
+(Month 1) plus a threshold decision. The bias `b` is what lets the decision boundary sit
+anywhere in space, not just through the origin, which is genuinely necessary for real,
+off-center data. The weights and bias used above were hand-designed for illustration; the next
+lesson builds an algorithm that learns them from labeled data instead.
+
+## Further reading
+
+- Rosenblatt (1958) — the original formulation, including the "threshold logic unit"
+  terminology this lesson's formula descends from.

@@ -1,0 +1,91 @@
+---
+slug: relu-and-variants
+month: 2
+week: 3
+ord: 3
+title: "ReLU and Its Variants"
+code: "2.3.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute ReLU and its gradient, and explain why it doesn't saturate for positive inputs"
+  - "Explain the 'dying ReLU' problem and how Leaky ReLU addresses it"
+  - "Compare ReLU, Leaky ReLU, and GELU on the same input"
+prereqs:
+  - "Sigmoid & Tanh ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: ReLU and Leaky ReLU }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The activation function that fixed (most of) saturation</h2>
+
+ReLU — Rectified Linear Unit — is almost absurdly simple: output the input unchanged if
+positive, output zero otherwise. That simplicity is exactly the point: for any positive input,
+its gradient is a constant 1, no matter how large the input gets — no saturation, unlike
+sigmoid/tanh. This single property was a major factor in enabling the much deeper networks that
+became practical starting in the early 2010s.
+
+<h2 id="math">ReLU, and its dying-neuron problem</h2>
+
+<MathBlock tex="\mathrm{ReLU}(z) = \max(0, z), \qquad \mathrm{ReLU}'(z) = \begin{cases}1 & z > 0\\ 0 & z < 0\end{cases}" />
+
+<Callout kind="warning" title="The 'dying ReLU' problem">
+  ReLU's gradient is exactly zero for any negative input — meaning if a neuron's weights end up
+  such that it always outputs a negative value before activation, its gradient is permanently
+  zero and it stops learning entirely ("dies"), for every future training step. This is a real,
+  observed failure mode in practice, not just a theoretical concern.
+</Callout>
+
+**Leaky ReLU** fixes this with a small nonzero slope for negative inputs, instead of a hard
+zero:
+
+<MathBlock tex="\mathrm{LeakyReLU}(z) = \begin{cases}z & z > 0\\ \alpha z & z \le 0\end{cases} \qquad \text{(typically } \alpha = 0.01\text{)}" />
+
+A small nonzero gradient even in the "negative" regime means a neuron can still receive some
+learning signal and potentially recover, rather than dying permanently.
+
+<h2 id="python">Comparing ReLU, Leaky ReLU, and GELU</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(z):\n    return np.maximum(0, z)\n\ndef leaky_relu(z, alpha=0.01):\n    return np.where(z > 0, z, alpha * z)\n\ndef gelu(z):\n    # GELU: a smooth approximation, used in GPT-2/BERT and many modern models\n    return 0.5 * z * (1 + np.tanh(np.sqrt(2 / np.pi) * (z + 0.044715 * z**3)))\n\nz = np.array([-3, -1, -0.1, 0, 0.1, 1, 3], dtype=float)\nprint(\"z:         \", z)\nprint(\"ReLU:      \", relu(z))\nprint(\"Leaky ReLU:\", leaky_relu(z).round(4))\nprint(\"GELU:      \", gelu(z).round(4))\n\nprint()\nprint(\"note GELU is smooth and slightly NEGATIVE for small negative z --\")\nprint(\"unlike ReLU's hard zero, it doesn't fully discard small negative signals\")"}
+  output={"z:          [-3.  -1.  -0.1  0.   0.1  1.   3. ]\nReLU:       [0.  0.  0.  0.  0.1 1.  3. ]\nLeaky ReLU: [-3.e-02 -1.e-02 -1.e-03  0.e+00  1.e-01  1.e+00  3.e+00]\nGELU:       [-0.0036 -0.1588 -0.046   0.      0.054   0.8412  2.9964]\n\nnote GELU is smooth and slightly NEGATIVE for small negative z --\nunlike ReLU's hard zero, it doesn't fully discard small negative signals"}
+/>
+
+<Callout kind="tip" title="Which one should you actually use?">
+  Plain ReLU remains a strong, fast, simple default for many architectures. Leaky ReLU is a
+  cheap insurance policy against dying neurons. GELU (and its relatives) are the standard choice
+  in modern Transformer architectures — smoother, slightly better empirical performance in
+  practice, at a small extra computational cost. The next lesson covers softmax, which serves an
+  entirely different role: not a hidden-layer activation, but the standard choice for
+  multi-class output layers.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can a ReLU neuron 'die' permanently during training, in a way a Leaky ReLU neuron cannot?"
+  correct={0}
+  options={[
+    { text: "ReLU's gradient is EXACTLY zero for any negative input, giving zero learning signal forever; Leaky ReLU's small nonzero slope in that region still allows some gradient to flow", why: "Correct — this exact zero-vs-nonzero gradient distinction is the mechanism behind dying ReLU and its fix." },
+    { text: "ReLU neurons use more memory than Leaky ReLU neurons", why: "Memory usage is essentially identical between the two — this isn't the relevant difference." },
+    { text: "ReLU only works for the first layer of a network", why: "ReLU can be used in any hidden layer — this isn't a first-layer-specific limitation." },
+    { text: "Leaky ReLU doesn't actually solve the dying neuron problem", why: "It's a genuine, if partial, fix — the nonzero slope for negative inputs is specifically what allows recovery." },
+  ]}
+/>
+
+## Summary
+
+ReLU's constant gradient of 1 for positive inputs avoids the saturation that plagues
+sigmoid/tanh, but its exactly-zero gradient for negative inputs can permanently "kill" a neuron
+during training. Leaky ReLU patches this with a small nonzero negative-side slope; smoother
+variants like GELU are standard in modern Transformer architectures. The right choice depends on
+the architecture — this lesson gives you the vocabulary and trade-offs to make that call.
+
+## Further reading
+
+- Hendrycks & Gimpel, *"Gaussian Error Linear Units (GELUs)"* (2016) — the GELU paper, now the
+  de facto standard activation in most Transformer implementations.

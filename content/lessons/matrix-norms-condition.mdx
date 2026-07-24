@@ -1,0 +1,87 @@
+---
+slug: matrix-norms-condition
+month: 2
+week: 1
+ord: 5
+title: "Matrix Norms & Condition Numbers"
+code: "2.1.5"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Compute the Frobenius norm of a matrix"
+  - "Explain what a condition number measures and why it matters for numerical stability"
+  - "Identify an ill-conditioned matrix from a large condition number"
+prereqs:
+  - "Orthogonality & Orthogonal Projections ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Math }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: how "big" is a matrix, and how fragile is it?</h2>
+
+Vectors have norms (Month 1); matrices do too, and this lesson introduces the simplest one
+(Frobenius norm) plus a more subtle, more important quantity: the **condition number**, which
+measures how much a matrix *amplifies* small errors in its input — a direct, practical concern
+whenever you solve `Ax = b` with real (imprecise, floating-point) numbers, which is always.
+
+<h2 id="math">Frobenius norm and condition number</h2>
+
+The Frobenius norm treats a matrix as if it were just a long flattened vector of all its
+entries, and takes the ordinary Euclidean length:
+
+<MathBlock tex="\|A\|_F = \sqrt{\sum_{i,j} a_{ij}^2}" />
+
+The **condition number** compares how much `A` can stretch a vector (its largest singular
+value) against how much it can shrink one (its smallest):
+
+<MathBlock tex="\kappa(A) = \frac{\sigma_{\max}}{\sigma_{\min}}" />
+
+A condition number near 1 means `A` treats all directions roughly equally — well-conditioned,
+numerically friendly. A very large condition number means `A` stretches some directions far
+more than others — small input errors (even just floating-point rounding) can produce
+wildly amplified errors in `Ax`, especially when solving for `x` given `A` and `b`.
+
+<h2 id="python">Computing both, and seeing an ill-conditioned matrix misbehave</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nA = np.array([[3, 4], [0, 5]])\nfrobenius = np.sqrt(np.sum(A ** 2))\nfrobenius_builtin = np.linalg.norm(A, 'fro')\nprint(\"Frobenius norm (manual):  \", frobenius)\nprint(\"Frobenius norm (builtin): \", frobenius_builtin)\n\n# A well-conditioned matrix\nwell_conditioned = np.array([[1.0, 0.0], [0.0, 1.0]])\nprint()\nprint(\"well-conditioned matrix condition number:\", np.linalg.cond(well_conditioned))\n\n# An ill-conditioned matrix: nearly-parallel rows\nill_conditioned = np.array([[1.0, 1.0], [1.0, 1.0001]])\nprint(\"ill-conditioned matrix condition number: \", round(np.linalg.cond(ill_conditioned), 1))\n\n# The practical consequence: solving Ax=b with a TINY change in b\nb1 = np.array([2.0, 2.0])\nb2 = np.array([2.0, 2.0001])   # b changed by only 0.0001\n\nx1 = np.linalg.solve(ill_conditioned, b1)\nx2 = np.linalg.solve(ill_conditioned, b2)\nprint()\nprint(\"solution for b1:\", x1.round(4))\nprint(\"solution for b2:\", x2.round(4), \" (b only changed by 0.0001!)\")\nprint(\"solution changed by:\", np.round(np.linalg.norm(x2 - x1), 4), \"-- a tiny input change, a large output change\")"}
+  output={"Frobenius norm (manual):   7.0710678118654755\nFrobenius norm (builtin):  7.0710678118654755\n\nwell-conditioned matrix condition number: 1.0\nill-conditioned matrix condition number:  40002.0\n\nsolution for b1: [2. 0.]\nsolution for b2: [1. 1.]  (b only changed by 0.0001!)\nsolution changed by: 1.4142 -- a tiny input change, a large output change"}
+/>
+
+<Callout kind="warning" title="Why this matters practically, beyond this lesson">
+  Ill-conditioned matrices show up throughout machine learning — nearly-collinear features in a
+  regression, poorly-scaled input data, certain unlucky weight initializations. A large
+  condition number is an early warning sign that a computation is numerically fragile, worth
+  investigating (rescaling data, regularization) before trusting the results, not after.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A matrix has a condition number of 80,000. What does this suggest about solving Ax = b with it?"
+  correct={1}
+  options={[
+    { text: "The system has no solution at all", why: "A large condition number doesn't mean unsolvable — it means SENSITIVE to small input errors, which is a different (numerical stability) concern." },
+    { text: "Small errors or rounding in b (or A) can produce dramatically amplified errors in the computed solution x", why: "Correct — this is exactly what the condition number quantifies and what the example demonstrated directly." },
+    { text: "The matrix must be symmetric", why: "Condition number is unrelated to whether a matrix is symmetric." },
+    { text: "np.linalg.solve will raise an error and refuse to compute", why: "solve() will still return an answer for an ill-conditioned (but non-singular) matrix — it just won't warn you that the answer is fragile unless you separately check the condition number." },
+  ]}
+/>
+
+## Summary
+
+The Frobenius norm measures a matrix's overall size by treating it as a flattened vector. The
+condition number — the ratio of a matrix's largest to smallest singular value — measures how
+much it can amplify small input errors; a large condition number signals numerical fragility,
+demonstrated directly by a tiny change in `b` producing a dramatically different solution to
+`Ax = b`. This closes out week one's tour of linear algebra tools; week two turns to the
+perceptron, the first genuinely "neural" model this course builds.
+
+## Further reading
+
+- Trefethen & Bau, *Numerical Linear Algebra* — a thorough treatment of condition numbers and
+  numerical stability.

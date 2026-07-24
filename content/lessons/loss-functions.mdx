@@ -1,0 +1,91 @@
+---
+slug: loss-functions
+month: 2
+week: 4
+ord: 4
+title: "Loss Functions for Classification & Regression"
+code: "2.4.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compute cross-entropy loss for a classification prediction"
+  - "Compute mean squared error for a regression prediction"
+  - "Match a loss function to a task type and explain why the pairing matters"
+prereqs:
+  - "Forward Pass in Pure NumPy ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Losses }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A single number measuring "how wrong," ready to be minimized</h2>
+
+Every forward pass so far has produced an output. To actually train a network (Month 3), you
+need a single number — the **loss** — measuring how wrong that output is compared to the true
+answer, small when the prediction is good and large when it's bad. Different task types need
+genuinely different loss functions, matched to what "wrong" even means for that task.
+
+<h2 id="math">Cross-entropy (classification) and MSE (regression)</h2>
+
+For classification, with true class `y` and predicted probability distribution `ŷ` (softmax
+output):
+
+<MathBlock tex="\mathcal{L}_{\text{CE}} = -\log(\hat{y}_y) \qquad \text{(negative log-probability the model assigned to the TRUE class)}" />
+
+This is small when the model assigns high probability to the correct class, and grows sharply
+(toward infinity) as the assigned probability toward the correct class approaches zero — a
+strong penalty for confident wrong answers, not just wrong ones.
+
+For regression, with true value `y` and predicted value `ŷ`:
+
+<MathBlock tex="\mathcal{L}_{\text{MSE}} = (\hat{y} - y)^2" />
+
+Squaring makes the loss always non-negative and penalizes larger errors disproportionately more
+than smaller ones — being off by 10 costs 100x more than being off by 1, not just 10x more.
+
+<h2 id="python">Computing both, and seeing cross-entropy's confidence penalty</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef cross_entropy(y_true_idx, y_pred_probs):\n    \"\"\"y_true_idx: integer class index. y_pred_probs: softmax output.\"\"\"\n    return -np.log(y_pred_probs[y_true_idx] + 1e-12)   # tiny epsilon avoids log(0)\n\ndef mse(y_true, y_pred):\n    return (y_pred - y_true) ** 2\n\n# --- Cross-entropy: confident-and-right vs unsure vs confident-and-wrong ---\ntrue_class = 2\nconfident_right = np.array([0.02, 0.03, 0.90, 0.05])\nunsure = np.array([0.25, 0.25, 0.25, 0.25])\nconfident_wrong = np.array([0.85, 0.05, 0.02, 0.08])\n\nfor name, probs in [(\"confident & correct\", confident_right), (\"unsure (uniform)\", unsure), (\"confident & WRONG\", confident_wrong)]:\n    loss = cross_entropy(true_class, probs)\n    print(f\"{name:>20}: P(true class)={probs[true_class]:.2f}, loss={loss:.4f}\")\n\n# --- MSE: small vs large errors ---\nprint()\ny_true = 10.0\nfor y_pred in [10.0, 11.0, 9.0, 15.0, 5.0]:\n    error = y_pred - y_true\n    print(f\"predicted={y_pred:>5}, true={y_true}, error={error:>5}, MSE={mse(y_true, y_pred):>6.2f}\")"}
+  output={"confident & correct: P(true class)=0.90, loss=0.1054\n    unsure (uniform): P(true class)=0.25, loss=1.3863\n   confident & WRONG: P(true class)=0.02, loss=3.9120\n\npredicted= 10.0, true=10.0, error=  0.0, MSE=  0.00\npredicted= 11.0, true=10.0, error=  1.0, MSE=  1.00\npredicted=  9.0, true=10.0, error= -1.0, MSE=  1.00\npredicted= 15.0, true=10.0, error=  5.0, MSE= 25.00\npredicted=  5.0, true=10.0, error= -5.0, MSE= 25.00"}
+/>
+
+<Callout kind="warning" title="Why the pairing (loss <-> activation) matters">
+  Cross-entropy is specifically designed to pair with a softmax (or sigmoid, for binary)
+  output — it directly penalizes the assigned probability of the true class, which only makes
+  sense when the output IS a probability distribution. Using MSE on a classification task (or
+  cross-entropy on a raw regression output) is a real, common mistake — the loss and the
+  output's meaning have to match, or the resulting gradients (Month 3) push training in a less
+  useful direction.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two models both misclassify the same example. Model A assigned 40% probability to the true class; Model B assigned 5%. Which has the higher cross-entropy loss, and why does this matter for training?"
+  correct={1}
+  options={[
+    { text: "Model A has higher loss, and this is undesirable behavior", why: "Model A does NOT have higher loss here — and penalizing more-confident wrongness more is exactly the desired, intentional behavior of cross-entropy, not a flaw." },
+    { text: "Model B has higher loss, since -log(p) grows sharply as p approaches 0 -- this appropriately penalizes confident wrongness more than uncertain wrongness", why: "Correct — this asymmetric penalty is a deliberate, useful property: it pushes the model harder to fix confidently wrong predictions." },
+    { text: "Both have exactly the same loss, since both are simply 'wrong'", why: "They do NOT have the same loss — cross-entropy is sensitive to exactly how much probability was assigned to the true class, not just right-vs-wrong." },
+    { text: "Loss can't be compared between different models on the same example", why: "Comparing loss values across models on the same example is a completely standard and meaningful thing to do — that's largely the point of having a loss function." },
+  ]}
+/>
+
+## Summary
+
+Cross-entropy loss (`-log(ŷ_true_class)`) is the standard choice for classification, penalizing
+confident wrong predictions especially sharply; mean squared error (`(ŷ − y)²`) is the standard
+for regression, penalizing large errors disproportionately more than small ones. Matching loss
+function to task type and output activation isn't a stylistic choice — using the wrong pairing
+produces a genuinely less useful training signal. This closes the toolkit; the capstone lesson
+assembles a forward pass, an architecture, and this loss computation into a complete, if not
+yet trainable, network.
+
+## Further reading
+
+- Bishop, *Pattern Recognition and Machine Learning* — a rigorous treatment of loss functions
+  and their probabilistic justification.

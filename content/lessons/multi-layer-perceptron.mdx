@@ -1,0 +1,82 @@
+---
+slug: multi-layer-perceptron
+month: 2
+week: 4
+ord: 2
+title: "Stacking Layers: The Multi-Layer Perceptron"
+code: "2.4.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Define an MLP's architecture in terms of layer sizes and activations"
+  - "Trace a tensor's shape through every layer of a multi-layer network"
+  - "Implement a configurable MLP class supporting any number of hidden layers"
+prereqs:
+  - "From Neuron to Layer ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Architecture Notation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The name for "several layers stacked," precisely</h2>
+
+A **Multi-Layer Perceptron (MLP)** — despite the name, built from modern neurons with real
+activation functions, not literal 1958-style perceptrons — is exactly what its name says: an
+input layer, one or more **hidden layers**, and an output layer, each one a `z = Wx + b`
+layer (week four's first lesson) followed by an activation function (week three). This is the
+architecture this month's capstone project builds.
+
+<h2 id="math">Architecture notation</h2>
+
+An MLP's architecture is often summarized as a list of layer sizes, e.g. `[4, 8, 8, 3]` meaning:
+4 input features → hidden layer of 8 neurons → hidden layer of 8 neurons → output layer of 3
+neurons (e.g., 3-class classification). Each consecutive pair of numbers defines one weight
+matrix's shape:
+
+<MathBlock tex="\text{layer } i \text{: } W_i \in \mathbb{R}^{(\text{sizes}[i+1])\times(\text{sizes}[i])}, \qquad b_i \in \mathbb{R}^{\text{sizes}[i+1]}" />
+
+For `[4, 8, 8, 3]`: `W_1` is `(8, 4)`, `W_2` is `(8, 8)`, `W_3` is `(3, 8)` — three weight
+matrices for three layers of connections between four "layers" of neurons (counting the input).
+
+<h2 id="python">A configurable MLP class</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(z):\n    return np.maximum(0, z)\n\ndef softmax(z):\n    exp_z = np.exp(z - z.max())\n    return exp_z / exp_z.sum()\n\nclass MLP:\n    def __init__(self, layer_sizes, seed=0):\n        \"\"\"layer_sizes e.g. [4, 8, 8, 3]: input, hidden, hidden, output.\"\"\"\n        rng = np.random.RandomState(seed)\n        self.weights = []\n        self.biases = []\n        for i in range(len(layer_sizes) - 1):\n            n_in, n_out = layer_sizes[i], layer_sizes[i + 1]\n            self.weights.append(rng.randn(n_out, n_in) * np.sqrt(2 / n_in))  # He initialization\n            self.biases.append(np.zeros(n_out))\n\n    def forward(self, x, verbose=False):\n        for i, (W, b) in enumerate(zip(self.weights, self.biases)):\n            is_output_layer = (i == len(self.weights) - 1)\n            z = W @ x + b\n            x = softmax(z) if is_output_layer else relu(z)\n            if verbose:\n                print(f\"  layer {i}: W{W.shape} -> output shape {x.shape}\")\n        return x\n\nmodel = MLP(layer_sizes=[4, 8, 8, 3])\nprint(\"number of weight matrices:\", len(model.weights))\nfor i, W in enumerate(model.weights):\n    print(f\"  W{i} shape: {W.shape}\")\n\nprint()\nx = np.array([1.0, -0.5, 0.3, 2.0])\nprint(\"forward pass, tracing shapes:\")\noutput = model.forward(x, verbose=True)\nprint(\"final output (class probabilities):\", output.round(4))\nprint(\"sums to 1?\", np.isclose(output.sum(), 1.0))"}
+  output={"number of weight matrices: 3\n  W0 shape: (8, 4)\n  W1 shape: (8, 8)\n  W2 shape: (3, 8)\n\nforward pass, tracing shapes:\n  layer 0: W(8, 4) -> output shape (8,)\n  layer 1: W(8, 8) -> output shape (8,)\n  layer 2: W(3, 8) -> output shape (3,)\nfinal output (class probabilities): [0.1072 0.6617 0.231 ]\nsums to 1? True"}
+/>
+
+<Callout kind="tip" title="A detail worth noticing: He initialization">
+  Weights are initialized as random values scaled by `sqrt(2/n_in)`, not just plain random
+  numbers — this is **He initialization**, chosen specifically to keep signal variance roughly
+  stable as it passes through ReLU layers at the start of training, before any learning has
+  happened. Poor initialization is a real, common source of training failure; this is a
+  preview of a topic Month 3 and 4 return to in more depth.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="An MLP has layer_sizes = [10, 20, 15, 5]. How many weight matrices does it have, and what is the shape of the LAST one?"
+  correct={1}
+  options={[
+    { text: "4 weight matrices; last one has shape (15, 5)", why: "There are only 3 weight matrices (one per CONNECTION between consecutive layers, not one per layer size listed) — and shapes are (out, in), not (in, out)." },
+    { text: "3 weight matrices; last one has shape (5, 15)", why: "Correct — 4 layer sizes means 3 connections between them, and the last connects the 15-neuron layer to the 5-neuron output, giving shape (5, 15) under the (out, in) convention." },
+    { text: "3 weight matrices; last one has shape (15, 5)", why: "The matrix count is right, but the shape has the (out, in) convention backwards for this lesson's implementation." },
+    { text: "4 weight matrices; last one has shape (5, 15)", why: "The final shape is right, but there are only 3 weight matrices for 4 layer sizes, not 4." },
+  ]}
+/>
+
+## Summary
+
+An MLP's architecture is a list of layer sizes; each consecutive pair defines one weight
+matrix's shape `(n_out, n_in)`. The forward pass applies each layer's `z = Wx + b` followed by
+an activation — ReLU for hidden layers, softmax for a multi-class output layer, matching last
+week's guidance. This class is the direct scaffold for this month's capstone.
+
+## Further reading
+
+- He et al., *"Delving Deep into Rectifiers"* (2015) — the paper introducing He initialization,
+  previewed briefly above.

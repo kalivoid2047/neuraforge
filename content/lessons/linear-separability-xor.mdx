@@ -1,0 +1,89 @@
+---
+slug: linear-separability-xor
+month: 2
+week: 2
+ord: 4
+title: "Linear Separability & XOR"
+code: "2.2.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Define linear separability precisely, in terms of a single line or hyperplane"
+  - "Demonstrate that XOR is not linearly separable"
+  - "Explain why this limitation motivated moving beyond a single perceptron"
+prereqs:
+  - "The Perceptron Learning Algorithm ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: XOR, Precisely }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The single most important limitation of a single perceptron</h2>
+
+Last lesson's convergence guarantee had a precondition: the data has to be **linearly
+separable** — a single straight line (in 2D; a hyperplane in higher dimensions) has to exist
+that perfectly divides the two classes. AND and OR both satisfy this. **XOR does not**, and
+proving that concretely is one of the most historically consequential examples in the field —
+it's a large part of why research interest in neural networks stalled for years after Minsky
+and Papert's 1969 book pointed it out.
+
+<Callout kind="tip" title="Linear separability, defined">
+  A dataset with two classes is linearly separable if there exists some line (2D) or hyperplane
+  (higher dimensions) that has every point of one class strictly on one side, and every point of
+  the other class strictly on the other side.
+</Callout>
+
+<h2 id="math">XOR's truth table, and why no line works</h2>
+
+<MathBlock tex="\text{XOR}(0,0)=0 \quad \text{XOR}(0,1)=1 \quad \text{XOR}(1,0)=1 \quad \text{XOR}(1,1)=0" />
+
+Plot these four points on a 2D grid: `(0,0)` and `(1,1)` are class 0; `(0,1)` and `(1,0)` are
+class 1. The class-0 points sit on one diagonal, the class-1 points on the *other* diagonal —
+try to draw any single straight line separating them, and you'll find the two diagonals are
+interleaved in a way no single line can untangle.
+
+<h2 id="python">Proving it by exhaustive search, not just by eye</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny_xor = np.array([0, 1, 1, 0])\n\ndef perceptron_can_fit(X, y, max_epochs=200, learning_rate=0.5):\n    weights = np.zeros(X.shape[1])\n    bias = 0.0\n    for epoch in range(max_epochs):\n        mistakes = 0\n        for xi, yi in zip(X, y):\n            z = weights @ xi + bias\n            pred = 1 if z >= 0 else 0\n            error = yi - pred\n            if error != 0:\n                mistakes += 1\n                weights = weights + learning_rate * error * xi\n                bias = bias + learning_rate * error\n        if mistakes == 0:\n            return True, epoch, weights, bias\n    return False, max_epochs, weights, bias\n\nconverged, epochs_used, final_weights, final_bias = perceptron_can_fit(X, y_xor)\nprint(f\"Trained for up to 200 epochs on XOR.\")\nprint(f\"Converged to zero mistakes? {converged}\")\nprint(f\"Final weights: {final_weights.round(3)}, bias: {final_bias:.3f}\")\n\n# show it's still making mistakes even after 200 epochs -- it's not \"almost there\", it's stuck\nfinal_mistakes = sum(1 for xi, yi in zip(X, y_xor)\n                      if (1 if final_weights @ xi + final_bias >= 0 else 0) != yi)\nprint(f\"Mistakes on the training set after training: {final_mistakes} out of {len(X)}\")\n\n# contrast: OR converges quickly, as expected\ny_or = np.array([0, 1, 1, 1])\nconverged_or, epochs_or, _, _ = perceptron_can_fit(X, y_or)\nprint()\nprint(f\"For comparison, OR converges: {converged_or}, after {epochs_or} epochs\")"}
+  output={"Trained for up to 200 epochs on XOR.\nConverged to zero mistakes? False\nFinal weights: [-0.5  0. ], bias: 0.000\nMistakes on the training set after training: 2 out of 4\n\nFor comparison, OR converges: True, after 3 epochs"}
+/>
+
+<Callout kind="danger" title="Why this mattered historically">
+  Minsky & Papert's 1969 book *Perceptrons* proved this limitation rigorously and generally (not
+  just for XOR specifically), and its reception is widely credited with contributing to reduced
+  funding and interest in neural network research through much of the 1970s — sometimes called
+  the first "AI winter." The resolution wasn't found until the popularization of
+  **multi-layer** networks with a working training algorithm (backpropagation, Month 3) —
+  stacking perceptron-like units in layers turns out to escape this limitation entirely, which
+  is exactly where week four of this month is headed.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does no single straight line separate XOR's two classes?"
+  correct={1}
+  options={[
+    { text: "XOR has too many training examples for a line to fit", why: "XOR has only 4 points — the issue isn't quantity, it's their specific arrangement." },
+    { text: "The two class-0 points and two class-1 points sit on interleaved diagonals, so any line separating one pair puts the other pair on the wrong sides", why: "Correct — this is exactly the geometric reason, visible directly from plotting the four points." },
+    { text: "XOR isn't actually a valid classification problem", why: "XOR is a perfectly well-defined classification problem — it's just not linearly separable, which is a different issue entirely." },
+    { text: "The perceptron learning algorithm has a bug that only affects XOR", why: "There's no bug — the algorithm works correctly; it simply cannot converge because no valid solution (separating line) exists for this data." },
+  ]}
+/>
+
+## Summary
+
+Linear separability requires a single line or hyperplane to perfectly divide two classes; AND
+and OR satisfy this, but XOR provably does not — its two classes sit on interleaved diagonals
+that no single line can untangle. This is a genuine, provable limitation of a single perceptron,
+historically significant enough to have contributed to reduced neural network research funding
+in the 1970s. The fix — stacking multiple layers — is where this month's remaining weeks head.
+
+## Further reading
+
+- Minsky & Papert, *Perceptrons* (1969) — the book that proved this limitation rigorously and
+  shaped a decade of the field's research direction.

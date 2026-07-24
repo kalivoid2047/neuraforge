@@ -1,0 +1,94 @@
+---
+slug: computing-eigenvalues
+month: 2
+week: 1
+ord: 2
+title: "Computing Eigenvalues & Eigenvectors"
+code: "2.1.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Derive the characteristic equation from the eigenvalue equation"
+  - "Compute eigenvalues by hand for a 2x2 matrix"
+  - "Use np.linalg.eig and verify its output against the eigenvalue equation"
+prereqs:
+  - "Eigenvalues & Eigenvectors: Intuition ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Characteristic Equation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">From "check a candidate" to "find them all"</h2>
+
+Last lesson checked whether a *given* vector was an eigenvector. This lesson answers the harder,
+more useful question: given only the matrix, find *all* of its eigenvalues systematically —
+without guessing candidates first.
+
+<h2 id="math">Deriving the characteristic equation</h2>
+
+Start from the eigenvalue equation and rearrange:
+
+<MathBlock tex="A\vec{v} = \lambda\vec{v} \;\;\Longrightarrow\;\; A\vec{v} - \lambda\vec{v} = 0 \;\;\Longrightarrow\;\; (A - \lambda I)\vec{v} = 0" />
+
+This says: `(A − λI)` maps some nonzero `v` to the zero vector. A matrix that squashes a nonzero
+vector to zero is exactly a **singular** matrix (Month 1's non-invertible matrices) — a matrix
+is singular precisely when its determinant is zero. So the eigenvalues are exactly the values
+of `λ` that make `(A − λI)` singular:
+
+<MathBlock tex="\det(A - \lambda I) = 0 \qquad \text{(the characteristic equation)}" />
+
+For a 2×2 matrix, this expands into a quadratic equation in `λ` — solvable by hand with the
+quadratic formula. For larger matrices, it becomes a higher-degree polynomial, which is why in
+practice you'll almost always use a numerical solver (`np.linalg.eig`) rather than expanding the
+determinant by hand past 2×2 or 3×3.
+
+<h2 id="python">By hand for 2×2, then via NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nA = np.array([[4, 1], [2, 3]])\n\n# --- By hand: det(A - lambda*I) = 0 for a 2x2 matrix ---\n# A - lambda*I = [[4-l, 1], [2, 3-l]]\n# det = (4-l)(3-l) - 1*2 = l^2 - 7l + 10 = 0\n# quadratic formula: l = (7 +/- sqrt(49 - 40)) / 2 = (7 +/- 3) / 2\nimport math\na_coef, b_coef, c_coef = 1, -7, 10\ndiscriminant = b_coef**2 - 4*a_coef*c_coef\nlambda1 = (-b_coef + math.sqrt(discriminant)) / (2*a_coef)\nlambda2 = (-b_coef - math.sqrt(discriminant)) / (2*a_coef)\nprint(f\"by hand: lambda1={lambda1}, lambda2={lambda2}\")\n\n# --- Via NumPy ---\neigenvalues, eigenvectors = np.linalg.eig(A)\nprint(\"np.linalg.eig eigenvalues:\", eigenvalues)\nprint(\"np.linalg.eig eigenvectors (as columns):\\n\", eigenvectors)\n\n# verify: A @ v should equal lambda * v for each eigenvector/eigenvalue pair\nfor i in range(len(eigenvalues)):\n    v = eigenvectors[:, i]\n    lam = eigenvalues[i]\n    print(f\"A @ v{i} =\", (A @ v).round(4), f\" lambda{i} * v{i} =\", (lam * v).round(4))"}
+  output={"by hand: lambda1=5.0, lambda2=2.0\nnp.linalg.eig eigenvalues: [5.+0.j 2.+0.j]\nnp.linalg.eig eigenvectors (as columns):\n [[ 0.70710678+0.j -0.4472136 +0.j]\n [ 0.70710678+0.j  0.89442719+0.j]]\nA @ v0 = [3.5355+0.j 3.5355+0.j]  lambda0 * v0 = [3.5355+0.j 3.5355+0.j]\nA @ v1 = [-0.8944+0.j  1.7889+0.j]  lambda1 * v1 = [-0.8944+0.j  1.7889+0.j]"}
+/>
+
+<Callout kind="info" title="Why '+0.j' shows up even though these eigenvalues are real">
+  `np.linalg.eig` uses complex dtype output for general (non-symmetric) matrices, since some
+  non-symmetric matrices genuinely do have complex eigenvalues — NumPy can't know in advance
+  that a particular matrix's results will happen to be real, so it uses one consistent output
+  type. `5.+0.j` is the complex number 5 with a zero imaginary part — numerically just 5, safe
+  to treat as real here, just formatted as a complex number.
+</Callout>
+
+<Callout kind="tip" title="np.linalg.eig returns unit-length eigenvectors by convention">
+  Notice `eigenvectors[:, 0]` has length 1 (`0.707² + 0.707² = 1`) — NumPy normalizes
+  eigenvectors to unit length, matching the "canonical representative of the direction" idea
+  from last lesson. The `A @ v == λv` check works regardless of which scalar multiple you use,
+  but unit length is the conventional choice you'll see in nearly every library.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does solving det(A - λI) = 0 give exactly the eigenvalues of A?"
+  correct={2}
+  options={[
+    { text: "It's a definition with no deeper justification", why: "It follows directly from the eigenvalue equation via algebra, not an arbitrary definition." },
+    { text: "Because determinants are always related to eigenvalues by convention", why: "This restates the fact without the actual reasoning — the real justification is the singular-matrix connection." },
+    { text: "(A - λI)v = 0 has a nonzero solution v exactly when (A - λI) is singular, and a matrix is singular exactly when its determinant is zero", why: "Correct — this chains the eigenvalue equation to singularity to the determinant condition." },
+    { text: "It only works for symmetric matrices", why: "The characteristic equation approach works for any square matrix, not just symmetric ones." },
+  ]}
+/>
+
+## Summary
+
+Eigenvalues are exactly the values of `λ` that make `(A − λI)` singular, which happens exactly
+when `det(A − λI) = 0` — the characteristic equation. Solving it by hand is feasible for 2×2
+matrices via the quadratic formula; in practice, `np.linalg.eig` handles this numerically for
+matrices of any size, returning unit-length eigenvectors by convention alongside their
+eigenvalues.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra* — the chapter on eigenvalues derives the
+  characteristic equation in full generality.

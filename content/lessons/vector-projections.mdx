@@ -1,0 +1,90 @@
+---
+slug: vector-projections
+month: 2
+week: 1
+ord: 3
+title: "Vector Projections"
+code: "2.1.3"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Derive the formula for projecting one vector onto another"
+  - "Decompose a vector into components parallel and perpendicular to a reference direction"
+  - "Explain the connection between projection and the dot product from Month 1"
+prereqs:
+  - "Computing Eigenvalues & Eigenvectors ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Projection Formula }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The shadow a vector casts on another direction</h2>
+
+Imagine shining a light straight down onto vector `a`, casting a shadow onto the line defined by
+vector `b`. That shadow — the closest point on `b`'s line to the tip of `a` — is the
+**projection** of `a` onto `b`. It answers a concrete question: "how much of `a` points in the
+`b` direction?"
+
+<Callout kind="tip" title="Why this matters, ahead">
+  Projection is the geometric operation underneath least-squares regression (fitting the "best"
+  line through data), and it's the same core idea (measuring how much one vector aligns with
+  another) that reappears as the dot product inside attention, back in Month 7 — you're building
+  the same tool from a different angle.
+</Callout>
+
+<h2 id="math">The projection formula</h2>
+
+The projection of `a` onto `b`:
+
+<MathBlock tex="\mathrm{proj}_{\vec{b}}(\vec{a}) = \frac{\vec{a}\cdot\vec{b}}{\vec{b}\cdot\vec{b}}\,\vec{b}" />
+
+Read the scalar part, `(a·b)/(b·b)`, as "how far along `b`'s direction the shadow falls" — then
+that scalar multiplies `b` itself to produce an actual vector lying exactly on `b`'s line. Every
+vector splits cleanly into a piece parallel to `b` (the projection) and a piece perpendicular to
+`b` (the remainder):
+
+<MathBlock tex="\vec{a} = \underbrace{\mathrm{proj}_{\vec{b}}(\vec{a})}_{\text{parallel to } \vec{b}} + \underbrace{\left(\vec{a} - \mathrm{proj}_{\vec{b}}(\vec{a})\right)}_{\text{perpendicular to } \vec{b}}" />
+
+<h2 id="python">Computing a projection and verifying the decomposition</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef project(a, b):\n    \"\"\"Project vector a onto vector b.\"\"\"\n    return (a @ b) / (b @ b) * b\n\na = np.array([3.0, 4.0])\nb = np.array([1.0, 0.0])   # project onto the x-axis\n\nparallel = project(a, b)\nperpendicular = a - parallel\n\nprint(\"a:            \", a)\nprint(\"projection onto b (x-axis):\", parallel)\nprint(\"perpendicular remainder:  \", perpendicular)\nprint(\"parallel + perpendicular == a?\", np.allclose(parallel + perpendicular, a))\n\n# verify perpendicular really IS perpendicular to b: dot product should be ~0\nprint(\"perpendicular . b (should be ~0):\", perpendicular @ b)\n\n# a less trivial example: project onto a diagonal direction\nb2 = np.array([1.0, 1.0])\nproj2 = project(a, b2)\nperp2 = a - proj2\nprint()\nprint(\"projecting a onto diagonal b2=[1,1]:\", proj2.round(3))\nprint(\"perpendicular remainder:            \", perp2.round(3))\nprint(\"perpendicular . b2 (should be ~0):  \", round(perp2 @ b2, 10))"}
+  output={"a:             [3. 4.]\nprojection onto b (x-axis): [3. 0.]\nperpendicular remainder:   [0. 4.]\nparallel + perpendicular == a? True\nperpendicular . b (should be ~0): 0.0\n\nprojecting a onto diagonal b2=[1,1]: [3.5 3.5]\nperpendicular remainder:             [-0.5  0.5]\nperpendicular . b2 (should be ~0):   0.0"}
+/>
+
+<Callout kind="warning" title="Pitfall: forgetting to divide by b·b">
+  A common mistake is projecting using `(a·b) * b` without dividing by `b·b` first — this only
+  gives the correct projection when `b` happens to already be a unit vector (length 1). For any
+  other length, the division is what correctly cancels out `b`'s own magnitude from the scalar
+  coefficient. If you know `b` is already normalized, the formula simplifies to `(a·b) * b` —
+  but that's a special case, not the general rule.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why must the projection formula divide by b·b (not just multiply by a·b)?"
+  correct={0}
+  options={[
+    { text: "Dividing by b·b cancels out b's own magnitude, so the result depends only on b's direction, not its arbitrary length", why: "Correct — without this, using a longer b (same direction) would incorrectly change the projection's length." },
+    { text: "It's a normalization step required only when a and b have different dimensions", why: "The division isn't about differing dimensions — a and b must already be the same dimension for the dot products to be defined at all." },
+    { text: "It converts the result from a vector back into a scalar", why: "The final result of the full formula is still a vector (the scalar times b) — the division itself doesn't change that." },
+    { text: "It has no real mathematical necessity, just convention", why: "It's mathematically necessary for the formula to give a direction-only-dependent, correct projection." },
+  ]}
+/>
+
+## Summary
+
+The projection of `a` onto `b` is `((a·b)/(b·b)) · b` — the "shadow" `a` casts onto `b`'s
+direction, computed by scaling `b` by exactly how much `a` aligns with it. Every vector
+decomposes cleanly into a component parallel to a reference direction (the projection) and one
+perpendicular to it (verified by a zero dot product with `b`). This is the geometric backbone of
+least-squares fitting and reappears throughout this course wherever "how aligned are these two
+things" needs a precise answer.
+
+## Further reading
+
+- Strang, *Introduction to Linear Algebra* — projections onto lines and subspaces.

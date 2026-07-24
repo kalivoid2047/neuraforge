@@ -1,0 +1,83 @@
+---
+slug: neuron-to-layer
+month: 2
+week: 4
+ord: 1
+title: "From Neuron to Layer"
+code: "2.4.1"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Vectorize a layer of many neurons into a single matrix multiplication"
+  - "Read a weight matrix's shape and identify how many neurons and inputs it represents"
+  - "Verify a vectorized layer implementation against a naive per-neuron loop"
+prereqs:
+  - "Choosing an Activation Function ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: From Loop to Matrix }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: assembling this month's capstone, one piece at a time</h2>
+
+Every individual neuron this month (the perceptron, week two) computed one `w·x + b`. A **layer**
+is simply several neurons, all seeing the same input, each with its own independent weights —
+and computing all of them at once is exactly a matrix multiplication, not a loop. This lesson
+makes that connection precise.
+
+<h2 id="math">From a loop over neurons to one matrix multiplication</h2>
+
+A layer of `m` neurons, each taking `n` inputs, naively needs `m` separate weight vectors (each
+length `n`) and `m` separate bias scalars — computed with a loop, that's `m` separate dot
+products. Stack the `m` weight vectors as *rows* of a single matrix `W` (shape `(m, n)`), and
+stack the `m` biases into a vector `b` (shape `(m,)`):
+
+<MathBlock tex="z = Wx + b \qquad W \in \mathbb{R}^{m\times n},\; x \in \mathbb{R}^{n},\; b \in \mathbb{R}^{m}" />
+
+One matrix-vector multiply computes what would otherwise be `m` separate dot products — this is
+the exact same "loop → vectorized operation" pattern from Month 1's NumPy lessons, now applied
+to an entire layer of neurons at once.
+
+<h2 id="python">Verifying the vectorized version against the naive loop</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef relu(z):\n    return np.maximum(0, z)\n\nnp.random.seed(0)\nn_inputs, n_neurons = 4, 3\n\n# m separate weight vectors and biases, one per neuron\nneuron_weights = [np.random.randn(n_inputs) * 0.5 for _ in range(n_neurons)]\nneuron_biases = [np.random.randn() * 0.5 for _ in range(n_neurons)]\n\nx = np.array([1.0, -0.5, 0.3, 2.0])\n\n# --- naive: one dot product per neuron, in a loop ---\nnaive_output = np.array([relu(neuron_weights[i] @ x + neuron_biases[i]) for i in range(n_neurons)])\nprint(\"naive (loop) output:\", naive_output.round(4))\n\n# --- vectorized: stack into one weight matrix, one matmul ---\nW = np.stack(neuron_weights)          # shape (n_neurons, n_inputs)\nb = np.array(neuron_biases)           # shape (n_neurons,)\nvectorized_output = relu(W @ x + b)\nprint(\"vectorized output:  \", vectorized_output.round(4))\n\nprint(\"W shape:\", W.shape, \" (n_neurons, n_inputs)\")\nprint(\"match?\", np.allclose(naive_output, vectorized_output))"}
+  output={"naive (loop) output: [3.5502 1.2301 1.5436]\nvectorized output:   [3.5502 1.2301 1.5436]\nW shape: (3, 4)  (n_neurons, n_inputs)\nmatch? True"}
+/>
+
+<Callout kind="tip" title="Why this matters beyond convenience">
+  This isn't just less code — vectorized matrix operations run dramatically faster than
+  Python-level loops (Month 1's benchmark lesson showed roughly this same gap directly), and
+  every deep learning framework (PyTorch included) is built around exactly this
+  weight-matrix-per-layer representation. Understanding `z = Wx + b` as "one layer" is the key
+  that unlocks reading any real network's architecture.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A layer's weight matrix W has shape (10, 50). How many neurons does this layer have, and how many inputs does each neuron accept?"
+  correct={0}
+  options={[
+    { text: "10 neurons, each accepting 50 inputs", why: "Correct — by the (m, n) convention this lesson establishes, rows = neurons (m), columns = inputs per neuron (n)." },
+    { text: "50 neurons, each accepting 10 inputs", why: "This has the row/column roles reversed — rows are neurons, not columns." },
+    { text: "10 neurons, each accepting 10 inputs", why: "This ignores the actual shape entirely — the two dimensions (10 and 50) are different and both meaningful." },
+    { text: "It's ambiguous without seeing the bias vector too", why: "The weight matrix's shape alone fully determines neuron count and input count — the bias vector's shape (which matches the neuron count) is consistent with this but not needed to answer the question." },
+  ]}
+/>
+
+## Summary
+
+A layer of `m` neurons, each taking `n` inputs, vectorizes into one matrix multiplication:
+`z = Wx + b`, with `W` shape `(m, n)` (rows = neurons, columns = inputs per neuron) and `b`
+shape `(m,)`. This produces identical results to a naive per-neuron loop, but runs as a single
+optimized matrix operation — and it's the representation every real deep learning framework
+uses for a layer.
+
+## Further reading
+
+- Revisit *"Matrix Multiplication, By Hand and In Code"* (1.4.3) — this lesson is a direct,
+  concrete application of that shape rule to neural network layers.
