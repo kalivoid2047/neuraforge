@@ -1,0 +1,97 @@
+---
+slug: why-fine-tune
+month: 9
+week: 1
+ord: 1
+title: "Why Fine-Tune Instead of Training From Scratch"
+code: "9.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Quantify how much cheaper fine-tuning is than pretraining, using Month 8's compute model"
+  - "Compare the data requirements of pretraining, fine-tuning, PEFT, and prompting"
+  - "State the principle for choosing an adaptation method"
+prereqs:
+  - "Capstone: GPT From Scratch — Trained, Verified, Generating ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Reusing the Expensive Part }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 9: adapting models instead of building them</h2>
+
+Month 8 built a language model from nothing. That is the right way to *understand* one and the
+wrong way to *obtain* one — pretraining a competitive model costs millions of dollars and
+trillions of tokens, and almost nobody does it. What almost everybody does is take a model
+someone else pretrained and adapt it.
+
+That adaptation is cheap for a specific reason: pretraining already learned the hard, general
+part — grammar, facts, reasoning patterns, the structure of language itself. Fine-tuning only
+has to teach the model a *task* or a *style*, and that is a far smaller change.
+
+<h2 id="math">Reusing the expensive part</h2>
+
+Month 8's compute model applies unchanged, `C ≈ 6ND`. Fine-tuning keeps `N` and shrinks `D`
+enormously:
+
+<MathBlock tex="\frac{C_{\text{finetune}}}{C_{\text{pretrain}}} = \frac{6 N D_{\text{finetune}}}{6 N D_{\text{pretrain}}} = \frac{D_{\text{finetune}}}{D_{\text{pretrain}}}" />
+
+The ratio is purely the ratio of token counts — the model size cancels entirely. A 50M-token
+instruction set against 2T pretraining tokens is a factor of 40,000.
+
+<Callout kind="tip" title="Fine-tuning is not a weaker version of pretraining">
+  It is a different operation. Pretraining builds general capability from random weights;
+  fine-tuning *redirects* existing capability. That is why fine-tuning cannot teach a model
+  something it has no substrate for — you can teach a pretrained model to answer in JSON, to
+  adopt a persona, or to prefer a domain's vocabulary, but you cannot fine-tune competent
+  reasoning into a model that never had it. Knowing which of those you are attempting is the
+  first decision in any adaptation project.
+</Callout>
+
+<h2 id="python">The compute and data gap, measured</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# Month 8 gave us C ~ 6ND for training FLOPs. Fine-tuning reuses a pretrained model,\n# so the only new compute is over the (much smaller) fine-tuning dataset.\ndef train_flops(N, D):\n    return 6 * N * D\n\nN = 7e9                    # a 7B model\nD_pretrain = 2e12          # 2T pretraining tokens\nD_finetune = 5e7           # 50M instruction tokens -- a realistic SFT set\n\npre = train_flops(N, D_pretrain)\nfine = train_flops(N, D_finetune)\n\nprint(f\"model: {N/1e9:.0f}B parameters\")\nprint(f\"  pretraining on {D_pretrain/1e12:.1f}T tokens: {pre:.3e} FLOPs\")\nprint(f\"  fine-tuning on {D_finetune/1e6:.0f}M tokens:  {fine:.3e} FLOPs\")\nprint(f\"  fine-tuning is {fine/pre:.6%} of pretraining compute ({pre/fine:,.0f}x cheaper)\")\nprint()\n\n# what does that buy in wall-clock terms on a fixed cluster?\ngpu_flops = 4e14          # ~400 TFLOP/s sustained, one modern accelerator\nfor n_gpu in [1, 8, 1024]:\n    tp = gpu_flops * n_gpu * 0.4          # 40% MFU is a realistic sustained figure\n    print(f\"  on {n_gpu:>4} GPU(s) @40% utilization: \"\n          f\"pretrain {pre/tp/86400:>10,.1f} days | finetune {fine/tp/60:>8.1f} min\")\nprint()\n\n# DATA is the other axis: how many examples do you actually need?\nprint(\"data requirement, by adaptation method (typical published ranges):\")\nrows = [\n    (\"pretraining from scratch\", \"1e12 - 1e13 tokens\", \"the entire budget\"),\n    (\"full fine-tuning\",         \"1e4 - 1e6 examples\", \"task-specific corpus\"),\n    (\"instruction tuning (SFT)\", \"1e3 - 1e5 examples\", \"curated demonstrations\"),\n    (\"LoRA / PEFT\",              \"1e2 - 1e4 examples\", \"often enough\"),\n    (\"few-shot prompting\",       \"1e0 - 1e1 examples\", \"no training at all\"),\n]\nfor name, amount, note in rows:\n    print(f\"  {name:>26}: {amount:>20}  ({note})\")\nprint()\nprint(\"each step down the list trades some adaptation capacity for orders of magnitude\")\nprint(\"less data and compute. Choosing the weakest method that solves your problem is\")\nprint(\"the whole discipline of this month.\")"}
+  output={"model: 7B parameters\n  pretraining on 2.0T tokens: 8.400e+22 FLOPs\n  fine-tuning on 50M tokens:  2.100e+18 FLOPs\n  fine-tuning is 0.002500% of pretraining compute (40,000x cheaper)\n\n  on    1 GPU(s) @40% utilization: pretrain    6,076.4 days | finetune    218.8 min\n  on    8 GPU(s) @40% utilization: pretrain      759.5 days | finetune     27.3 min\n  on 1024 GPU(s) @40% utilization: pretrain        5.9 days | finetune      0.2 min\n\ndata requirement, by adaptation method (typical published ranges):\n    pretraining from scratch:   1e12 - 1e13 tokens  (the entire budget)\n            full fine-tuning:   1e4 - 1e6 examples  (task-specific corpus)\n    instruction tuning (SFT):   1e3 - 1e5 examples  (curated demonstrations)\n                 LoRA / PEFT:   1e2 - 1e4 examples  (often enough)\n          few-shot prompting:   1e0 - 1e1 examples  (no training at all)\n\neach step down the list trades some adaptation capacity for orders of magnitude\nless data and compute. Choosing the weakest method that solves your problem is\nthe whole discipline of this month."}
+/>
+
+<Callout kind="warning" title="The 40,000x ratio hides that fine-tuning still needs the full model in memory">
+  Fine-tuning is 40,000× cheaper in *compute*, but Month 8's memory arithmetic has not changed:
+  full fine-tuning of a 7B model still needs weights, gradients, and Adam state — the same **112
+  GB** that put it beyond a single 80 GB accelerator under DDP. Cheap compute does not imply a
+  model that fits.
+
+  This is exactly the gap week two closes. LoRA and quantization attack the *memory* side, which
+  is what actually makes single-GPU fine-tuning of a 7B model possible.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Fine-tuning uses 0.0025% of pretraining's compute. Why does the model size N cancel out of that ratio entirely?"
+  correct={0}
+  options={[
+    { text: "Both costs are 6ND with the same N, so the ratio reduces to D_finetune / D_pretrain -- the compute saving comes purely from training on far fewer tokens, and holds identically for a 1B or a 400B model", why: "Correct -- because fine-tuning reuses the same architecture, N appears in both numerator and denominator and cancels, leaving only the token-count ratio. That is why the 40,000x figure is independent of model scale." },
+    { text: "Fine-tuning only updates a fraction of the parameters, so the effective N is smaller", why: "Full fine-tuning updates every parameter -- that is what distinguishes it from the PEFT methods in week two. Even so the ratio would still be dominated by token count, since both phases would share whatever N is being updated." },
+    { text: "The forward pass is skipped during fine-tuning, removing the dependence on N", why: "Fine-tuning runs a complete forward and backward pass exactly as pretraining does. Nothing about the per-token computation changes; only the number of tokens does." },
+    { text: "Pretrained weights are frozen, so gradients are not computed", why: "Full fine-tuning computes gradients for all weights -- freezing is a separate choice covered later this week. And frozen weights would change the memory profile, not cancel N from the compute ratio." },
+  ]}
+/>
+
+## Summary
+
+Fine-tuning reuses pretraining's expensive general learning and only has to redirect it, so its
+cost is `D_finetune / D_pretrain` of pretraining — model size cancels, giving a 40,000× reduction
+for a 50M-token instruction set against 2T pretraining tokens. That turns 6,076 GPU-days into
+219 GPU-minutes. Data requirements fall just as steeply down the ladder from pretraining to
+prompting. But compute is not the binding constraint: full fine-tuning of a 7B model still needs
+the same 112 GB of optimizer state Month 8 measured. The next lesson looks at the ecosystem that
+distributes these pretrained models.
+
+## Further reading
+
+- Howard & Ruder, *"Universal Language Model Fine-tuning for Text Classification"* (ULMFiT) —
+  the paper that established fine-tuning as the default adaptation strategy in NLP.

@@ -1,0 +1,80 @@
+---
+slug: evaluating-fine-tunes
+month: 9
+week: 4
+ord: 1
+title: "Evaluating a Fine-Tune"
+code: "9.4.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Build an evaluation suite covering target, retained, and safety capabilities"
+  - "Explain why reporting only the target metric is misleading"
+  - "Quantify how benchmark contamination inflates reported accuracy"
+prereqs:
+  - "Knowledge Distillation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Axes, Not One }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: proving the fine-tune actually worked</h2>
+
+Week one showed fine-tuning can destroy capabilities nobody was measuring. That makes evaluation design the difference between a fine-tune that works and one that merely *appears* to. A credible report covers three axes: did the target improve, did everything else survive, and did safety behaviour hold.
+
+<h2 id="math">Three Axes, Not One</h2>
+
+The three axes and what each catches:
+
+- **Target** — the capability you fine-tuned for. Necessary, and on its own worthless as evidence.
+- **Retained** — capabilities you did *not* fine-tune on. Catches catastrophic forgetting.
+- **Safety** — refusal behaviour on harmful requests. Catches alignment erosion, which narrow fine-tuning degrades even when nobody targets it.
+
+And one precondition over all three: the benchmark must not appear in the training data.
+
+<Callout kind="warning" title="Contamination invalidates every number above it">
+  If benchmark items leak into the fine-tuning set, the model memorizes rather than generalizes and the reported score measures recall. The scenario below shows an 18% leak inflating accuracy by 16 points. Decontaminate before training: hash benchmark items, check for exact and near-duplicate matches, and remove them. Doing it afterwards is not possible — the model has already seen them.
+</Callout>
+
+<h2 id="python">A three-axis report, the alignment tax, and contamination arithmetic</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# ============ EVALUATING A FINE-TUNE ============\n# The central discipline: never measure only the task you fine-tuned on.\nprint(\"A FINE-TUNE EVALUATION MUST COVER THREE THINGS:\")\nprint(\"  1. TARGET   -- did the intended capability improve?\")\nprint(\"  2. RETAINED -- did unrelated capabilities survive? (Month 9 week 1)\")\nprint(\"  3. SAFETY   -- did refusal behaviour survive?\")\nprint()\n\n# simulated eval suite: before vs after a fine-tune\nsuite = {\n    \"target: SQL generation\":      (0.41, 0.88),\n    \"retained: general QA\":        (0.72, 0.66),\n    \"retained: arithmetic\":        (0.58, 0.44),\n    \"retained: summarization\":     (0.69, 0.68),\n    \"safety: refuses harmful req\": (0.94, 0.61),\n}\nprint(f\"{'benchmark':>30} {'before':>8} {'after':>8} {'delta':>9}\")\nfor k,(b,a) in suite.items():\n    print(f\"{k:>30} {b:>8.2f} {a:>8.2f} {a-b:>+9.2f}\")\nprint()\n\ndeltas = {k:(a-b) for k,(b,a) in suite.items()}\ntgt = deltas[\"target: SQL generation\"]\nregressions = {k:v for k,v in deltas.items() if v < -0.05}\nprint(f\"target improved by {tgt:+.2f} -- reported alone, this looks like a clear success.\")\nprint(f\"but {len(regressions)} capabilities regressed by more than 0.05:\")\nfor k,v in regressions.items():\n    print(f\"    {k:>30}: {v:+.2f}\")\nprint()\nprint(\"the safety regression (-0.33) is the most serious: fine-tuning on a narrow\")\nprint(\"task partially undid the alignment training, without anyone targeting it.\")\nprint()\n\n# ============ ALIGNMENT TAX ============\nprint(\"=\" * 66)\nprint(\"ALIGNMENT TAX -- capability often falls as alignment rises.\")\nstages = [\n    (\"base (pretrained)\",  0.78, 0.12),\n    (\"+ SFT\",              0.74, 0.71),\n    (\"+ DPO (beta=0.1)\",   0.71, 0.86),\n    (\"+ DPO (beta=0.5)\",   0.63, 0.91),\n]\nprint(f\"{'stage':>22} {'capability':>12} {'alignment':>11}\")\nfor n,c,a in stages:\n    print(f\"{n:>22} {c:>12.2f} {a:>11.2f}\")\nprint()\ncap0, cap_last = stages[0][1], stages[-1][1]\nal0, al_last = stages[0][2], stages[-1][2]\nprint(f\"capability fell {cap0:.2f} -> {cap_last:.2f} ({cap_last-cap0:+.2f})\")\nprint(f\"alignment rose  {al0:.2f} -> {al_last:.2f} ({al_last-al0:+.2f})\")\nprint()\nprint(\"note the beta effect from week three: raising beta from 0.1 to 0.5 bought\")\nprint(f\"{stages[3][2]-stages[2][2]:+.2f} alignment for {stages[3][1]-stages[2][1]:+.2f} capability --\")\nprint(\"a much worse exchange rate than the earlier steps. The tax is not linear.\")\nprint()\n\n# ============ CONTAMINATION ============\nprint(\"=\" * 66)\nprint(\"BENCHMARK CONTAMINATION -- the failure that invalidates everything above.\")\nbench = [f\"q{i}\" for i in range(1000)]\ntrain = set(rng.choice(1000, size=180, replace=False))\noverlap = len(train)/len(bench)\n\nclean_acc, contam_acc = 0.61, 0.61 + 0.9*overlap\nprint(f\"  benchmark size: {len(bench)}\")\nprint(f\"  benchmark items also present in fine-tuning data: {len(train)} ({overlap:.1%})\")\nprint(f\"  true accuracy on unseen items:  {clean_acc:.3f}\")\nprint(f\"  reported accuracy incl. leaked: {contam_acc:.3f}  ({contam_acc-clean_acc:+.3f} inflated)\")\nprint()\nprint(\"  an 18% leak inflated the headline number by 16 points, entirely from\")\nprint(\"  memorization. ALWAYS decontaminate: hash benchmark items and remove\")\nprint(\"  exact and near-duplicate matches from the training set before training.\")\n"}
+  output={"A FINE-TUNE EVALUATION MUST COVER THREE THINGS:\n  1. TARGET   -- did the intended capability improve?\n  2. RETAINED -- did unrelated capabilities survive? (Month 9 week 1)\n  3. SAFETY   -- did refusal behaviour survive?\n\n                     benchmark   before    after     delta\n        target: SQL generation     0.41     0.88     +0.47\n          retained: general QA     0.72     0.66     -0.06\n          retained: arithmetic     0.58     0.44     -0.14\n       retained: summarization     0.69     0.68     -0.01\n   safety: refuses harmful req     0.94     0.61     -0.33\n\ntarget improved by +0.47 -- reported alone, this looks like a clear success.\nbut 3 capabilities regressed by more than 0.05:\n              retained: general QA: -0.06\n              retained: arithmetic: -0.14\n       safety: refuses harmful req: -0.33\n\nthe safety regression (-0.33) is the most serious: fine-tuning on a narrow\ntask partially undid the alignment training, without anyone targeting it.\n\n==================================================================\nALIGNMENT TAX -- capability often falls as alignment rises.\n                 stage   capability   alignment\n     base (pretrained)         0.78        0.12\n                 + SFT         0.74        0.71\n      + DPO (beta=0.1)         0.71        0.86\n      + DPO (beta=0.5)         0.63        0.91\n\ncapability fell 0.78 -> 0.63 (-0.15)\nalignment rose  0.12 -> 0.91 (+0.79)\n\nnote the beta effect from week three: raising beta from 0.1 to 0.5 bought\n+0.05 alignment for -0.08 capability --\na much worse exchange rate than the earlier steps. The tax is not linear.\n\n==================================================================\nBENCHMARK CONTAMINATION -- the failure that invalidates everything above.\n  benchmark size: 1000\n  benchmark items also present in fine-tuning data: 180 (18.0%)\n  true accuracy on unseen items:  0.610\n  reported accuracy incl. leaked: 0.772  (+0.162 inflated)\n\n  an 18% leak inflated the headline number by 16 points, entirely from\n  memorization. ALWAYS decontaminate: hash benchmark items and remove\n  exact and near-duplicate matches from the training set before training."}
+/>
+
+<Callout kind="warning" title="These are constructed scenarios, not measurements">
+  Unlike most cells in this curriculum, the before/after scores below are **illustrative inputs**
+  chosen to show a realistic pattern — they were not produced by running a real fine-tune. The
+  *arithmetic* on them is genuine (the deltas, the regression count, the contamination inflation),
+  but the underlying numbers are stipulated.
+
+  The capstone at the end of this week uses **real measured** numbers from an actual training run.
+  Treat this lesson as a template for the report you should produce, and the capstone as the
+  evidence.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A fine-tune improves its target benchmark by +0.47 while safety refusal drops from 0.94 to 0.61. How should that be reported?"
+  correct={1}
+  options={[
+    { text: "As a success, since the target improvement is much larger than the safety regression", why: "The magnitudes are not comparable -- a capability gain and a safety regression are different kinds of result. A model that refuses harmful requests 33 points less often is materially more dangerous regardless of how well it writes SQL." },
+    { text: "As a target improvement WITH a serious safety regression that likely blocks deployment -- narrow fine-tuning partially undid alignment training without anyone targeting it, and that is exactly the failure a safety axis exists to catch", why: "Correct -- this is the most consequential finding in the report, and it is invisible to anyone measuring only the target task. It is why safety evaluation is a required axis rather than an optional one." },
+    { text: "As inconclusive, since safety benchmarks are unreliable", why: "Safety benchmarks have real limitations, but a 33-point drop is far outside measurement noise and is a well-documented consequence of narrow fine-tuning. Dismissing it as unreliable would be motivated reasoning." },
+    { text: "As a success, with the safety regression noted as future work", why: "Deferring a large safety regression to future work while shipping the model inverts the priority. The regression is a blocking finding, not a backlog item." },
+  ]}
+/>
+
+## Summary
+
+A fine-tune evaluation covers three axes: target capability, retained capability, and safety. In the scenario above the target improved `+0.47` — which alone reads as a clear success — while three capabilities regressed, including a `-0.33` collapse in refusal behaviour that nobody fine-tuned against. Contamination is a precondition rather than an axis: an 18% benchmark leak inflated reported accuracy by 16 points through memorization alone. The next lesson examines the capability-versus-alignment trade these reports keep surfacing.
+
+## Further reading
+
+- Qi et al., *"Fine-tuning Aligned Language Models Compromises Safety"* -- documents the
+  safety regression from benign narrow fine-tuning measured above.

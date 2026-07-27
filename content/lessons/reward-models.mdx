@@ -1,0 +1,67 @@
+---
+slug: reward-models
+month: 9
+week: 3
+ord: 2
+title: "Reward Models and Preference Data"
+code: "9.3.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Explain why preference comparisons are collected instead of absolute scores"
+  - "Train a reward model with the Bradley-Terry objective"
+  - "Show that reward is identified only up to an additive constant"
+prereqs:
+  - "Instruction Tuning and Chat Templates ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Learning From Comparisons }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">People are bad at scoring and good at comparing</h2>
+
+SFT teaches a model to imitate demonstrations, which caps it at demonstration quality and cannot express *preferences between* acceptable answers. The next stage needs a signal for "this response is better than that one" — and the practical way to collect that is not to ask people for scores. Asked to rate a response 1-10, annotators are inconsistent with each other and with themselves. Asked which of two is better, they are far more reliable.
+
+<h2 id="math">Learning From Comparisons</h2>
+
+The **Bradley-Terry** model turns comparisons into a learnable scalar reward:
+
+<MathBlock tex="P(y_c \succ y_r \mid x) = \sigma\big(r(x,y_c) - r(x,y_r)\big)" />
+
+Maximizing the likelihood of observed comparisons trains `r` even though `r` was never directly observed. Note the form: only the **difference** of rewards appears.
+
+<Callout kind="tip" title="Reward is only defined up to a constant">
+  Because only differences enter the objective, adding any constant to every reward leaves every prediction unchanged — verified below at `3.11e-15`. A reward of 4.2 is meaningless in isolation; it means something only relative to other rewards from the *same* model. This is why you cannot compare raw reward numbers between training runs, and why reward-model quality is reported as pairwise accuracy rather than as an average score.
+</Callout>
+
+<h2 id="python">Training a reward model from comparisons, and its shift invariance</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\ndef sigmoid(x): return 1/(1+np.exp(-np.clip(x,-30,30)))\n\n# ---- PREFERENCE DATA: humans compare two responses, they do not score one ----\n# A reward model learns a scalar r(x,y) from pairwise comparisons via Bradley-Terry.\nd = 16\nn_pairs = 600\ntrue_w = rng.normal(0, 1, d)          # the \"true\" human preference direction\n\ndef make_pairs(n):\n    A = rng.normal(0, 1, (n, d))      # features of response A\n    B = rng.normal(0, 1, (n, d))      # features of response B\n    # human prefers whichever scores higher under true_w, with some noise\n    pa, pb = A @ true_w, B @ true_w\n    noisy = (pa - pb) + rng.normal(0, 0.5, n)\n    chosen_is_A = noisy > 0\n    return A, B, chosen_is_A\n\nA, B, chosen_is_A = make_pairs(n_pairs)\nchosen  = np.where(chosen_is_A[:,None], A, B)\nrejected= np.where(chosen_is_A[:,None], B, A)\n\n# Bradley-Terry: P(chosen > rejected) = sigmoid(r_chosen - r_rejected)\nw = rng.normal(0, 0.01, d)   # small random init (w=0 makes every prediction exactly 0.5)\nlr = 0.1\nprint(\"TRAINING A REWARD MODEL from pairwise preferences (Bradley-Terry):\")\nfor step in range(1, 601):\n    rc, rr = chosen @ w, rejected @ w\n    p = sigmoid(rc - rr)\n    loss = -np.mean(np.log(p + 1e-12))\n    g = -((1-p)[:,None] * (chosen - rejected)).mean(0)\n    w -= lr * g\n    if step % 150 == 0 or step == 1:\n        acc = float((p > 0.5).mean())\n        print(f\"  step {step:>3}: loss {loss:.4f}  pairwise accuracy {acc:.3f}\")\n\nalign = float(w @ true_w / (np.linalg.norm(w)*np.linalg.norm(true_w)))\nprint(f\"  cosine similarity between learned w and true preference: {align:.4f}\")\nprint(\"  -> the reward model recovered the human preference DIRECTION from\")\nprint(\"     comparisons alone, never seeing an absolute score.\")\nprint()\n\n# ---- reward is only identified UP TO an additive constant ----\nprint(\"REWARD IS SHIFT-INVARIANT: only differences are observable\")\nr1 = chosen @ w\nr2 = chosen @ w + 100.0\np1 = sigmoid((chosen@w) - (rejected@w))\np2 = sigmoid((chosen@w+100) - (rejected@w+100))\nprint(f\"  adding 100 to every reward changes predictions by {np.abs(p1-p2).max():.2e}\")\nprint(\"  this is why raw reward values are not comparable across runs.\")\nprint()\n\n# ---- DPO: skip the reward model entirely ----\nprint(\"=\" * 62)\nprint(\"DPO derives an equivalent objective with NO separate reward model.\")\nprint(\"It reparameterizes reward in terms of the policy itself:\")\nprint(\"    r(x,y) = beta * log[ pi(y|x) / pi_ref(y|x) ]\")\nprint()\n\n# simulate log-probs under a policy and a frozen reference\nn = 8\nlogp_pol_c = rng.normal(-2.0, 0.5, n)   # policy logprob of chosen\nlogp_pol_r = rng.normal(-2.0, 0.5, n)   # policy logprob of rejected\nlogp_ref_c = rng.normal(-2.0, 0.5, n)\nlogp_ref_r = rng.normal(-2.0, 0.5, n)\n\nfor beta in [0.05, 0.1, 0.5]:\n    logits = beta * ((logp_pol_c - logp_ref_c) - (logp_pol_r - logp_ref_r))\n    loss = -np.log(sigmoid(logits) + 1e-12).mean()\n    print(f\"  beta={beta:>4}: DPO loss {loss:.4f}   mean margin {logits.mean():+.4f}\")\nprint()\nprint(\"beta controls how far the policy may drift from the reference:\")\nprint(\"  small beta -> weak pull toward preferences, stays near reference\")\nprint(\"  large beta -> strong pull, risks drifting far from the base model\")\nprint()\nprint(\"WHY DPO REPLACED PPO FOR MOST WORK:\")\nprint(\"  RLHF/PPO needs: reward model + policy + reference + value head, plus\")\nprint(\"                  online sampling and a delicate KL penalty.\")\nprint(\"  DPO needs:      policy + frozen reference, and a supervised loss over\")\nprint(\"                  a fixed preference dataset. No sampling loop, no reward model.\")\n"}
+  output={"TRAINING A REWARD MODEL from pairwise preferences (Bradley-Terry):\n  step   1: loss 0.6921  pairwise accuracy 0.527\n  step 150: loss 0.1888  pairwise accuracy 0.972\n  step 300: loss 0.1462  pairwise accuracy 0.975\n  step 450: loss 0.1269  pairwise accuracy 0.973\n  step 600: loss 0.1152  pairwise accuracy 0.973\n  cosine similarity between learned w and true preference: 0.9971\n  -> the reward model recovered the human preference DIRECTION from\n     comparisons alone, never seeing an absolute score.\n\nREWARD IS SHIFT-INVARIANT: only differences are observable\n  adding 100 to every reward changes predictions by 3.11e-15\n  this is why raw reward values are not comparable across runs.\n\n==============================================================\nDPO derives an equivalent objective with NO separate reward model.\nIt reparameterizes reward in terms of the policy itself:\n    r(x,y) = beta * log[ pi(y|x) / pi_ref(y|x) ]\n\n  beta=0.05: DPO loss 0.7045   mean margin -0.0224\n  beta= 0.1: DPO loss 0.7163   mean margin -0.0448\n  beta= 0.5: DPO loss 0.8249   mean margin -0.2240\n\nbeta controls how far the policy may drift from the reference:\n  small beta -> weak pull toward preferences, stays near reference\n  large beta -> strong pull, risks drifting far from the base model\n\nWHY DPO REPLACED PPO FOR MOST WORK:\n  RLHF/PPO needs: reward model + policy + reference + value head, plus\n                  online sampling and a delicate KL penalty.\n  DPO needs:      policy + frozen reference, and a supervised loss over\n                  a fixed preference dataset. No sampling loop, no reward model."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The reward model reached cosine similarity 0.9971 with the true preference direction. Why is recovering the direction, rather than the magnitude, the correct expectation?"
+  correct={1}
+  options={[
+    { text: "Magnitude cannot be learned because the model is linear", why: "Linearity is not the constraint -- a linear model can certainly learn scaled weights. The limitation comes from what the training signal contains, not from the model's form." },
+    { text: "The Bradley-Terry objective depends only on reward DIFFERENCES, so any constant shift is unobservable and overall scale is only weakly constrained by the noise level -- the comparisons identify which direction in feature space corresponds to 'better', which is exactly what is needed to rank responses", why: "Correct -- and the shift-invariance check confirms it directly: adding 100 to every reward changes predictions by 3.11e-15. Ranking is what the reward is for, and ranking is exactly what is identified." },
+    { text: "The model was not trained long enough to recover the magnitude", why: "Training longer would not help: the additive constant is fundamentally unobservable from comparisons, no matter how many steps or how much data. It is an identifiability limit, not a convergence one." },
+    { text: "Cosine similarity ignores magnitude by definition, so the result says nothing", why: "Cosine similarity was chosen precisely BECAUSE direction is the identifiable quantity -- it is the right metric for this model, not a way of hiding a shortfall. The 0.9971 result is a genuine success." },
+  ]}
+/>
+
+## Summary
+
+Preference data is collected as pairwise comparisons because people compare far more reliably than they score. Bradley-Terry converts those comparisons into a scalar reward model via `P(chosen ≻ rejected) = σ(r_c − r_r)`, which recovered the true preference direction to cosine **0.9971** from comparisons alone, reaching 97.3% pairwise accuracy. Because only differences appear, reward is identified only up to an additive constant — shifting every reward by 100 changed predictions by `3.11e-15` — so raw reward values are never comparable across runs. The next lesson uses this reward to actually change a policy.
+
+## Further reading
+
+- Bradley & Terry (1952), *"Rank Analysis of Incomplete Block Designs"* -- the original
+  pairwise-comparison model, still the standard choice seventy years later.

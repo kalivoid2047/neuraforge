@@ -1,0 +1,98 @@
+---
+slug: lora
+month: 9
+week: 2
+ord: 2
+title: "LoRA: Low-Rank Adaptation"
+code: "9.2.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "State LoRA's low-rank hypothesis and verify it against an SVD reconstruction"
+  - "Explain why B is initialized to zero and what that guarantees"
+  - "Compute LoRA's parameter cost as a fraction of the base model"
+prereqs:
+  - "Parameter-Efficient Fine-Tuning ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Factorizing the Update }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Don't change the weights — learn a small correction to them</h2>
+
+Week one's dilemma was that full fine-tuning adapts well but damages the model, while freezing
+preserves the model but adapts poorly. **LoRA** refuses the trade with a specific observation:
+the *update* fine-tuning learns is far simpler than the weights it modifies.
+
+A weight matrix is full-rank — it has to be, to encode everything pretraining learned. But the
+**change** needed to adapt it to one narrow task is not. LoRA freezes `W₀` entirely and learns
+only a low-rank correction alongside it.
+
+<h2 id="math">Factorizing the update</h2>
+
+<MathBlock tex="W = W_0 + \Delta W \qquad \Delta W = \frac{\alpha}{r} BA \quad\text{where}\quad B \in \mathbb{R}^{d \times r},\; A \in \mathbb{R}^{r \times d}" />
+
+`W₀` never receives a gradient. Only `A` and `B` train, and since `r ≪ d`, they hold a tiny
+fraction of the parameters — `2dr` instead of `d²`.
+
+The forward pass adds a branch rather than modifying the original:
+
+<MathBlock tex="h = xW_0 + \frac{\alpha}{r}(xA^\top)B^\top" />
+
+<Callout kind="tip" title="B starts at exactly zero — and that matters">
+  `A` is randomly initialized but `B` is **zero**, so `BA = 0` and the adapter contributes
+  literally nothing at step 0. The model begins fine-tuning behaving *identically* to the
+  pretrained model, then departs from it gradually as `B` learns. Initializing both randomly would
+  inject noise into a carefully-trained model before training even starts. The check below
+  confirms the difference is exactly `0.000e+00`, not merely small.
+</Callout>
+
+<h2 id="python">The low-rank hypothesis, the zero-init guarantee, and the parameter cost</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# LoRA's premise: the UPDATE learned during fine-tuning has low intrinsic rank,\n# even though the weight matrix it modifies is full-rank.\nd = 256\n\nW0 = rng.normal(0, 0.02, (d, d))            # a pretrained weight matrix\nprint(f\"pretrained W0: {W0.shape}, rank {np.linalg.matrix_rank(W0)} (full)\")\nprint()\n\n# Simulate a fine-tuning update that genuinely has low rank (rank 8),\n# as LoRA's hypothesis claims real updates approximately do.\ntrue_rank = 8\nU = rng.normal(0, 0.1, (d, true_rank))\nVt = rng.normal(0, 0.1, (true_rank, d))\ndW = U @ Vt\nprint(f\"true fine-tuning update dW: rank {np.linalg.matrix_rank(dW)}\")\nprint(f\"  storing dW densely costs {dW.size:,} numbers\")\nprint(f\"  storing it as U @ Vt costs {U.size + Vt.size:,} numbers \"\n      f\"({(U.size+Vt.size)/dW.size:.1%})\")\nprint()\n\n# How well does a rank-r approximation capture dW? SVD gives the optimal answer.\nUs, S, Vs = np.linalg.svd(dW)\ntotal_energy = (S**2).sum()\nprint(\"rank-r approximation quality (via SVD, the optimal rank-r fit):\")\nprint(f\"{'r':>4} {'params':>10} {'vs dense':>10} {'energy kept':>13} {'rel. error':>12}\")\nfor r in [1, 2, 4, 8, 16, 32]:\n    approx = (Us[:, :r] * S[:r]) @ Vs[:r]\n    energy = (S[:r]**2).sum() / total_energy\n    err = np.linalg.norm(dW - approx) / np.linalg.norm(dW)\n    params = 2 * d * r\n    print(f\"{r:>4} {params:>10,} {params/dW.size:>9.1%} {energy:>12.2%} {err:>12.3e}\")\nprint()\nprint(f\"at r={true_rank} the error hits machine precision -- the update IS rank {true_rank},\")\nprint(\"so a rank-8 factorization loses nothing while storing 6.2% as many numbers.\")\nprint()\n\n# LoRA in practice: B starts at ZERO so the adapter is a no-op at initialization\nr, alpha = 8, 16\nA = rng.normal(0, 1/np.sqrt(r), (r, d))     # random init\nB = np.zeros((d, r))                        # ZERO init -- critical\nscale = alpha / r\n\nx = rng.normal(0, 1, (4, d))\nbase_out = x @ W0\nlora_out = x @ W0 + scale * ((x @ A.T) @ B.T)\nprint(\"LoRA at initialization (B = 0):\")\nprint(f\"  max |lora_out - base_out| = {np.abs(lora_out - base_out).max():.3e}\")\nprint(\"  -> the adapter is EXACTLY a no-op at step 0, so fine-tuning starts\")\nprint(\"     from the pretrained model's behaviour rather than perturbing it.\")\nprint()\n\n# parameter accounting for a real model\ndef lora_params(d_model, n_layers, r, targets=2):\n    return n_layers * targets * 2 * d_model * r\n\nfor name, N, d_model, L in [(\"7B\", 6.7e9, 4096, 32), (\"70B\", 70e9, 8192, 80)]:\n    for r_ in [8, 64]:\n        p = lora_params(d_model, L, r_)\n        print(f\"{name:>4} model, r={r_:>3}: {p/1e6:>7.2f}M LoRA params \"\n              f\"({p/N:>7.4%} of the full model)\")\nprint()\nprint(\"this is why LoRA checkpoints are megabytes rather than gigabytes -- you ship\")\nprint(\"the adapter, not the model, and one base model can serve many adapters.\")"}
+  output={"pretrained W0: (256, 256), rank 256 (full)\n\ntrue fine-tuning update dW: rank 8\n  storing dW densely costs 65,536 numbers\n  storing it as U @ Vt costs 4,096 numbers (6.2%)\n\nrank-r approximation quality (via SVD, the optimal rank-r fit):\n   r     params   vs dense   energy kept   rel. error\n   1        512      0.8%       17.83%    9.065e-01\n   2      1,024      1.6%       33.99%    8.124e-01\n   4      2,048      3.1%       61.40%    6.213e-01\n   8      4,096      6.2%      100.00%    1.408e-15\n  16      8,192     12.5%      100.00%    1.532e-15\n  32     16,384     25.0%      100.00%    1.585e-15\n\nat r=8 the error hits machine precision -- the update IS rank 8,\nso a rank-8 factorization loses nothing while storing 6.2% as many numbers.\n\nLoRA at initialization (B = 0):\n  max |lora_out - base_out| = 0.000e+00\n  -> the adapter is EXACTLY a no-op at step 0, so fine-tuning starts\n     from the pretrained model's behaviour rather than perturbing it.\n\n  7B model, r=  8:    4.19M LoRA params (0.0626% of the full model)\n  7B model, r= 64:   33.55M LoRA params (0.5008% of the full model)\n 70B model, r=  8:   20.97M LoRA params (0.0300% of the full model)\n 70B model, r= 64:  167.77M LoRA params (0.2397% of the full model)\n\nthis is why LoRA checkpoints are megabytes rather than gigabytes -- you ship\nthe adapter, not the model, and one base model can serve many adapters."}
+/>
+
+<Callout kind="warning" title="This experiment assumes the hypothesis rather than proving it">
+  The update above was *constructed* to be rank 8, so recovering it perfectly at `r=8` is
+  arithmetic, not evidence. What the cell genuinely demonstrates is the **consequence**: *if* an
+  update has low rank, a rank-`r` factorization captures it exactly at a small fraction of the
+  parameters, and the SVD table shows precisely how much is lost at each `r` when it does not.
+
+  Whether real fine-tuning updates are approximately low-rank is an **empirical** claim, and the
+  evidence for it is that LoRA works — across many models and tasks it matches full fine-tuning
+  closely. That is strong practical support, not a proof, and it is why `r` remains a
+  hyperparameter you tune rather than a value you derive.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is B initialized to zero rather than randomly, given A is random?"
+  correct={2}
+  options={[
+    { text: "Zero initialization makes the adapter train faster by reducing the gradient magnitude", why: "Zero initialization does not accelerate training -- and a zero gradient into A at step 0 would if anything slow it. The reason concerns the model's starting behaviour, not training speed." },
+    { text: "Both must be zero, otherwise the product BA would be nonzero", why: "Only one factor needs to be zero for the product to vanish. If BOTH were zero the adapter could never escape zero, since the gradient of a product with two zero factors leaves nothing to break the symmetry." },
+    { text: "It makes BA exactly zero at step 0, so the adapted model is bit-identical to the pretrained model and fine-tuning departs from that known-good starting point gradually, rather than beginning with random noise injected into carefully-trained weights", why: "Correct -- and the check confirms a difference of exactly 0.000e+00, not merely a small one. Random init on both factors would perturb a model that took millions of dollars to train, before a single gradient step." },
+    { text: "Zero initialization is required for the SVD factorization to be unique", why: "LoRA does not compute an SVD at all -- A and B are learned by gradient descent. The SVD in the cell is only used to measure how much a rank-r approximation can capture in principle." },
+  ]}
+/>
+
+## Summary
+
+LoRA freezes the pretrained matrix and learns a low-rank correction `ΔW = (α/r)BA`, training
+`2dr` parameters instead of `d²`. The SVD table quantifies the trade: a rank-8 factorization of a
+genuinely rank-8 update reconstructs it to `1.4e-15` while storing 6.2% as many numbers, and
+lower ranks lose measurable energy. `B` initializes to zero so the adapter is exactly a no-op at
+step 0 — verified at `0.000e+00` — letting fine-tuning depart gradually from the pretrained
+model. For a 7B model at `r=8` that is 4.19M trainable parameters, **0.0626%** of the whole. The
+next lesson covers choosing `r`, `α`, and which modules to target.
+
+## Further reading
+
+- Hu et al., *"LoRA: Low-Rank Adaptation of Large Language Models"* — the original paper,
+  including the empirical evidence that real updates are approximately low-rank.

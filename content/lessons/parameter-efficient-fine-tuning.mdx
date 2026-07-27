@@ -1,0 +1,67 @@
+---
+slug: parameter-efficient-fine-tuning
+month: 9
+week: 2
+ord: 1
+title: "Parameter-Efficient Fine-Tuning"
+code: "9.2.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why freezing the base model collapses the memory cost of fine-tuning"
+  - "Compare the main PEFT methods and what each adds to a frozen model"
+  - "Verify that a LoRA adapter can be merged into the base weights exactly"
+prereqs:
+  - "Choosing What to Freeze ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Where the Memory Actually Goes }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: adapting a model you cannot afford to move</h2>
+
+Week one ended at an unsatisfying trade — adapt well and damage the model, or preserve it and adapt poorly. **Parameter-efficient fine-tuning** rejects both by freezing every pretrained weight and adding a small number of *new* trainable ones. The pretrained model cannot be damaged because it never changes, and adaptation happens in the added parameters.
+
+<h2 id="math">Where the Memory Actually Goes</h2>
+
+Month 8 measured full fine-tuning at 16 bytes per parameter: 2 for bf16 weights, 2 for gradients, and 12 for the fp32 master copy plus Adam's two moments. PEFT changes which of those scale with `N`:
+
+<MathBlock tex="\text{mem} = \underbrace{2N}_{\text{frozen weights}} + \underbrace{14 \cdot N_{\text{trainable}}}_{\text{grads + master + Adam}}" />
+
+The frozen weights still have to be stored, but the expensive per-parameter optimizer state now applies only to the tiny trainable set.
+
+<Callout kind="tip" title="Why LoRA won over the rest of the PEFT family">
+  Adapters insert bottleneck layers, prefix tuning prepends trainable KV vectors, prompt tuning prepends trainable embeddings — all work, and all add something to the model at inference time. LoRA's `BA` is a plain matrix product with the same shape as `W₀`, so after training it can be **folded in**: `W = W₀ + (α/r)BA` produces an ordinary weight matrix. Serving it costs exactly what serving the base model costs. The merge check below confirms the equivalence to `1.3e-15`.
+</Callout>
+
+<h2 id="python">Memory by method, the PEFT family, and an exact merge check</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# Memory accounting from Month 8: full fine-tuning needs weights + grads + Adam state.\n# PEFT changes WHICH of those scale with the full parameter count.\ndef memory_gb(N, trainable, w_bytes=2, master=4, adam=8, grad_bytes=2):\n    frozen_w = N * w_bytes                      # every weight must still be stored\n    train_w  = trainable * (master + adam)      # fp32 master + Adam m,v -- only for TRAINABLE\n    grads    = trainable * grad_bytes           # gradients only for trainable\n    return (frozen_w + train_w + grads) / 1e9\n\nN = 7e9\nmethods = [\n    (\"full fine-tuning\",  N),\n    (\"LoRA r=64\",         33.55e6),\n    (\"LoRA r=8\",          4.19e6),\n    (\"frozen (head only)\", 32000*4096),\n]\nprint(f\"MEMORY for fine-tuning a {N/1e9:.0f}B model (GB), bf16 weights + fp32 Adam:\")\nprint(f\"{'method':>20} {'trainable':>13} {'% of model':>12} {'memory':>10}\")\nfor name, t in methods:\n    print(f\"{name:>20} {t/1e6:>10.2f}M {t/N:>11.4%} {memory_gb(N,t):>9.1f}G\")\nprint()\nfull = memory_gb(N, N); lora = memory_gb(N, 4.19e6)\nprint(f\"full fine-tuning: {full:.1f} GB -- exceeds an 80GB accelerator\")\nprint(f\"LoRA r=8:         {lora:.1f} GB -- fits comfortably\")\nprint(f\"reduction: {1-lora/full:.1%}\")\nprint()\nprint(\"note WHY: the frozen weights still cost 14 GB, but optimizer state -- which\")\nprint(\"dominated Month 8's accounting at 12 bytes/param -- now applies to 0.06% of them.\")\nprint()\n\n# the PEFT family: what each method adds\nprint(\"PEFT FAMILY -- all freeze the base model, differ in what they add:\")\nfam = [\n    (\"LoRA\",          \"low-rank matrices beside existing weights\", \"mergeable, no inference cost\"),\n    (\"Adapters\",      \"small bottleneck layers inserted in blocks\", \"adds inference latency\"),\n    (\"Prefix tuning\", \"trainable vectors prepended to the KV cache\", \"consumes context length\"),\n    (\"Prompt tuning\", \"trainable embeddings prepended to input\",     \"simplest, weakest\"),\n    (\"BitFit\",        \"trains only the bias terms\",                  \"tiny, surprisingly decent\"),\n]\nfor n, what, note in fam:\n    print(f\"  {n:>14}: {what:<44} ({note})\")\nprint()\nprint(\"LoRA dominates in practice because of one property the others lack:\")\nprint(\"BA can be MERGED into W0 after training (W = W0 + BA), giving a plain\")\nprint(\"weight matrix with zero added inference latency.\")\nprint()\n\n# verify the merge is exact\nrng = np.random.default_rng(0)\nd, r, alpha = 128, 8, 16\nW0 = rng.normal(0, 0.02, (d, d))\nA = rng.normal(0, 0.1, (r, d)); B = rng.normal(0, 0.1, (d, r))\nx = rng.normal(0, 1, (5, d))\n\nunmerged = x @ W0 + (alpha/r) * ((x @ A.T) @ B.T)\nW_merged = W0 + (alpha/r) * (B @ A).T\nmerged   = x @ W_merged\nprint(\"MERGE CHECK -- is (W0 + BA) equivalent to the two-branch form?\")\nprint(f\"  max |unmerged - merged| = {np.abs(unmerged-merged).max():.3e}\")\nprint(f\"  equivalent: {np.allclose(unmerged, merged)}\")\nprint(\"  -> after training you can fold the adapter in and serve a normal model.\")\n"}
+  output={"MEMORY for fine-tuning a 7B model (GB), bf16 weights + fp32 Adam:\n              method     trainable   % of model     memory\n    full fine-tuning    7000.00M   100.0000%     112.0G\n           LoRA r=64      33.55M     0.4793%      14.5G\n            LoRA r=8       4.19M     0.0599%      14.1G\n  frozen (head only)     131.07M     1.8725%      15.8G\n\nfull fine-tuning: 112.0 GB -- exceeds an 80GB accelerator\nLoRA r=8:         14.1 GB -- fits comfortably\nreduction: 87.4%\n\nnote WHY: the frozen weights still cost 14 GB, but optimizer state -- which\ndominated Month 8's accounting at 12 bytes/param -- now applies to 0.06% of them.\n\nPEFT FAMILY -- all freeze the base model, differ in what they add:\n            LoRA: low-rank matrices beside existing weights    (mergeable, no inference cost)\n        Adapters: small bottleneck layers inserted in blocks   (adds inference latency)\n   Prefix tuning: trainable vectors prepended to the KV cache  (consumes context length)\n   Prompt tuning: trainable embeddings prepended to input      (simplest, weakest)\n          BitFit: trains only the bias terms                   (tiny, surprisingly decent)\n\nLoRA dominates in practice because of one property the others lack:\nBA can be MERGED into W0 after training (W = W0 + BA), giving a plain\nweight matrix with zero added inference latency.\n\nMERGE CHECK -- is (W0 + BA) equivalent to the two-branch form?\n  max |unmerged - merged| = 1.332e-15\n  equivalent: True\n  -> after training you can fold the adapter in and serve a normal model."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Freezing the base model cut fine-tuning memory from 112 GB to 14.1 GB. Where did the saving come from?"
+  correct={1}
+  options={[
+    { text: "The frozen weights no longer need to be stored, removing most of the memory", why: "The frozen weights absolutely must still be stored -- they are what the model computes with, and they account for the entire remaining 14 GB. Nothing about freezing removes them from memory." },
+    { text: "Optimizer state (fp32 master copy plus Adam's two moments, 12 bytes per parameter) and gradients now apply only to the 0.06% of parameters that are trainable -- the 14 GB that remains is almost entirely the frozen weights themselves", why: "Correct -- Month 8 showed optimizer state dominates the fine-tuning memory budget, and PEFT's entire saving comes from shrinking the set of parameters that state is kept for, not from shrinking the model." },
+    { text: "LoRA uses a smaller data type for the frozen weights", why: "The frozen weights remain bf16 in this accounting -- reducing THEIR precision is quantization, a separate technique covered two lessons from now. The saving here is purely about optimizer state." },
+    { text: "Gradient checkpointing is applied automatically when weights are frozen", why: "Checkpointing is an independent technique that trades compute for activation memory, and it is neither implied by nor required for freezing. The measured saving here concerns optimizer state only." },
+  ]}
+/>
+
+## Summary
+
+PEFT freezes every pretrained weight and trains a small number of added parameters, which collapses the memory cost because optimizer state — 12 bytes per parameter in Month 8's accounting — now applies to a fraction of a percent of the model. Measured for a 7B model: 112 GB full fine-tuning versus 14.1 GB for LoRA at `r=8`, an 87.4% reduction, with the remaining 14 GB being the frozen weights themselves. LoRA specifically wins because its adapter merges into the base weights exactly, verified to `1.3e-15`, leaving zero inference overhead. The next lesson looks at why the low-rank structure works.
+
+## Further reading
+
+- Houlsby et al., *"Parameter-Efficient Transfer Learning for NLP"* -- the adapter approach
+  that opened this line of work.

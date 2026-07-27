@@ -1,0 +1,78 @@
+---
+slug: qlora
+month: 9
+week: 2
+ord: 5
+title: "QLoRA: Quantized Base, Full-Precision Adapters"
+code: "9.2.5"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Combine 4-bit base weights with bf16 adapters and account for the memory"
+  - "Explain why quantizing the frozen base does not prevent gradients reaching the adapters"
+  - "Identify what QLoRA gives up relative to LoRA on a bf16 base"
+prereqs:
+  - "Quantization: int8, int4, and NF4 ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Precisions in One Model }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: the combination that made 7B fine-tuning ordinary</h2>
+
+LoRA removed the optimizer state; quantization removes most of the weight storage. **QLoRA** is exactly their composition: freeze the base model in **NF4**, attach **bf16** LoRA adapters, and train only the adapters. The result fits a 7B fine-tune into single-digit gigabytes.
+
+<h2 id="math">Two Precisions in One Model</h2>
+
+The two precisions serve different roles:
+
+- The **base** is frozen and only ever read in a forward pass, so 4-bit is sufficient.
+- The **adapters** receive gradients and Adam updates, where 4-bit would be far too coarse — the quantization error measured last lesson (19.50% at 4 bits) would swamp the updates entirely.
+
+<MathBlock tex="h = x\,\text{dequant}(W_0^{\text{NF4}}) + \frac{\alpha}{r}(xA^\top)B^\top \quad\text{with }A,B\text{ in bf16}" />
+
+Weights are dequantized to compute-precision on the fly, block by block, so the 4-bit form is a *storage* format rather than an arithmetic one.
+
+<Callout kind="warning" title="Gradients flow through the quantized base — they just don't stop there">
+  A common confusion: if the base is quantized and frozen, how does anything learn? The backward pass still propagates gradient *through* the base weights to reach the adapters — the chain rule needs `W₀` to compute `∂L/∂x`, and it uses the dequantized values for that. What does not happen is any gradient being **stored for or applied to** `W₀`. Frozen means no update, not no participation.
+</Callout>
+
+<h2 id="python">QLoRA memory against LoRA and full fine-tuning</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# Quantization maps float weights onto a small set of discrete levels.\nW = rng.normal(0, 0.02, 100_000).astype(np.float32)\n\ndef quantize_uniform(w, bits):\n    \"\"\"Absmax symmetric quantization: scale to the integer range, round, scale back.\"\"\"\n    qmax = 2**(bits-1) - 1\n    scale = np.abs(w).max() / qmax\n    q = np.clip(np.round(w / scale), -qmax, qmax)\n    return q * scale, scale\n\nprint(f\"weights: {W.size:,} values, std {W.std():.5f}, range [{W.min():.4f}, {W.max():.4f}]\")\nprint()\nprint(\"UNIFORM (absmax) QUANTIZATION:\")\nprint(f\"{'bits':>5} {'levels':>8} {'bytes/w':>9} {'RMS error':>12} {'rel error':>11}\")\nfor bits in [8, 4, 3, 2]:\n    deq, _ = quantize_uniform(W, bits)\n    rms = np.sqrt(((W - deq)**2).mean())\n    print(f\"{bits:>5} {2**bits:>8} {bits/8:>9.2f} {rms:>12.3e} {rms/W.std():>10.2%}\")\nprint()\n\n# NF4: levels placed at quantiles of a normal distribution, not evenly.\n# Weights ARE approximately normal, so this allocates levels where the mass is.\ndef nf4_levels():\n    # 16 levels at equally-spaced quantiles of a standard normal, normalized to [-1,1]\n    from math import erf\n    def ppf(p):  # inverse normal CDF via bisection (no scipy in Pyodide)\n        lo, hi = -10.0, 10.0\n        for _ in range(200):\n            mid = (lo+hi)/2\n            if 0.5*(1+erf(mid/np.sqrt(2))) < p: lo = mid\n            else: hi = mid\n        return (lo+hi)/2\n    qs = [ppf(p) for p in np.linspace(0.0055, 0.9945, 16)]\n    qs = np.array(qs)\n    return qs / np.abs(qs).max()\n\nlevels = nf4_levels()\nprint(\"NF4 levels (quantiles of a normal, normalized):\")\nprint(\" \", np.round(levels, 4))\nprint()\n\ndef quantize_nf4(w, levels):\n    scale = np.abs(w).max()\n    wn = w / scale\n    idx = np.abs(wn[:, None] - levels[None, :]).argmin(1)\n    return levels[idx] * scale\n\ndeq4_uniform, _ = quantize_uniform(W, 4)\ndeq4_nf4 = quantize_nf4(W, levels)\nrms_u = np.sqrt(((W - deq4_uniform)**2).mean())\nrms_n = np.sqrt(((W - deq4_nf4)**2).mean())\n\nprint(\"4-BIT: uniform levels vs NF4 (normal-float) levels\")\nprint(f\"  uniform int4 RMS error: {rms_u:.3e}  ({rms_u/W.std():.2%} of std)\")\nprint(f\"  NF4        RMS error: {rms_n:.3e}  ({rms_n/W.std():.2%} of std)\")\nprint(f\"  NF4 is {rms_u/rms_n:.2f}x more accurate at the SAME 4 bits\")\nprint()\nprint(\"both use 16 levels; NF4 simply places them where normally-distributed\")\nprint(\"weights actually are, instead of spreading them evenly across the range.\")\nprint()\n\n# QLoRA memory: 4-bit frozen base + bf16 LoRA adapters\nN = 7e9\nlora_p = 4.19e6\nprint(f\"QLoRA MEMORY for a {N/1e9:.0f}B model:\")\nrows = [\n    (\"full FT (bf16 + Adam)\", N*2 + N*(4+8) + N*2),\n    (\"LoRA (bf16 base)\",      N*2 + lora_p*(4+8+2)),\n    (\"QLoRA (NF4 base)\",      N*0.5 + lora_p*(4+8+2)),\n]\nfor name, b in rows:\n    print(f\"  {name:>24}: {b/1e9:>6.1f} GB\")\nprint()\nq = N*0.5 + lora_p*14\nprint(f\"QLoRA holds a {N/1e9:.0f}B model + optimizer state in {q/1e9:.1f} GB.\")\nprint(\"(activations and the KV cache add more on top -- this counts weights and\")\nprint(\" optimizer state only -- but the total now lands inside a 24GB consumer card.)\")\nprint(\"that combination (4-bit frozen base + small bf16 adapters) is the single\")\nprint(\"reason hobbyist fine-tuning of 7B-70B models became possible.\")\n"}
+  output={"weights: 100,000 values, std 0.02000, range [-0.0899, 0.0946]\n\nUNIFORM (absmax) QUANTIZATION:\n bits   levels   bytes/w    RMS error   rel error\n    8      256      1.00    2.156e-04      1.08%\n    4       16      0.50    3.901e-03     19.50%\n    3        8      0.38    9.131e-03     45.65%\n    2        4      0.25    1.940e-02     96.98%\n\nNF4 levels (quantiles of a normal, normalized):\n  [-1.     -0.5762 -0.4296 -0.3264 -0.2419 -0.1674 -0.0985 -0.0325  0.0325\n  0.0985  0.1674  0.2419  0.3264  0.4296  0.5762  1.    ]\n\n4-BIT: uniform levels vs NF4 (normal-float) levels\n  uniform int4 RMS error: 3.901e-03  (19.50% of std)\n  NF4        RMS error: 2.214e-03  (11.07% of std)\n  NF4 is 1.76x more accurate at the SAME 4 bits\n\nboth use 16 levels; NF4 simply places them where normally-distributed\nweights actually are, instead of spreading them evenly across the range.\n\nQLoRA MEMORY for a 7B model:\n     full FT (bf16 + Adam):  112.0 GB\n          LoRA (bf16 base):   14.1 GB\n          QLoRA (NF4 base):    3.6 GB\n\nQLoRA holds a 7B model + optimizer state in 3.6 GB.\n(activations and the KV cache add more on top -- this counts weights and\n optimizer state only -- but the total now lands inside a 24GB consumer card.)\nthat combination (4-bit frozen base + small bf16 adapters) is the single\nreason hobbyist fine-tuning of 7B-70B models became possible."}
+/>
+
+<Callout kind="tip" title="What QLoRA costs you">
+  Nothing is free. Dequantizing on every forward pass costs **time** — QLoRA typically trains
+  meaningfully slower than bf16 LoRA on the same hardware. And the base model's 4-bit
+  approximation introduces a small quality floor that no amount of adapter training removes.
+  The trade is straightforward: QLoRA is what you use when the model would not otherwise fit,
+  and bf16 LoRA is what you use when it would.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="If the base model is frozen AND quantized to 4 bits, how do the adapters receive a useful gradient?"
+  correct={3}
+  options={[
+    { text: "They do not -- QLoRA trains the adapters using a separate forward pass that skips the base model", why: "There is only one forward pass, and it includes the base model -- the adapter's output is added to the base output, so the loss depends on both and gradients must flow through the combined computation." },
+    { text: "The base weights are temporarily unfrozen during the backward pass", why: "The base weights are never unfrozen -- no gradient is ever stored for them and no optimizer state exists for them. That is precisely what makes the memory saving possible." },
+    { text: "Gradients are computed in 4-bit precision, matching the base weights", why: "Gradients and adapter updates are computed in bf16 or fp32. Using 4-bit for them would be disastrous -- the previous lesson measured 19.50% relative error at 4 bits, which would swamp the update signal entirely." },
+    { text: "The backward pass propagates gradient THROUGH the base weights (dequantized to compute precision) to reach the adapters -- the chain rule needs W0 to compute the gradient with respect to the layer input, it simply never stores or applies a gradient FOR W0", why: "Correct -- frozen means not updated, not absent from the computation. The dequantized weights participate fully in both directions; only the parameter update is skipped." },
+  ]}
+/>
+
+## Summary
+
+QLoRA freezes the base in NF4 and trains bf16 LoRA adapters on top, composing week two's two savings. Measured for a 7B model: 112 GB full fine-tuning, 14.1 GB LoRA on a bf16 base, and **3.6 GB** with an NF4 base — counting weights and optimizer state, with activations on top. Gradients still flow through the dequantized base to reach the adapters; frozen means unchanged, not uninvolved. The costs are slower training from on-the-fly dequantization and a small quality floor from the 4-bit approximation. Week three turns from efficiency to what you actually train on.
+
+## Further reading
+
+- Dettmers et al., *"QLoRA"* -- the full method, including double quantization and paged
+  optimizers, which trim the remaining overhead further.

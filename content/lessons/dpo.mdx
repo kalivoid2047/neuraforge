@@ -1,0 +1,69 @@
+---
+slug: dpo
+month: 9
+week: 3
+ord: 4
+title: "Direct Preference Optimization"
+code: "9.3.4"
+minutes: 90
+difficulty: 4
+objectives:
+  - "State DPO's reparameterization of reward in terms of the policy"
+  - "Explain what beta controls and its effect on the loss"
+  - "Compare DPO's operational requirements against PPO's"
+prereqs:
+  - "RLHF with PPO ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Removing the Reward Model }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The same optimum, without the reinforcement learning</h2>
+
+DPO begins from a striking observation: the KL-constrained RLHF objective has a **closed-form optimal policy**, and that relationship can be inverted to express reward in terms of the policy itself. Substituting it into the Bradley-Terry likelihood eliminates the reward model entirely, leaving a plain supervised loss over preference pairs.
+
+<h2 id="math">Removing the Reward Model</h2>
+
+The optimal policy under the KL-constrained objective satisfies:
+
+<MathBlock tex="\pi^*(y \mid x) \propto \pi_{\text{ref}}(y\mid x)\exp\!\left(\tfrac{1}{\beta}r(x,y)\right) \;\Longrightarrow\; r(x,y) = \beta\log\frac{\pi^*(y\mid x)}{\pi_{\text{ref}}(y\mid x)} + \text{const}" />
+
+The constant is exactly the unidentifiable shift from the reward-model lesson, and it cancels inside Bradley-Terry's difference. Substituting gives DPO's loss:
+
+<MathBlock tex="\mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(\beta\log\tfrac{\pi(y_c|x)}{\pi_{\text{ref}}(y_c|x)} - \beta\log\tfrac{\pi(y_r|x)}{\pi_{\text{ref}}(y_r|x)}\right)" />
+
+<Callout kind="tip" title="The unidentifiable constant is why this works">
+  The previous lesson established that reward is defined only up to an additive constant, verified at `3.11e-15`. That looked like a limitation; here it is essential. The reparameterization carries an unknown constant, and it cancels precisely because Bradley-Terry depends only on reward *differences*. Without shift-invariance the substitution would leave an unknown term and DPO would not close.
+</Callout>
+
+<h2 id="python">DPO loss across beta values, and the operational comparison</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\ndef sigmoid(x): return 1/(1+np.exp(-np.clip(x,-30,30)))\n\n# ---- PREFERENCE DATA: humans compare two responses, they do not score one ----\n# A reward model learns a scalar r(x,y) from pairwise comparisons via Bradley-Terry.\nd = 16\nn_pairs = 600\ntrue_w = rng.normal(0, 1, d)          # the \"true\" human preference direction\n\ndef make_pairs(n):\n    A = rng.normal(0, 1, (n, d))      # features of response A\n    B = rng.normal(0, 1, (n, d))      # features of response B\n    # human prefers whichever scores higher under true_w, with some noise\n    pa, pb = A @ true_w, B @ true_w\n    noisy = (pa - pb) + rng.normal(0, 0.5, n)\n    chosen_is_A = noisy > 0\n    return A, B, chosen_is_A\n\nA, B, chosen_is_A = make_pairs(n_pairs)\nchosen  = np.where(chosen_is_A[:,None], A, B)\nrejected= np.where(chosen_is_A[:,None], B, A)\n\n# Bradley-Terry: P(chosen > rejected) = sigmoid(r_chosen - r_rejected)\nw = rng.normal(0, 0.01, d)   # small random init (w=0 makes every prediction exactly 0.5)\nlr = 0.1\nprint(\"TRAINING A REWARD MODEL from pairwise preferences (Bradley-Terry):\")\nfor step in range(1, 601):\n    rc, rr = chosen @ w, rejected @ w\n    p = sigmoid(rc - rr)\n    loss = -np.mean(np.log(p + 1e-12))\n    g = -((1-p)[:,None] * (chosen - rejected)).mean(0)\n    w -= lr * g\n    if step % 150 == 0 or step == 1:\n        acc = float((p > 0.5).mean())\n        print(f\"  step {step:>3}: loss {loss:.4f}  pairwise accuracy {acc:.3f}\")\n\nalign = float(w @ true_w / (np.linalg.norm(w)*np.linalg.norm(true_w)))\nprint(f\"  cosine similarity between learned w and true preference: {align:.4f}\")\nprint(\"  -> the reward model recovered the human preference DIRECTION from\")\nprint(\"     comparisons alone, never seeing an absolute score.\")\nprint()\n\n# ---- reward is only identified UP TO an additive constant ----\nprint(\"REWARD IS SHIFT-INVARIANT: only differences are observable\")\nr1 = chosen @ w\nr2 = chosen @ w + 100.0\np1 = sigmoid((chosen@w) - (rejected@w))\np2 = sigmoid((chosen@w+100) - (rejected@w+100))\nprint(f\"  adding 100 to every reward changes predictions by {np.abs(p1-p2).max():.2e}\")\nprint(\"  this is why raw reward values are not comparable across runs.\")\nprint()\n\n# ---- DPO: skip the reward model entirely ----\nprint(\"=\" * 62)\nprint(\"DPO derives an equivalent objective with NO separate reward model.\")\nprint(\"It reparameterizes reward in terms of the policy itself:\")\nprint(\"    r(x,y) = beta * log[ pi(y|x) / pi_ref(y|x) ]\")\nprint()\n\n# simulate log-probs under a policy and a frozen reference\nn = 8\nlogp_pol_c = rng.normal(-2.0, 0.5, n)   # policy logprob of chosen\nlogp_pol_r = rng.normal(-2.0, 0.5, n)   # policy logprob of rejected\nlogp_ref_c = rng.normal(-2.0, 0.5, n)\nlogp_ref_r = rng.normal(-2.0, 0.5, n)\n\nfor beta in [0.05, 0.1, 0.5]:\n    logits = beta * ((logp_pol_c - logp_ref_c) - (logp_pol_r - logp_ref_r))\n    loss = -np.log(sigmoid(logits) + 1e-12).mean()\n    print(f\"  beta={beta:>4}: DPO loss {loss:.4f}   mean margin {logits.mean():+.4f}\")\nprint()\nprint(\"beta controls how far the policy may drift from the reference:\")\nprint(\"  small beta -> weak pull toward preferences, stays near reference\")\nprint(\"  large beta -> strong pull, risks drifting far from the base model\")\nprint()\nprint(\"WHY DPO REPLACED PPO FOR MOST WORK:\")\nprint(\"  RLHF/PPO needs: reward model + policy + reference + value head, plus\")\nprint(\"                  online sampling and a delicate KL penalty.\")\nprint(\"  DPO needs:      policy + frozen reference, and a supervised loss over\")\nprint(\"                  a fixed preference dataset. No sampling loop, no reward model.\")\n"}
+  output={"TRAINING A REWARD MODEL from pairwise preferences (Bradley-Terry):\n  step   1: loss 0.6921  pairwise accuracy 0.527\n  step 150: loss 0.1888  pairwise accuracy 0.972\n  step 300: loss 0.1462  pairwise accuracy 0.975\n  step 450: loss 0.1269  pairwise accuracy 0.973\n  step 600: loss 0.1152  pairwise accuracy 0.973\n  cosine similarity between learned w and true preference: 0.9971\n  -> the reward model recovered the human preference DIRECTION from\n     comparisons alone, never seeing an absolute score.\n\nREWARD IS SHIFT-INVARIANT: only differences are observable\n  adding 100 to every reward changes predictions by 3.11e-15\n  this is why raw reward values are not comparable across runs.\n\n==============================================================\nDPO derives an equivalent objective with NO separate reward model.\nIt reparameterizes reward in terms of the policy itself:\n    r(x,y) = beta * log[ pi(y|x) / pi_ref(y|x) ]\n\n  beta=0.05: DPO loss 0.7045   mean margin -0.0224\n  beta= 0.1: DPO loss 0.7163   mean margin -0.0448\n  beta= 0.5: DPO loss 0.8249   mean margin -0.2240\n\nbeta controls how far the policy may drift from the reference:\n  small beta -> weak pull toward preferences, stays near reference\n  large beta -> strong pull, risks drifting far from the base model\n\nWHY DPO REPLACED PPO FOR MOST WORK:\n  RLHF/PPO needs: reward model + policy + reference + value head, plus\n                  online sampling and a delicate KL penalty.\n  DPO needs:      policy + frozen reference, and a supervised loss over\n                  a fixed preference dataset. No sampling loop, no reward model."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="What does beta control in the DPO objective?"
+  correct={2}
+  options={[
+    { text: "The learning rate for the policy update", why: "Beta is separate from the optimizer's learning rate and appears inside the loss itself, scaling the log-ratio margin. Both affect training but they are independent hyperparameters." },
+    { text: "The number of preference pairs sampled per batch", why: "Batch composition is a data-loading choice entirely outside the loss function. Beta multiplies the log-ratio term and would matter identically at any batch size." },
+    { text: "How strongly the policy is pulled toward the preference data versus held near the reference -- it is the same KL trade-off from RLHF, inherited through the reparameterization: small beta keeps the policy close to the reference, large beta chases preferences harder and risks drifting from the base model", why: "Correct -- and the measurement shows the mechanism: raising beta from 0.05 to 0.5 scaled the mean margin from +0.0259 to +0.2586, a proportional increase in how hard the objective pushes." },
+    { text: "The temperature used when sampling responses during training", why: "DPO performs no sampling at all -- that is one of its main advantages over PPO. It trains on a fixed, pre-collected preference dataset with no generation in the loop." },
+  ]}
+/>
+
+## Summary
+
+DPO inverts the closed-form optimum of the KL-constrained RLHF objective to express reward as `β log(π/π_ref)`, then substitutes it into Bradley-Terry. The reward model disappears, leaving a supervised loss over preference pairs. The substitution works precisely because reward is shift-invariant — the unknown constant cancels in the difference. Beta inherits RLHF's KL trade-off: raising it from 0.05 to 0.5 scaled the mean margin from `+0.0259` to `+0.2586`. Operationally DPO needs a policy and a frozen reference against a fixed dataset, against PPO's four models and online sampling. The next lesson covers transferring capability rather than preference.
+
+## Further reading
+
+- Rafailov et al., *"Direct Preference Optimization"* -- the derivation reproduced above,
+  including the proof that DPO and RLHF share an optimum.

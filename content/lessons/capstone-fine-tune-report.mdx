@@ -1,0 +1,81 @@
+---
+slug: capstone-fine-tune-report
+month: 9
+week: 4
+ord: 5
+title: "Capstone: A Fine-Tune With a Real Evaluation Report"
+code: "9.4.5"
+minutes: 150
+difficulty: 5
+objectives:
+  - "Fine-tune a pretrained model with both full fine-tuning and LoRA"
+  - "Measure target capability, retained capability, and trainable cost for each"
+  - "Produce the evaluation report this month has argued for"
+prereqs:
+  - "Data Quality Beats Data Quantity ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Comparison That Settles It }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The month's argument, tested</h2>
+
+Week one claimed full fine-tuning damages the model. Week two claimed LoRA avoids that damage at a fraction of the cost. Week four claimed you cannot tell without measuring retained capability. This capstone tests all three at once: pretrain a model, adapt it two ways, and produce the three-axis report.
+
+<h2 id="math">The Comparison That Settles It</h2>
+
+The retention test is the crucial piece. Both methods retrain the output head, so both lose the original task's readout — measuring that alone would make them look identical. Instead, freeze each adapted backbone and fit a **fresh head** on the original task:
+
+<MathBlock tex="\text{retained} = \max_{H} \; \text{acc}\big(\text{task A}; \; \text{backbone}_{\text{adapted}},\, H\big)" />
+
+This measures whether the *features* survived, which is the damage that actually matters.
+
+<Callout kind="tip" title="Why LoRA's retention is exactly 1.000, not merely high">
+  LoRA's base weights are never updated — not approximately preserved, but **bit-identical** to the pretrained model. So refitting a head on them recovers the original task perfectly, by construction. Full fine-tuning reached `0.880`, and that shortfall is permanent: the features themselves moved, and no amount of head-refitting recovers what they encoded.
+</Callout>
+
+<h2 id="python">Pretrain, adapt two ways, and report all three axes</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# ================================================================\n# CAPSTONE: fine-tune a pretrained model three ways and report the\n# full evaluation -- target task, retained capability, and cost.\n# ================================================================\nd_in, d_h, d_out = 12, 32, 5\n\ndef softmax(z):\n    e = np.exp(z - z.max(-1, keepdims=True)); return e / e.sum(-1, keepdims=True)\n\ndef make_task(seed, n=500):\n    r = np.random.default_rng(seed)\n    X = r.normal(0, 1, (n, d_in))\n    P = r.normal(0, 1, (d_in, d_out))\n    return X, (X @ P).argmax(1)\n\nXa, ya = make_task(1)      # PRETRAIN task  (\"general capability\")\nXb, yb = make_task(2)      # TARGET task    (\"the fine-tune\")\n\n# ---- base model ----\nW1 = rng.normal(0, 0.4, (d_in, d_h)); b1 = np.zeros(d_h)\nW2 = rng.normal(0, 0.4, (d_h, d_out)); b2 = np.zeros(d_out)\n\ndef fwd(X, W1, b1, W2, b2, lora=None):\n    pre = X @ W1 + b1\n    if lora is not None:\n        A, B, s = lora\n        pre = pre + s * ((X @ A.T) @ B.T)      # LoRA branch on the first layer\n    h = np.tanh(pre)\n    return h, softmax(h @ W2 + b2)\n\ndef grads(X, y, W1, b1, W2, b2, lora=None):\n    n = len(y)\n    h, p = fwd(X, W1, b1, W2, b2, lora)\n    loss = -np.mean(np.log(p[np.arange(n), y] + 1e-12))\n    dl = p.copy(); dl[np.arange(n), y] -= 1; dl /= n\n    gW2 = h.T @ dl; gb2 = dl.sum(0)\n    dh = (dl @ W2.T) * (1 - h**2)\n    gW1 = X.T @ dh; gb1 = dh.sum(0)\n    return loss, gW1, gb1, gW2, gb2, dh\n\ndef acc(X, y, W1, b1, W2, b2, lora=None):\n    return float(fwd(X, W1, b1, W2, b2, lora)[1].argmax(1).__eq__(y).mean())\n\n# ---- PRETRAIN ----\nfor _ in range(4000):\n    _, gW1, gb1, gW2, gb2, _ = grads(Xa, ya, W1, b1, W2, b2)\n    W1 -= 0.5*gW1; b1 -= 0.5*gb1; W2 -= 0.5*gW2; b2 -= 0.5*gb2\n\nbase_A = acc(Xa, ya, W1, b1, W2, b2)\nbase_B = acc(Xb, yb, W1, b1, W2, b2)\nn_base = W1.size + b1.size + W2.size + b2.size\nprint(\"PRETRAINED BASE MODEL\")\nprint(f\"  task A (general): {base_A:.3f}   task B (target): {base_B:.3f}\")\nprint(f\"  parameters: {n_base}\")\nprint()\n\n# ---- METHOD 1: FULL FINE-TUNE ----\nf1, fb1, f2, fb2 = W1.copy(), b1.copy(), W2.copy(), b2.copy()\nfor _ in range(2000):\n    _, gW1, gb1, gW2, gb2, _ = grads(Xb, yb, f1, fb1, f2, fb2)\n    f1 -= 0.5*gW1; fb1 -= 0.5*gb1; f2 -= 0.5*gW2; fb2 -= 0.5*gb2\nfull_B = acc(Xb, yb, f1, fb1, f2, fb2)\nfull_A = acc(Xa, ya, f1, fb1, f2, fb2)\nfull_trainable = n_base\n\n# ---- METHOD 2: LoRA (base frozen; only A,B and the output head train) ----\nr, alpha = 4, 8\ns = alpha / r\nLA = rng.normal(0, 1/np.sqrt(r), (r, d_in))\nLB = np.zeros((d_h, r))\nl2, lb2 = W2.copy(), b2.copy()      # output head must adapt to the new label space\nfor _ in range(2000):\n    h, p = fwd(Xb, W1, b1, l2, lb2, (LA, LB, s))\n    n = len(yb)\n    dl = p.copy(); dl[np.arange(n), yb] -= 1; dl /= n\n    gW2 = h.T @ dl; gb2 = dl.sum(0)\n    dh = (dl @ l2.T) * (1 - h**2)\n    gLB = dh.T @ (Xb @ LA.T) * s\n    gLA = s * (dh @ LB).T @ Xb\n    LA -= 0.5*gLA; LB -= 0.5*gLB; l2 -= 0.5*gW2; lb2 -= 0.5*gb2\nlora_B = acc(Xb, yb, W1, b1, l2, lb2, (LA, LB, s))\nlora_A_shared = acc(Xa, ya, W1, b1, l2, lb2, (LA, LB, s))\nlora_trainable = LA.size + LB.size + l2.size + lb2.size\n\n# ---- RETENTION TEST: refit a fresh head on the (possibly damaged) features ----\ndef refit(W1f, b1f, X, y, lora=None, steps=2500):\n    H, Hb = rng.normal(0, 0.4, (d_h, d_out)), np.zeros(d_out)\n    for _ in range(steps):\n        h, p = fwd(X, W1f, b1f, H, Hb, lora)\n        n = len(y); dl = p.copy(); dl[np.arange(n), y] -= 1; dl /= n\n        H -= 0.5*(h.T @ dl); Hb -= 0.5*dl.sum(0)\n    return acc(X, y, W1f, b1f, H, Hb, lora)\n\nret_full = refit(f1, fb1, Xa, ya)\nret_lora = refit(W1, b1, Xa, ya)          # base features are untouched by construction\n\nprint(\"EVALUATION REPORT\")\nprint(f\"{'method':>18} {'target(B)':>11} {'retained(A)':>13} {'trainable':>11} {'% of base':>11}\")\nprint(f\"{'base (no tuning)':>18} {base_B:>11.3f} {base_A:>13.3f} {0:>11} {0.0:>10.1%}\")\nprint(f\"{'full fine-tune':>18} {full_B:>11.3f} {ret_full:>13.3f} {full_trainable:>11} {1.0:>10.1%}\")\nprint(f\"{'LoRA r=4':>18} {lora_B:>11.3f} {ret_lora:>13.3f} {lora_trainable:>11} \"\n      f\"{lora_trainable/n_base:>10.1%}\")\nprint()\nprint(f\"target task: LoRA reached {lora_B:.3f} vs full fine-tuning's {full_B:.3f} \"\n      f\"({lora_B-full_B:+.3f})\")\nprint(f\"retained capability: LoRA {ret_lora:.3f} vs full fine-tuning {ret_full:.3f} \"\n      f\"({ret_lora-ret_full:+.3f})\")\nprint(f\"trainable parameters: LoRA used {lora_trainable/n_base:.1%} of full fine-tuning's\")\nprint()\nprint(\"LoRA preserved the pretrained features EXACTLY -- they were never updated --\")\nprint(f\"so task A recovers to {ret_lora:.3f} by refitting only a head. Full fine-tuning\")\nprint(f\"degraded them to {ret_full:.3f}, which no amount of head-refitting can repair.\")\nprint()\nprint(\"PARAMETER BREAKDOWN -- why 58.7% here but ~0.06% on a real model:\")\nadapter = LA.size + LB.size\nhead = l2.size + lb2.size\nprint(f\"  LoRA adapter (A,B): {adapter:>5}  ({adapter/n_base:>6.1%} of base)\")\nprint(f\"  output head:        {head:>5}  ({head/n_base:>6.1%} of base)\")\nprint(f\"  total trainable:    {adapter+head:>5}  ({(adapter+head)/n_base:>6.1%})\")\nprint()\nprint(\"the ADAPTER is genuinely tiny; the output head dominates because this model\")\nprint(\"has only 581 parameters. On a 7B model the head is a rounding error and the\")\nprint(\"adapter alone sets the cost -- 4.19M params, 0.0626%, as computed in 9.2.2.\")\nprint(\"small-model demonstrations understate LoRA's efficiency for exactly this reason.\")\n"}
+  output={"PRETRAINED BASE MODEL\n  task A (general): 1.000   task B (target): 0.260\n  parameters: 581\n\nEVALUATION REPORT\n            method   target(B)   retained(A)   trainable   % of base\n  base (no tuning)       0.260         1.000           0       0.0%\n    full fine-tune       1.000         0.880         581     100.0%\n          LoRA r=4       1.000         1.000         341      58.7%\n\ntarget task: LoRA reached 1.000 vs full fine-tuning's 1.000 (+0.000)\nretained capability: LoRA 1.000 vs full fine-tuning 0.880 (+0.120)\ntrainable parameters: LoRA used 58.7% of full fine-tuning's\n\nLoRA preserved the pretrained features EXACTLY -- they were never updated --\nso task A recovers to 1.000 by refitting only a head. Full fine-tuning\ndegraded them to 0.880, which no amount of head-refitting can repair.\n\nPARAMETER BREAKDOWN -- why 58.7% here but ~0.06% on a real model:\n  LoRA adapter (A,B):   176  ( 30.3% of base)\n  output head:          165  ( 28.4% of base)\n  total trainable:      341  ( 58.7%)\n\nthe ADAPTER is genuinely tiny; the output head dominates because this model\nhas only 581 parameters. On a 7B model the head is a rounding error and the\nadapter alone sets the cost -- 4.19M params, 0.0626%, as computed in 9.2.2.\nsmall-model demonstrations understate LoRA's efficiency for exactly this reason."}
+/>
+
+<Callout kind="warning" title="58.7% trainable is an artifact of the model's size — read the breakdown">
+  LoRA used 58.7% of the base model's parameters here, which sounds like a poor result against the
+  **0.0626%** computed for a 7B model in lesson 9.2.2. The breakdown explains it: the adapter
+  itself is 176 parameters while the output head is 165, and on a 581-parameter model the head is
+  enormous in relative terms.
+
+  On a real model the head is negligible and the adapter sets the cost. Small-model demonstrations
+  systematically understate LoRA's efficiency, and quoting 58.7% as LoRA's overhead would be
+  straightforwardly misleading.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Both methods reached 1.000 on the target task. What makes LoRA the better result here?"
+  correct={1}
+  options={[
+    { text: "LoRA trained faster, since it updates fewer parameters", why: "Training speed was not measured and is not what the report establishes. On real hardware LoRA's advantage is memory rather than raw speed, and QLoRA is often slower than full fine-tuning per step." },
+    { text: "Retained capability: refitting a fresh head on each adapted backbone recovered task A to 1.000 for LoRA versus 0.880 for full fine-tuning, showing LoRA left the pretrained features bit-identical while full fine-tuning permanently degraded them", why: "Correct -- with target performance tied, retention is the axis that separates them, and it is exactly the axis that would be invisible to a report measuring only the target task." },
+    { text: "LoRA achieved a higher target accuracy", why: "Both reached exactly 1.000 on the target task -- the report shows a difference of +0.000. Target accuracy does not distinguish them at all, which is precisely why the other axes matter." },
+    { text: "LoRA used fewer trainable parameters, which is the primary benefit", why: "It used fewer, but 58.7% here is dominated by the output head and understates the real advantage. More importantly, parameter count is a cost measure rather than a quality result -- the retention gap is the substantive finding." },
+  ]}
+/>
+
+## Month 9 summary
+
+**Week one** established the problem: full fine-tuning adapts well and damages what it does not measure, taking a pretrained task from 1.000 to 0.172 while degrading the underlying features. **Week two** solved it — PEFT freezes the base and trains added parameters, cutting a 7B fine-tune from 112 GB to 14.1 GB, with LoRA's adapter merging back exactly (`1.3e-15`) and NF4 quantization proving `1.76×` more accurate than uniform int4 to reach 3.6 GB under QLoRA. **Week three** covered what to train on: chat templates with assistant-only loss masking, reward models recovering human preference direction to cosine `0.9971` from comparisons alone, RLHF's KL constraint against reward hacking, and DPO eliminating the reward model entirely by exploiting the very shift-invariance that made reward unidentifiable. **Week four** insisted on measuring all of it. This capstone closes the argument: LoRA matched full fine-tuning on the target task (both 1.000) while retaining `1.000` against full fine-tuning's `0.880` — a difference invisible to any report that measures only what it set out to improve.
+
+Month 10 turns from changing a model's weights to changing what it can see.
+
+## Further reading
+
+- Hu et al., *"LoRA"* and Dettmers et al., *"QLoRA"* -- the two papers whose combination
+  this capstone reproduces in miniature.
+- Zhou et al., *"LIMA"* -- for the data-quality half of the argument.

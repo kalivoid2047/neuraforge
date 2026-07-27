@@ -82,8 +82,15 @@ with a capstone that derives backpropagation through a Transformer by hand, veri
 gradient against finite differences to ~1e-10, trains to perplexity 1.43, and generates coherent
 text.
 
-**Months 1 through 8 run end to end with no gaps: 160/240 lessons.** `/learn/[slug]` presents
-each month-to-month transition as a normal "next lesson." Months 9–12 (80 lessons) are not yet
+Month 9 (Fine-Tuning & Alignment → a fine-tune with a real evaluation report) is complete,
+20/20 lessons: transfer learning and catastrophic forgetting, PEFT/LoRA/quantization/QLoRA,
+instruction tuning through reward models, RLHF and DPO, and evaluation covering target, retained,
+and safety capabilities — closing with a capstone that adapts a pretrained model two ways and
+shows LoRA matching full fine-tuning on the target task (both 1.000) while retaining 1.000
+against full fine-tuning's 0.880.
+
+**Months 1 through 9 run end to end with no gaps: 180/240 lessons.** `/learn/[slug]` presents
+each month-to-month transition as a normal "next lesson." Months 10–12 (60 lessons) are not yet
 authored; the navigation flags a genuine month gap explicitly rather than presenting a skip as
 the next lesson in sequence.
 

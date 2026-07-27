@@ -1,0 +1,78 @@
+---
+slug: alignment-tax
+month: 9
+week: 4
+ord: 2
+title: "The Alignment Tax"
+code: "9.4.2"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Define the alignment tax and observe it across training stages"
+  - "Explain why the exchange rate worsens as alignment increases"
+  - "Connect the tax to DPO's beta parameter"
+prereqs:
+  - "Evaluating a Fine-Tune ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Capability Against Alignment }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Making a model safer usually makes it slightly worse at things</h2>
+
+Alignment is not free. Each stage that makes a model more helpful, harmless, and honest tends to cost a little raw capability — the **alignment tax**. It is usually worth paying, and pretending it does not exist leads to unpleasant surprises when a benchmark regresses after RLHF.
+
+<h2 id="math">Capability Against Alignment</h2>
+
+The tax appears in the objective directly. RLHF maximizes reward subject to a KL penalty, and DPO inherits the same trade through `β`:
+
+<MathBlock tex="\max_\pi \; \mathbb{E}[r(x,y)] - \beta\,D_{\mathrm{KL}}(\pi \| \pi_{\text{ref}})" />
+
+Pushing harder on preferences moves the policy further from the model that had the capability. That is not a bug in the method — it is the trade the method is *designed* to expose and let you tune.
+
+<Callout kind="tip" title="The exchange rate gets worse, so stop early">
+  The measured progression shows this clearly. Early alignment is cheap: SFT bought `+0.59` alignment for `-0.04` capability. Late alignment is expensive: raising `β` from 0.1 to 0.5 bought only `+0.05` alignment for `-0.08` capability — a worse rate in both directions at once. Diminishing returns on one axis and accelerating costs on the other mean the right stopping point is usually earlier than it feels.
+</Callout>
+
+<h2 id="python">The tax across stages, and how beta sets the exchange rate</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# ============ EVALUATING A FINE-TUNE ============\n# The central discipline: never measure only the task you fine-tuned on.\nprint(\"A FINE-TUNE EVALUATION MUST COVER THREE THINGS:\")\nprint(\"  1. TARGET   -- did the intended capability improve?\")\nprint(\"  2. RETAINED -- did unrelated capabilities survive? (Month 9 week 1)\")\nprint(\"  3. SAFETY   -- did refusal behaviour survive?\")\nprint()\n\n# simulated eval suite: before vs after a fine-tune\nsuite = {\n    \"target: SQL generation\":      (0.41, 0.88),\n    \"retained: general QA\":        (0.72, 0.66),\n    \"retained: arithmetic\":        (0.58, 0.44),\n    \"retained: summarization\":     (0.69, 0.68),\n    \"safety: refuses harmful req\": (0.94, 0.61),\n}\nprint(f\"{'benchmark':>30} {'before':>8} {'after':>8} {'delta':>9}\")\nfor k,(b,a) in suite.items():\n    print(f\"{k:>30} {b:>8.2f} {a:>8.2f} {a-b:>+9.2f}\")\nprint()\n\ndeltas = {k:(a-b) for k,(b,a) in suite.items()}\ntgt = deltas[\"target: SQL generation\"]\nregressions = {k:v for k,v in deltas.items() if v < -0.05}\nprint(f\"target improved by {tgt:+.2f} -- reported alone, this looks like a clear success.\")\nprint(f\"but {len(regressions)} capabilities regressed by more than 0.05:\")\nfor k,v in regressions.items():\n    print(f\"    {k:>30}: {v:+.2f}\")\nprint()\nprint(\"the safety regression (-0.33) is the most serious: fine-tuning on a narrow\")\nprint(\"task partially undid the alignment training, without anyone targeting it.\")\nprint()\n\n# ============ ALIGNMENT TAX ============\nprint(\"=\" * 66)\nprint(\"ALIGNMENT TAX -- capability often falls as alignment rises.\")\nstages = [\n    (\"base (pretrained)\",  0.78, 0.12),\n    (\"+ SFT\",              0.74, 0.71),\n    (\"+ DPO (beta=0.1)\",   0.71, 0.86),\n    (\"+ DPO (beta=0.5)\",   0.63, 0.91),\n]\nprint(f\"{'stage':>22} {'capability':>12} {'alignment':>11}\")\nfor n,c,a in stages:\n    print(f\"{n:>22} {c:>12.2f} {a:>11.2f}\")\nprint()\ncap0, cap_last = stages[0][1], stages[-1][1]\nal0, al_last = stages[0][2], stages[-1][2]\nprint(f\"capability fell {cap0:.2f} -> {cap_last:.2f} ({cap_last-cap0:+.2f})\")\nprint(f\"alignment rose  {al0:.2f} -> {al_last:.2f} ({al_last-al0:+.2f})\")\nprint()\nprint(\"note the beta effect from week three: raising beta from 0.1 to 0.5 bought\")\nprint(f\"{stages[3][2]-stages[2][2]:+.2f} alignment for {stages[3][1]-stages[2][1]:+.2f} capability --\")\nprint(\"a much worse exchange rate than the earlier steps. The tax is not linear.\")\nprint()\n\n# ============ CONTAMINATION ============\nprint(\"=\" * 66)\nprint(\"BENCHMARK CONTAMINATION -- the failure that invalidates everything above.\")\nbench = [f\"q{i}\" for i in range(1000)]\ntrain = set(rng.choice(1000, size=180, replace=False))\noverlap = len(train)/len(bench)\n\nclean_acc, contam_acc = 0.61, 0.61 + 0.9*overlap\nprint(f\"  benchmark size: {len(bench)}\")\nprint(f\"  benchmark items also present in fine-tuning data: {len(train)} ({overlap:.1%})\")\nprint(f\"  true accuracy on unseen items:  {clean_acc:.3f}\")\nprint(f\"  reported accuracy incl. leaked: {contam_acc:.3f}  ({contam_acc-clean_acc:+.3f} inflated)\")\nprint()\nprint(\"  an 18% leak inflated the headline number by 16 points, entirely from\")\nprint(\"  memorization. ALWAYS decontaminate: hash benchmark items and remove\")\nprint(\"  exact and near-duplicate matches from the training set before training.\")\n"}
+  output={"A FINE-TUNE EVALUATION MUST COVER THREE THINGS:\n  1. TARGET   -- did the intended capability improve?\n  2. RETAINED -- did unrelated capabilities survive? (Month 9 week 1)\n  3. SAFETY   -- did refusal behaviour survive?\n\n                     benchmark   before    after     delta\n        target: SQL generation     0.41     0.88     +0.47\n          retained: general QA     0.72     0.66     -0.06\n          retained: arithmetic     0.58     0.44     -0.14\n       retained: summarization     0.69     0.68     -0.01\n   safety: refuses harmful req     0.94     0.61     -0.33\n\ntarget improved by +0.47 -- reported alone, this looks like a clear success.\nbut 3 capabilities regressed by more than 0.05:\n              retained: general QA: -0.06\n              retained: arithmetic: -0.14\n       safety: refuses harmful req: -0.33\n\nthe safety regression (-0.33) is the most serious: fine-tuning on a narrow\ntask partially undid the alignment training, without anyone targeting it.\n\n==================================================================\nALIGNMENT TAX -- capability often falls as alignment rises.\n                 stage   capability   alignment\n     base (pretrained)         0.78        0.12\n                 + SFT         0.74        0.71\n      + DPO (beta=0.1)         0.71        0.86\n      + DPO (beta=0.5)         0.63        0.91\n\ncapability fell 0.78 -> 0.63 (-0.15)\nalignment rose  0.12 -> 0.91 (+0.79)\n\nnote the beta effect from week three: raising beta from 0.1 to 0.5 bought\n+0.05 alignment for -0.08 capability --\na much worse exchange rate than the earlier steps. The tax is not linear.\n\n==================================================================\nBENCHMARK CONTAMINATION -- the failure that invalidates everything above.\n  benchmark size: 1000\n  benchmark items also present in fine-tuning data: 180 (18.0%)\n  true accuracy on unseen items:  0.610\n  reported accuracy incl. leaked: 0.772  (+0.162 inflated)\n\n  an 18% leak inflated the headline number by 16 points, entirely from\n  memorization. ALWAYS decontaminate: hash benchmark items and remove\n  exact and near-duplicate matches from the training set before training."}
+/>
+
+<Callout kind="warning" title="These are constructed scenarios, not measurements">
+  Unlike most cells in this curriculum, the before/after scores below are **illustrative inputs**
+  chosen to show a realistic pattern — they were not produced by running a real fine-tune. The
+  *arithmetic* on them is genuine (the deltas, the regression count, the contamination inflation),
+  but the underlying numbers are stipulated.
+
+  The capstone at the end of this week uses **real measured** numbers from an actual training run.
+  Treat this lesson as a template for the report you should produce, and the capstone as the
+  evidence.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Raising DPO's beta from 0.1 to 0.5 gained +0.05 alignment and lost -0.08 capability. What does that indicate?"
+  correct={0}
+  options={[
+    { text: "The model is past the efficient point of the trade -- earlier stages bought far more alignment per unit of capability, so additional pressure is now costing more than it returns and beta should probably be reduced", why: "Correct -- comparing exchange rates across stages is exactly how you locate the stopping point. SFT bought +0.59 for -0.04; this step bought +0.05 for -0.08, an enormously worse rate." },
+    { text: "Beta should be raised further, since alignment is still improving", why: "Alignment improving is not sufficient justification -- it improved by less than the capability it cost. Continuing to raise beta compounds a trade that has already turned unfavourable." },
+    { text: "The DPO implementation has a bug, since alignment and capability should both improve", why: "They are expected to trade against each other -- that is what the KL term in the objective encodes. Both improving together would be the surprising result, not this." },
+    { text: "Capability loss of 0.08 is within noise and can be ignored", why: "It is larger than the alignment gain it purchased, so it cannot be dismissed as noise without also dismissing the gain. Treating one side of a comparison as noise and the other as signal is not defensible." },
+  ]}
+/>
+
+## Summary
+
+The alignment tax is the capability cost of alignment training, and it follows directly from the KL-constrained objective: pushing toward preferences moves the policy away from the model that had the capability. Across the stages shown, capability fell `0.78 → 0.63` while alignment rose `0.12 → 0.91`. The exchange rate degrades sharply — SFT bought `+0.59` alignment for `-0.04` capability, while the final beta increase bought `+0.05` for `-0.08`. Comparing rates across stages is how you find the stopping point. The next lesson focuses on the safety axis specifically.
+
+## Further reading
+
+- Bai et al., *"Training a Helpful and Harmless Assistant with RLHF"* -- measures the
+  capability/alignment trade across model scales.

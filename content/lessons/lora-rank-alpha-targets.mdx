@@ -1,0 +1,71 @@
+---
+slug: lora-rank-alpha-targets
+month: 9
+week: 2
+ord: 3
+title: "Choosing LoRA's Rank, Alpha, and Target Modules"
+code: "9.2.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain what rank r controls and how to choose it"
+  - "Describe alpha's role as a scaling factor decoupled from rank"
+  - "Decide which modules to attach adapters to"
+prereqs:
+  - "LoRA: Low-Rank Adaptation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Hyperparameters }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The three knobs that actually matter</h2>
+
+LoRA has few hyperparameters, and only three carry most of the outcome: the **rank** `r`, the scaling factor **alpha**, and **which modules** get adapters. Each has a clear role, and the common mistakes with each are predictable.
+
+<h2 id="math">Three Hyperparameters</h2>
+
+**Rank `r`** sets adapter capacity. It costs `2dr` parameters per adapted matrix, so cost is linear in `r` while capacity saturates — the SVD table in the previous lesson showed exactly this, with everything above the update's true rank adding parameters and no accuracy.
+
+**Alpha** scales the adapter's contribution:
+
+<MathBlock tex="\Delta W = \frac{\alpha}{r}BA" />
+
+Dividing by `r` is what makes alpha meaningful independently of rank: **doubling `r` does not double the update's magnitude**, so you can search `r` without re-tuning the effective learning rate. Conventional practice sets `α = 2r` or `α = r`.
+
+**Target modules** decide where adaptation can happen at all. The original paper adapted only `W_q` and `W_v`; later practice often adapts all four attention projections and sometimes the MLP.
+
+<Callout kind="warning" title="Raising r is usually the wrong first response to underfitting">
+  If a LoRA fine-tune underfits, the instinct is to raise `r`. That is usually not the binding constraint — the previous lesson's SVD table showed accuracy saturating sharply once `r` reaches the update's intrinsic rank, with higher ranks contributing nothing. **Adapting more modules** typically helps more than raising rank on the modules you already have, because it increases where the model can change rather than how much it can change in one place. Check the learning rate and target modules before reaching for `r`.
+</Callout>
+
+<h2 id="python">Memory and merge behaviour across configurations</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# Memory accounting from Month 8: full fine-tuning needs weights + grads + Adam state.\n# PEFT changes WHICH of those scale with the full parameter count.\ndef memory_gb(N, trainable, w_bytes=2, master=4, adam=8, grad_bytes=2):\n    frozen_w = N * w_bytes                      # every weight must still be stored\n    train_w  = trainable * (master + adam)      # fp32 master + Adam m,v -- only for TRAINABLE\n    grads    = trainable * grad_bytes           # gradients only for trainable\n    return (frozen_w + train_w + grads) / 1e9\n\nN = 7e9\nmethods = [\n    (\"full fine-tuning\",  N),\n    (\"LoRA r=64\",         33.55e6),\n    (\"LoRA r=8\",          4.19e6),\n    (\"frozen (head only)\", 32000*4096),\n]\nprint(f\"MEMORY for fine-tuning a {N/1e9:.0f}B model (GB), bf16 weights + fp32 Adam:\")\nprint(f\"{'method':>20} {'trainable':>13} {'% of model':>12} {'memory':>10}\")\nfor name, t in methods:\n    print(f\"{name:>20} {t/1e6:>10.2f}M {t/N:>11.4%} {memory_gb(N,t):>9.1f}G\")\nprint()\nfull = memory_gb(N, N); lora = memory_gb(N, 4.19e6)\nprint(f\"full fine-tuning: {full:.1f} GB -- exceeds an 80GB accelerator\")\nprint(f\"LoRA r=8:         {lora:.1f} GB -- fits comfortably\")\nprint(f\"reduction: {1-lora/full:.1%}\")\nprint()\nprint(\"note WHY: the frozen weights still cost 14 GB, but optimizer state -- which\")\nprint(\"dominated Month 8's accounting at 12 bytes/param -- now applies to 0.06% of them.\")\nprint()\n\n# the PEFT family: what each method adds\nprint(\"PEFT FAMILY -- all freeze the base model, differ in what they add:\")\nfam = [\n    (\"LoRA\",          \"low-rank matrices beside existing weights\", \"mergeable, no inference cost\"),\n    (\"Adapters\",      \"small bottleneck layers inserted in blocks\", \"adds inference latency\"),\n    (\"Prefix tuning\", \"trainable vectors prepended to the KV cache\", \"consumes context length\"),\n    (\"Prompt tuning\", \"trainable embeddings prepended to input\",     \"simplest, weakest\"),\n    (\"BitFit\",        \"trains only the bias terms\",                  \"tiny, surprisingly decent\"),\n]\nfor n, what, note in fam:\n    print(f\"  {n:>14}: {what:<44} ({note})\")\nprint()\nprint(\"LoRA dominates in practice because of one property the others lack:\")\nprint(\"BA can be MERGED into W0 after training (W = W0 + BA), giving a plain\")\nprint(\"weight matrix with zero added inference latency.\")\nprint()\n\n# verify the merge is exact\nrng = np.random.default_rng(0)\nd, r, alpha = 128, 8, 16\nW0 = rng.normal(0, 0.02, (d, d))\nA = rng.normal(0, 0.1, (r, d)); B = rng.normal(0, 0.1, (d, r))\nx = rng.normal(0, 1, (5, d))\n\nunmerged = x @ W0 + (alpha/r) * ((x @ A.T) @ B.T)\nW_merged = W0 + (alpha/r) * (B @ A).T\nmerged   = x @ W_merged\nprint(\"MERGE CHECK -- is (W0 + BA) equivalent to the two-branch form?\")\nprint(f\"  max |unmerged - merged| = {np.abs(unmerged-merged).max():.3e}\")\nprint(f\"  equivalent: {np.allclose(unmerged, merged)}\")\nprint(\"  -> after training you can fold the adapter in and serve a normal model.\")\n"}
+  output={"MEMORY for fine-tuning a 7B model (GB), bf16 weights + fp32 Adam:\n              method     trainable   % of model     memory\n    full fine-tuning    7000.00M   100.0000%     112.0G\n           LoRA r=64      33.55M     0.4793%      14.5G\n            LoRA r=8       4.19M     0.0599%      14.1G\n  frozen (head only)     131.07M     1.8725%      15.8G\n\nfull fine-tuning: 112.0 GB -- exceeds an 80GB accelerator\nLoRA r=8:         14.1 GB -- fits comfortably\nreduction: 87.4%\n\nnote WHY: the frozen weights still cost 14 GB, but optimizer state -- which\ndominated Month 8's accounting at 12 bytes/param -- now applies to 0.06% of them.\n\nPEFT FAMILY -- all freeze the base model, differ in what they add:\n            LoRA: low-rank matrices beside existing weights    (mergeable, no inference cost)\n        Adapters: small bottleneck layers inserted in blocks   (adds inference latency)\n   Prefix tuning: trainable vectors prepended to the KV cache  (consumes context length)\n   Prompt tuning: trainable embeddings prepended to input      (simplest, weakest)\n          BitFit: trains only the bias terms                   (tiny, surprisingly decent)\n\nLoRA dominates in practice because of one property the others lack:\nBA can be MERGED into W0 after training (W = W0 + BA), giving a plain\nweight matrix with zero added inference latency.\n\nMERGE CHECK -- is (W0 + BA) equivalent to the two-branch form?\n  max |unmerged - merged| = 1.332e-15\n  equivalent: True\n  -> after training you can fold the adapter in and serve a normal model."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is the LoRA update scaled by alpha/r rather than by alpha alone?"
+  correct={0}
+  options={[
+    { text: "Dividing by r keeps the update's magnitude roughly constant as r changes, so rank can be tuned without simultaneously changing the effective learning rate -- alpha then controls adapter strength independently of capacity", why: "Correct -- without the 1/r factor, doubling the rank would also roughly double the update magnitude, confounding two hyperparameters that are much easier to reason about separately." },
+    { text: "Dividing by r is required for the matrix dimensions to be compatible", why: "Dimensional compatibility comes from B being d-by-r and A being r-by-d, which makes BA a d-by-d matrix regardless of any scalar. The scaling factor plays no role in shape." },
+    { text: "It compensates for the fact that B is initialized to zero", why: "Zero initialization of B makes the adapter start as a no-op, which is unrelated to the scaling. The alpha/r factor matters throughout training, long after B has become nonzero." },
+    { text: "It prevents the adapter from being merged into the base weights", why: "The adapter merges perfectly well with the scaling included -- the merge check in this week's first lesson folds in exactly this alpha/r factor and matches to 1.3e-15." },
+  ]}
+/>
+
+## Summary
+
+Rank `r` sets adapter capacity at a cost of `2dr` per matrix, with accuracy saturating once `r` reaches the update's intrinsic rank. Alpha scales the contribution, and the `α/r` form is what decouples strength from capacity so rank can be searched without retuning the effective learning rate. Target modules determine where the model is permitted to change at all, and widening them is usually a better response to underfitting than raising rank. The next lesson reduces the frozen weights themselves.
+
+## Further reading
+
+- Hu et al., *"LoRA"* §7.2 -- the ablation over rank and target modules, including the
+  finding that adapting more matrices at low rank beats fewer at high rank.

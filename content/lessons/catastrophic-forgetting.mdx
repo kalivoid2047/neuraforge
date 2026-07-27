@@ -1,0 +1,76 @@
+---
+slug: catastrophic-forgetting
+month: 9
+week: 1
+ord: 4
+title: "Catastrophic Forgetting"
+code: "9.1.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Define catastrophic forgetting and measure it on a real pretrain-then-adapt run"
+  - "Distinguish overwriting the readout from degrading the representation"
+  - "List the standard mitigations and what each one trades away"
+prereqs:
+  - "Full Fine-Tuning: What Actually Changes ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Why Gradient Descent Forgets }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The model has no reason to remember what you stopped asking about</h2>
+
+Gradient descent minimizes the loss it is *given*. During fine-tuning that loss is computed entirely on the new task, so nothing in the objective assigns any value to the old capability. Weights that were essential to task A but unhelpful for task B are free to move, and they do. This is **catastrophic forgetting**, and it is not a bug — it is the optimizer doing exactly what was asked.
+
+<h2 id="math">Why Gradient Descent Forgets</h2>
+
+Pretraining found `θ*` minimizing `L_A`. Fine-tuning minimizes `L_B` alone:
+
+<MathBlock tex="\theta_{\text{final}} = \arg\min_\theta \mathcal{L}_B(\theta) \qquad \text{with no term for } \mathcal{L}_A" />
+
+The mitigations all work by putting `L_A` back into the objective in some form — explicitly (replay the old data), implicitly (penalize moving far from `θ*`), or structurally (make most of `θ` unmovable, which is week two's approach).
+
+<Callout kind="warning" title="Forgetting the readout and degrading the representation are different failures">
+  The experiment below separates them. Both methods lose task A's accuracy, because both retrain the shared output head. But re-fitting a *fresh* head on top of each backbone reveals what actually survived: the frozen backbone recovers task A to **1.000**, while the fully fine-tuned backbone only reaches **0.912**. Full fine-tuning did not just overwrite the readout — it degraded the underlying features, which is the damage that is genuinely hard to undo.
+</Callout>
+
+<h2 id="python">Measuring forgetting, and separating readout loss from representation damage</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# A small 2-layer tanh network standing in for a \"pretrained\" model.\n# We pretrain on TASK A, then fine-tune on TASK B, and watch task A degrade.\nd_in, d_h, d_out = 8, 24, 4\n\ndef init(*s, sc=0.5): return rng.normal(0, sc, s)\nW1, b1 = init(d_in, d_h), np.zeros(d_h)\nW2, b2 = init(d_h, d_out), np.zeros(d_out)\n\ndef softmax(z):\n    e = np.exp(z - z.max(-1, keepdims=True)); return e / e.sum(-1, keepdims=True)\n\ndef fwd(X, W1, b1, W2, b2):\n    h = np.tanh(X @ W1 + b1)\n    return h, softmax(h @ W2 + b2)\n\ndef loss_grads(X, y, W1, b1, W2, b2):\n    n = len(y)\n    h, p = fwd(X, W1, b1, W2, b2)\n    loss = -np.mean(np.log(p[np.arange(n), y] + 1e-12))\n    d = p.copy(); d[np.arange(n), y] -= 1; d /= n\n    gW2 = h.T @ d; gb2 = d.sum(0)\n    dh = (d @ W2.T) * (1 - h**2)\n    gW1 = X.T @ dh; gb1 = dh.sum(0)\n    return loss, gW1, gb1, gW2, gb2\n\ndef accuracy(X, y, W1, b1, W2, b2):\n    _, p = fwd(X, W1, b1, W2, b2)\n    return float((p.argmax(1) == y).mean())\n\n# two DIFFERENT tasks over the same input space\ndef make_task(seed, n=400):\n    r = np.random.default_rng(seed)\n    X = r.normal(0, 1, (n, d_in))\n    proj = r.normal(0, 1, (d_in, d_out))\n    y = (X @ proj).argmax(1)\n    return X, y\n\nXa, ya = make_task(1)     # task A -- the \"pretraining\" task\nXb, yb = make_task(2)     # task B -- the \"fine-tuning\" task\n\ndef train(X, y, W1, b1, W2, b2, steps, lr, freeze_W1=False):\n    for _ in range(steps):\n        _, gW1, gb1, gW2, gb2 = loss_grads(X, y, W1, b1, W2, b2)\n        if not freeze_W1:\n            W1 -= lr*gW1; b1 -= lr*gb1\n        W2 -= lr*gW2; b2 -= lr*gb2\n    return W1, b1, W2, b2\n\n# ---- PRETRAIN on task A ----\nW1, b1, W2, b2 = train(Xa, ya, W1, b1, W2, b2, 3000, 0.5)\naccA0 = accuracy(Xa, ya, W1, b1, W2, b2)\naccB0 = accuracy(Xb, yb, W1, b1, W2, b2)\nprint(f\"after PRETRAINING on task A:\")\nprint(f\"  task A accuracy: {accA0:.3f}   task B accuracy: {accB0:.3f} (never seen)\")\nprint()\n\n# ---- FULL fine-tune on task B: every parameter updated ----\nf1, fb1, f2, fb2 = W1.copy(), b1.copy(), W2.copy(), b2.copy()\nprint(\"FULL FINE-TUNING on task B (all parameters trainable):\")\nprint(f\"{'step':>6} {'task B acc':>12} {'task A acc':>12}\")\nfor step in [0, 100, 300, 1000, 3000]:\n    if step:\n        f1, fb1, f2, fb2 = train(Xb, yb, f1, fb1, f2, fb2, step - prev, 0.5)\n    prev = step\n    print(f\"{step:>6} {accuracy(Xb,yb,f1,fb1,f2,fb2):>12.3f} {accuracy(Xa,ya,f1,fb1,f2,fb2):>12.3f}\")\nfull_B = accuracy(Xb,yb,f1,fb1,f2,fb2); full_A = accuracy(Xa,ya,f1,fb1,f2,fb2)\nprint(f\"  -> task A fell from {accA0:.3f} to {full_A:.3f}  (CATASTROPHIC FORGETTING)\")\nprint()\n\n# ---- FROZEN-BACKBONE fine-tune: only the head (W2) is trainable ----\ng1, gb1_, g2, gb2_ = W1.copy(), b1.copy(), W2.copy(), b2.copy()\nprint(\"FROZEN BACKBONE (W1 frozen, only the output head trains):\")\nprint(f\"{'step':>6} {'task B acc':>12} {'task A acc':>12}\")\nprev = 0\nfor step in [0, 100, 300, 1000, 3000]:\n    if step:\n        g1, gb1_, g2, gb2_ = train(Xb, yb, g1, gb1_, g2, gb2_, step - prev, 0.5, freeze_W1=True)\n    prev = step\n    print(f\"{step:>6} {accuracy(Xb,yb,g1,gb1_,g2,gb2_):>12.3f} {accuracy(Xa,ya,g1,gb1_,g2,gb2_):>12.3f}\")\nfrz_B = accuracy(Xb,yb,g1,gb1_,g2,gb2_); frz_A = accuracy(Xa,ya,g1,gb1_,g2,gb2_)\nprint()\n\nprint(\"SUMMARY\")\nprint(f\"{'method':>20} {'task B (new)':>14} {'task A (old)':>14}\")\nprint(f\"{'pretrained only':>20} {accB0:>14.3f} {accA0:>14.3f}\")\nprint(f\"{'full fine-tune':>20} {full_B:>14.3f} {full_A:>14.3f}\")\nprint(f\"{'frozen backbone':>20} {frz_B:>14.3f} {frz_A:>14.3f}\")\nprint()\nn_full = W1.size + b1.size + W2.size + b2.size\nn_frozen = W2.size + b2.size\nprint(f\"trainable parameters: full={n_full}  frozen-backbone={n_frozen} \"\n      f\"({n_frozen/n_full:.1%})\")\n\nprint()\nprint(\"=\" * 64)\nprint(\"BUT: the head is SHARED between tasks, so retraining it destroys task A's\")\nprint(\"readout in BOTH cases. The real question is whether the FEATURES survived.\")\nprint(\"Test: freeze the backbone, fit a FRESH head on task A, measure recovery.\")\nprint()\n\ndef refit_head(W1f, b1f, X, y, steps=3000, lr=0.5):\n    \"\"\"Backbone frozen; train a brand-new output head from scratch.\"\"\"\n    H2, Hb2 = rng.normal(0, 0.5, (d_h, d_out)), np.zeros(d_out)\n    for _ in range(steps):\n        _, _, _, gW2, gb2 = loss_grads(X, y, W1f, b1f, H2, Hb2)\n        H2 -= lr*gW2; Hb2 -= lr*gb2\n    return accuracy(X, y, W1f, b1f, H2, Hb2)\n\nrec_full = refit_head(f1, fb1, Xa, ya)      # backbone after FULL fine-tuning\nrec_froz = refit_head(g1, gb1_, Xa, ya)     # backbone after FROZEN fine-tuning\n\nprint(f\"{'backbone came from':>28} {'task A recovered':>18}\")\nprint(f\"{'full fine-tune on B':>28} {rec_full:>18.3f}\")\nprint(f\"{'frozen backbone (W1 intact)':>28} {rec_froz:>18.3f}\")\nprint()\nprint(f\"the frozen backbone recovers task A to {rec_froz:.3f} by re-fitting only the head,\")\nprint(f\"while the fully fine-tuned backbone manages {rec_full:.3f}.\")\nprint(\"full fine-tuning did not merely overwrite the readout -- it degraded the\")\nprint(\"REPRESENTATION itself, which is what makes the forgetting hard to undo.\")\n"}
+  output={"after PRETRAINING on task A:\n  task A accuracy: 1.000   task B accuracy: 0.152 (never seen)\n\nFULL FINE-TUNING on task B (all parameters trainable):\n  step   task B acc   task A acc\n     0        0.152        1.000\n   100        1.000        0.172\n   300        1.000        0.168\n  1000        1.000        0.170\n  3000        1.000        0.172\n  -> task A fell from 1.000 to 0.172  (CATASTROPHIC FORGETTING)\n\nFROZEN BACKBONE (W1 frozen, only the output head trains):\n  step   task B acc   task A acc\n     0        0.152        1.000\n   100        0.800        0.158\n   300        0.838        0.152\n  1000        0.873        0.158\n  3000        0.873        0.158\n\nSUMMARY\n              method   task B (new)   task A (old)\n     pretrained only          0.152          1.000\n      full fine-tune          1.000          0.172\n     frozen backbone          0.873          0.158\n\ntrainable parameters: full=316  frozen-backbone=100 (31.6%)\n\n================================================================\nBUT: the head is SHARED between tasks, so retraining it destroys task A's\nreadout in BOTH cases. The real question is whether the FEATURES survived.\nTest: freeze the backbone, fit a FRESH head on task A, measure recovery.\n\n          backbone came from   task A recovered\n         full fine-tune on B              0.912\n frozen backbone (W1 intact)              1.000\n\nthe frozen backbone recovers task A to 1.000 by re-fitting only the head,\nwhile the fully fine-tuned backbone manages 0.912.\nfull fine-tuning did not merely overwrite the readout -- it degraded the\nREPRESENTATION itself, which is what makes the forgetting hard to undo."}
+/>
+
+<Callout kind="tip" title="The standard mitigations">
+  **Replay / rehearsal** — mix pretraining data into the fine-tuning set so `L_A` stays in the
+  objective. Effective, but requires access to the pretraining distribution. **Regularization**
+  (EWC, L2-to-init) — add a penalty for moving far from `θ*`, weighted by how important each
+  weight was. **Lower learning rates and fewer epochs** — the cheapest mitigation and often
+  enough. **Freezing or adapters** — make most parameters structurally unable to move, which is
+  what LoRA does and why week two matters for more than memory.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Both methods dropped task A accuracy to roughly 0.16. Why is the frozen-backbone result nonetheless much better?"
+  correct={1}
+  options={[
+    { text: "It is not better -- both lost the same accuracy, so the methods are equivalent", why: "The raw accuracy is similar but the recovery test separates them decisively: 1.000 versus 0.912 when a fresh head is fitted. Equivalent-looking metrics can hide very different underlying damage." },
+    { text: "Both lost task A's readout because the output head is shared and was retrained, but re-fitting a fresh head shows the frozen backbone's FEATURES are fully intact (1.000 recovery) while the fine-tuned backbone's are degraded (0.912) -- so the frozen model's loss is cheap to reverse and the fine-tuned model's is not", why: "Correct -- this is the distinction that matters in practice: losing a task-specific head costs one cheap re-fit, while losing the representation means the pretraining investment itself has been partially destroyed." },
+    { text: "The frozen backbone trained faster, so less forgetting occurred per step", why: "Both were trained for the same 3000 steps. Training duration is not what separates them -- what separates them is which parameters were permitted to move." },
+    { text: "Freezing prevents the output head from changing", why: "Freezing applied to the backbone W1 only; the output head trained in both cases, which is exactly why both lost task A accuracy initially. That shared head is the reason the raw numbers look alike." },
+  ]}
+/>
+
+## Summary
+
+Catastrophic forgetting happens because the fine-tuning objective contains no term for the old capability, so weights essential to it are free to move. Measured here, full fine-tuning took task A from 1.000 to 0.172. The recovery test separates two distinct failures: both methods lose the shared readout, but only full fine-tuning degrades the representation — 0.912 recovery versus the frozen backbone's 1.000. Mitigations all amount to reintroducing the old objective, whether by replay, regularization, or structurally freezing weights. The next lesson takes that last route.
+
+## Further reading
+
+- Kirkpatrick et al., *"Overcoming catastrophic forgetting in neural networks"* -- introduces
+  Elastic Weight Consolidation and the importance-weighted penalty described above.

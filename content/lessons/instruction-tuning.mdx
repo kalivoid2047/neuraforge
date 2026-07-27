@@ -1,0 +1,73 @@
+---
+slug: instruction-tuning
+month: 9
+week: 3
+ord: 1
+title: "Instruction Tuning and Chat Templates"
+code: "9.3.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Render a conversation into a chat template and build its loss mask"
+  - "Explain why prompt tokens are excluded from the loss"
+  - "Identify template mismatch as a silent serving failure"
+prereqs:
+  - "QLoRA: Quantized Base, Full-Precision Adapters ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Format and Mask }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: from a text continuer to something that answers</h2>
+
+A pretrained model continues text. Asked "What is the capital of France?" it might reasonably produce three more exam questions — that is a perfectly good continuation. Turning it into something that *answers* requires **supervised fine-tuning** on demonstrations, and two details of how that data is prepared do most of the work: the template and the loss mask.
+
+<h2 id="math">Format and Mask</h2>
+
+Every turn is wrapped in special tokens marking the speaker, so the model can learn where its own output begins:
+
+```
+<|im_start|>user\n{{question}}<|im_end|>\n<|im_start|>assistant\n{{answer}}<|im_end|>
+```
+
+Then the loss is masked to the **assistant tokens only**:
+
+<MathBlock tex="\mathcal{L} = -\sum_{t \in \text{assistant}} \log P(w_t \mid w_{<t})" />
+
+The prompt is still fed through the model as context — it is simply not something the model is graded on producing.
+
+<Callout kind="warning" title="Template mismatch produces a model that looks broken">
+  A model trained with ChatML tokens and served with `### User:` markup has never seen the format it is being given. It falls back to base-model behaviour — rambling, ignoring instructions, continuing the prompt — and the failure looks like a bad fine-tune rather than a formatting bug. This is why `tokenizer_config.json` ships a `chat_template`: so serving code reproduces the exact training format instead of guessing at it.
+</Callout>
+
+<h2 id="python">Rendering a conversation, building the loss mask, and the mismatch failure</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# A base model continues text. An instruction-tuned model answers. The difference\n# is a training format that marks WHO is speaking and WHAT should be learned from.\nexample = {\n    \"system\": \"You are a concise assistant.\",\n    \"user\": \"What is the capital of France?\",\n    \"assistant\": \"The capital of France is Paris. It has been the seat of government since the tenth century and is the largest city in the country.\",\n}\n\n# ChatML-style template\ntmpl = (\"<|im_start|>system\\n{system}<|im_end|>\\n\"\n        \"<|im_start|>user\\n{user}<|im_end|>\\n\"\n        \"<|im_start|>assistant\\n{assistant}<|im_end|>\")\nrendered = tmpl.format(**example)\nprint(\"RENDERED TRAINING EXAMPLE:\")\nprint(rendered)\nprint()\n\n# Tokenize (word-level stand-in) and build the LOSS MASK.\n# Only assistant tokens contribute to the loss -- this is the crucial detail.\ndef tokenize(s):\n    out = []\n    for part in s.replace(\"<|im_start|>\", \" <|im_start|> \").replace(\"<|im_end|>\", \" <|im_end|> \").split():\n        out.append(part)\n    return out\n\ntoks = tokenize(rendered)\nmask = np.zeros(len(toks), dtype=bool)\nin_assistant = False\nfor i, t in enumerate(toks):\n    if t == \"<|im_start|>\" and i+1 < len(toks) and toks[i+1] == \"assistant\":\n        in_assistant = True\n        continue\n    if t == \"<|im_end|>\":\n        in_assistant = False\n        continue\n    if in_assistant and t != \"assistant\":\n        mask[i] = True\n\nprint(f\"{'idx':>4} {'token':>16} {'in loss?':>10}\")\nfor i, (t, m) in enumerate(zip(toks, mask)):\n    print(f\"{i:>4} {t:>16} {'YES' if m else '.':>10}\")\nprint()\nprint(f\"tokens total: {len(toks)}   supervised: {mask.sum()}  ({mask.sum()/len(toks):.1%})\")\nprint()\nprint(\"WHY MASK THE PROMPT: training on prompt tokens teaches the model to GENERATE\")\nprint(\"user questions, which is not the task. Masking makes the objective 'given this\")\nprint(\"conversation so far, produce the assistant turn' -- which is the task.\")\nprint()\n\n# what happens if you DON'T mask: measure the fraction of gradient signal misdirected\nunmasked_frac = 1.0 - mask.sum()/len(toks)\nprint(f\"without masking, {unmasked_frac:.1%} of the loss would come from tokens the\")\nprint(\"model should never need to produce at inference time.\")\nprint()\n\n# Template mismatch is a real and silent failure mode\nprint(\"TEMPLATE MISMATCH -- train and inference must agree exactly:\")\ntrain_fmt = \"<|im_start|>user\\n{q}<|im_end|>\\n<|im_start|>assistant\\n\"\ninfer_bad = \"### User:\\n{q}\\n### Assistant:\\n\"\nprint(f\"  trained with:  {train_fmt.format(q='...')!r}\")\nprint(f\"  served with:   {infer_bad.format(q='...')!r}\")\nprint(\"  the model has never seen the second form; it will behave like a base model.\")\nprint(\"  this is why tokenizer_config.json ships a chat_template -- so serving code\")\nprint(\"  reproduces the exact training format rather than guessing.\")\n"}
+  output={"RENDERED TRAINING EXAMPLE:\n<|im_start|>system\nYou are a concise assistant.<|im_end|>\n<|im_start|>user\nWhat is the capital of France?<|im_end|>\n<|im_start|>assistant\nThe capital of France is Paris. It has been the seat of government since the tenth century and is the largest city in the country.<|im_end|>\n\n idx            token   in loss?\n   0     <|im_start|>          .\n   1           system          .\n   2              You          .\n   3              are          .\n   4                a          .\n   5          concise          .\n   6       assistant.          .\n   7       <|im_end|>          .\n   8     <|im_start|>          .\n   9             user          .\n  10             What          .\n  11               is          .\n  12              the          .\n  13          capital          .\n  14               of          .\n  15          France?          .\n  16       <|im_end|>          .\n  17     <|im_start|>          .\n  18        assistant          .\n  19              The        YES\n  20          capital        YES\n  21               of        YES\n  22           France        YES\n  23               is        YES\n  24           Paris.        YES\n  25               It        YES\n  26              has        YES\n  27             been        YES\n  28              the        YES\n  29             seat        YES\n  30               of        YES\n  31       government        YES\n  32            since        YES\n  33              the        YES\n  34            tenth        YES\n  35          century        YES\n  36              and        YES\n  37               is        YES\n  38              the        YES\n  39          largest        YES\n  40             city        YES\n  41               in        YES\n  42              the        YES\n  43         country.        YES\n  44       <|im_end|>          .\n\ntokens total: 45   supervised: 25  (55.6%)\n\nWHY MASK THE PROMPT: training on prompt tokens teaches the model to GENERATE\nuser questions, which is not the task. Masking makes the objective 'given this\nconversation so far, produce the assistant turn' -- which is the task.\n\nwithout masking, 44.4% of the loss would come from tokens the\nmodel should never need to produce at inference time.\n\nTEMPLATE MISMATCH -- train and inference must agree exactly:\n  trained with:  '<|im_start|>user\\n...<|im_end|>\\n<|im_start|>assistant\\n'\n  served with:   '### User:\\n...\\n### Assistant:\\n'\n  the model has never seen the second form; it will behave like a base model.\n  this is why tokenizer_config.json ships a chat_template -- so serving code\n  reproduces the exact training format rather than guessing."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is the loss masked to assistant tokens rather than computed over the whole sequence?"
+  correct={2}
+  options={[
+    { text: "Computing loss over the whole sequence would be too slow", why: "The cost difference is negligible -- the forward pass processes every token either way, and masking only changes which positions contribute to the sum. Speed is not the motivation." },
+    { text: "Prompt tokens are not in the model's vocabulary", why: "Prompt tokens come from exactly the same vocabulary as everything else. They are ordinary tokens; the question is only whether the model is graded on predicting them." },
+    { text: "Training on prompt tokens teaches the model to generate user questions, which is not the task -- masking makes the objective specifically 'given the conversation so far, produce the assistant turn', which is what the model will actually be asked to do at inference", why: "Correct -- and the measurement shows the stakes: without masking, 44.4% of the loss signal in this example would come from tokens the model never needs to produce." },
+    { text: "Masking prevents the model from memorizing the training prompts", why: "Memorization is a separate concern addressed by data curation and regularization. Masking is about aligning the training objective with the inference task, not about preventing recall." },
+  ]}
+/>
+
+## Summary
+
+Instruction tuning turns a continuer into a responder using demonstrations wrapped in a chat template, with the loss masked to assistant tokens only. In the worked example 25 of 45 tokens (55.6%) were supervised; without masking, 44.4% of the gradient signal would have come from tokens the model never needs to produce. Train-time and serve-time templates must match exactly, which is why the template ships with the tokenizer. The next lesson moves from demonstrations to preferences.
+
+## Further reading
+
+- Ouyang et al., *"Training language models to follow instructions with human feedback"* --
+  the InstructGPT paper, whose SFT stage is exactly this.

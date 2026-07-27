@@ -1,0 +1,93 @@
+---
+slug: huggingface-ecosystem
+month: 9
+week: 1
+ord: 2
+title: "The Pretrained Model Ecosystem"
+code: "9.1.2"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Describe what files a checkpoint contains and what each one does"
+  - "Explain why safetensors replaced pickle-based checkpoint formats"
+  - "Reconstruct a published model's parameter count from its config alone"
+prereqs:
+  - "Why Fine-Tune Instead of Training From Scratch ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: A Checkpoint Is Files }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A model you download is not magic — it is a config and a tensor dump</h2>
+
+"Loading a pretrained model" sounds like it involves something special. It does not. A
+checkpoint is a directory containing a JSON file describing the architecture, a binary file of
+weights, and the tokenizer's vocabulary. Everything in it maps onto structures already built in
+Months 6–8. Knowing that makes the ecosystem far less opaque — and makes it obvious why certain
+things (like checkpoint file format) are security-relevant.
+
+<h2 id="math">A checkpoint is files</h2>
+
+```python
+# reference only -- transformers isn't available in this browser sandbox
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-2-7b-hf")
+tok   = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
+
+# `Auto*` reads config.json, sees "architectures": ["LlamaForCausalLM"],
+# and instantiates that class -- then loads the tensors into it by name.
+```
+
+The `Auto` classes do exactly one clever thing: read `config.json`, look up which model class the
+architecture string names, construct it, and populate its parameters from the weight file by
+matching names. There is no inference of structure — the config states it.
+
+<Callout kind="warning" title="A .bin checkpoint can execute code when you load it">
+  PyTorch's original `.bin` format is Python **pickle**, and unpickling is not a passive
+  operation — it can construct arbitrary objects and run arbitrary code. Downloading a `.bin`
+  from an untrusted account and loading it is equivalent to running that account's script on your
+  machine.
+
+  **safetensors** exists to eliminate this: it is a flat header-plus-tensors format with no
+  execution path at all. Prefer it for anything you did not produce yourself, and treat a
+  repository that offers *only* `.bin` as a reason for caution.
+</Callout>
+
+<h2 id="python">Checkpoint anatomy, sizes, and reconstructing a real model's parameter count</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# What a checkpoint actually contains, and what each file is for.\nfiles = [\n    (\"config.json\",            \"architecture: n_layers, d_model, n_heads, vocab_size\", \"~1 KB\"),\n    (\"model.safetensors\",      \"the weights themselves (the large file)\",              \"13.5 GB\"),\n    (\"tokenizer.json\",         \"the trained merge rules / vocabulary (Month 6)\",       \"~2 MB\"),\n    (\"tokenizer_config.json\",  \"special tokens, chat template\",                        \"~5 KB\"),\n    (\"generation_config.json\", \"default decoding params (Month 8 week 3)\",             \"~1 KB\"),\n]\nprint(\"A PRETRAINED CHECKPOINT IS JUST FILES:\")\nfor name, purpose, size in files:\n    print(f\"  {name:>24} {size:>9}  {purpose}\")\nprint()\n\n# safetensors vs pickle: why the format matters\nprint(\"WHY safetensors REPLACED pytorch .bin:\")\nprint(\"  .bin is Python pickle -- deserializing it can EXECUTE ARBITRARY CODE.\")\nprint(\"  Downloading a .bin from an untrusted source is running their code.\")\nprint(\"  safetensors is a flat tensor format with no code path at all.\")\nprint(\"  -> always prefer safetensors for third-party checkpoints.\")\nprint()\n\n# checkpoint size follows directly from parameter count and dtype\ndef ckpt_gb(n_params, bytes_per):\n    return n_params * bytes_per / 1e9\n\nprint(\"CHECKPOINT SIZE = parameters x bytes/parameter:\")\nprint(f\"{'model':>8} {'params':>9} {'fp32':>9} {'bf16':>9} {'int8':>9} {'int4':>9}\")\nfor name, N in [(\"1.5B\", 1.5e9), (\"7B\", 7e9), (\"70B\", 70e9)]:\n    print(f\"{name:>8} {N/1e9:>8.1f}B \"\n          f\"{ckpt_gb(N,4):>8.1f}G {ckpt_gb(N,2):>8.1f}G \"\n          f\"{ckpt_gb(N,1):>8.1f}G {ckpt_gb(N,0.5):>8.1f}G\")\nprint()\nprint(\"this is why quantization (week two) matters for DISTRIBUTION as well as memory:\")\nprint(f\"  a 70B model is {ckpt_gb(70e9,2):.0f} GB in bf16 but {ckpt_gb(70e9,0.5):.0f} GB in int4.\")\nprint()\n\n# the config fully determines the parameter count -- verify against a known model shape\ndef llama_params(n_layers, d_model, d_ff, vocab, n_kv_heads, n_heads):\n    d_head = d_model // n_heads\n    attn = d_model*d_model + 2*(d_model * n_kv_heads*d_head) + d_model*d_model  # Q,K,V,O (GQA)\n    mlp  = 3 * d_model * d_ff        # gate, up, down (SwiGLU uses three matrices)\n    norms = 2 * d_model\n    return vocab*d_model + n_layers*(attn+mlp+norms) + d_model + vocab*d_model\n\n# Llama-2-7B published config\nn = llama_params(n_layers=32, d_model=4096, d_ff=11008, vocab=32000,\n                 n_kv_heads=32, n_heads=32)\nprint(\"reconstructing Llama-2-7B's parameter count from its config alone:\")\nprint(f\"  computed: {n/1e9:.3f}B     published: ~6.74B\")\nprint(f\"  agreement: {abs(n-6.74e9)/6.74e9:.1%} -- the config really does determine the model\")"}
+  output={"A PRETRAINED CHECKPOINT IS JUST FILES:\n               config.json     ~1 KB  architecture: n_layers, d_model, n_heads, vocab_size\n         model.safetensors   13.5 GB  the weights themselves (the large file)\n            tokenizer.json     ~2 MB  the trained merge rules / vocabulary (Month 6)\n     tokenizer_config.json     ~5 KB  special tokens, chat template\n    generation_config.json     ~1 KB  default decoding params (Month 8 week 3)\n\nWHY safetensors REPLACED pytorch .bin:\n  .bin is Python pickle -- deserializing it can EXECUTE ARBITRARY CODE.\n  Downloading a .bin from an untrusted source is running their code.\n  safetensors is a flat tensor format with no code path at all.\n  -> always prefer safetensors for third-party checkpoints.\n\nCHECKPOINT SIZE = parameters x bytes/parameter:\n   model    params      fp32      bf16      int8      int4\n    1.5B      1.5B      6.0G      3.0G      1.5G      0.8G\n      7B      7.0B     28.0G     14.0G      7.0G      3.5G\n     70B     70.0B    280.0G    140.0G     70.0G     35.0G\n\nthis is why quantization (week two) matters for DISTRIBUTION as well as memory:\n  a 70B model is 140 GB in bf16 but 35 GB in int4.\n\nreconstructing Llama-2-7B's parameter count from its config alone:\n  computed: 6.738B     published: ~6.74B\n  agreement: 0.0% -- the config really does determine the model"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The reconstruction computed 6.738B parameters for Llama-2-7B from its config, matching the published figure. What does that demonstrate?"
+  correct={1}
+  options={[
+    { text: "That the weight file is unnecessary, since the config alone reproduces the model", why: "The config determines the model's SHAPE -- how many parameters and how they are arranged. The weight file supplies their learned VALUES, which is all of the actual capability and cannot be derived from a config." },
+    { text: "That a checkpoint has no hidden structure -- config.json fully specifies the architecture, and the parameter count follows arithmetically from n_layers, d_model, d_ff, and vocab_size using the same formulas built in Month 8", why: "Correct -- the point is demystification: loading a pretrained model instantiates a known architecture from stated hyperparameters, then fills in tensors by name. Nothing about the structure is inferred or opaque." },
+    { text: "That Llama-2-7B uses exactly the architecture built in Month 8's capstone", why: "It is close but not identical -- Llama uses SwiGLU (three MLP matrices rather than two) and RMSNorm, which is why the formula above has a 3 * d_model * d_ff term. The reconstruction accounts for those differences explicitly." },
+    { text: "That parameter count is the only thing determining model quality", why: "Parameter count says nothing about quality -- two models with identical counts can differ enormously depending on their training data and procedure. The reconstruction is about architectural transparency, not capability." },
+  ]}
+/>
+
+## Summary
+
+A checkpoint is a config describing the architecture, a weight file, and a tokenizer — every part
+mapping onto structures from Months 6–8. The `Auto` classes simply read the architecture name
+from `config.json` and populate the matching class by tensor name. The config fully determines
+the parameter count, verified by reconstructing Llama-2-7B's 6.738B from its published
+hyperparameters. Checkpoint format is a genuine security boundary: `.bin` is pickle and executes
+code on load, while safetensors cannot. The next lesson examines what full fine-tuning actually
+changes in those weights.
+
+## Further reading
+
+- HuggingFace, *"Safetensors"* documentation — the format specification and the pickle
+  vulnerability it addresses.
