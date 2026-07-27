@@ -1,0 +1,86 @@
+---
+slug: distributional-hypothesis
+month: 6
+week: 2
+ord: 2
+title: "The Distributional Hypothesis and Co-occurrence Matrices"
+code: "6.2.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "State the distributional hypothesis and explain why it makes learning embeddings possible"
+  - "Build a word-context co-occurrence matrix from a corpus"
+  - "Show that words with similar contexts get similar co-occurrence rows, with no meaning labels used"
+prereqs:
+  - "From One-Hot to Dense Vectors ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Co-occurrence as a Representation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">"You shall know a word by the company it keeps"</h2>
+
+Last lesson showed dense embeddings *could* encode similarity — but where would the numbers come
+from? Hand-labeling every word's meaning is hopeless at scale. The **distributional
+hypothesis** provides the answer: **words appearing in similar contexts tend to have similar
+meanings.** "cat" and "dog" both appear near "pet," "fur," "vet," and "feed"; "democracy"
+appears near entirely different words. That observable statistical pattern — which requires no
+human labeling whatsoever, just raw text — is enough to learn meaningful embeddings.
+
+<h2 id="math">Co-occurrence as a representation</h2>
+
+For a **context window** of size `w`, build a matrix `C` where:
+
+<MathBlock tex="C_{ij} = \text{number of times word } j \text{ appears within } w \text{ positions of word } i" />
+
+Each *row* of `C` is a vector describing which words tend to surround word `i`. Under the
+distributional hypothesis, words with similar meanings should have similar rows — and that
+similarity is directly measurable with the cosine similarity from Month 1, no labels required.
+
+<Callout kind="tip" title="Co-occurrence rows are already embeddings -- just very large, sparse ones">
+  A co-occurrence row is a genuine distributional representation of a word, and it works. But
+  it's as long as the vocabulary (the same size problem as one-hot) and mostly zeros. Word2Vec
+  and GloVe (the next lessons) both produce *dense, compact* versions of exactly this same
+  distributional information — they differ in how they get there, not in the underlying signal
+  they're extracting.
+</Callout>
+
+<h2 id="python">Building a co-occurrence matrix, with no meaning labels anywhere</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport re\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\n# a small corpus where 'cat' and 'dog' genuinely share contexts, and 'democracy' doesn't\ncorpus = [\n    \"the cat is a lovely pet with soft fur\",\n    \"the dog is a friendly pet with thick fur\",\n    \"i feed my cat every morning\",\n    \"i walk my dog every morning\",\n    \"the vet examined the cat carefully\",\n    \"the vet treated the dog carefully\",\n    \"democracy requires free elections and public debate\",\n    \"free elections protect democracy from corruption\",\n]\n\ntokenized = [tokenize(doc) for doc in corpus]\nvocab = sorted(set(w for doc in tokenized for w in doc))\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\n# build the co-occurrence matrix with a symmetric window of size 2\nwindow = 2\nC = np.zeros((V, V))\nfor doc in tokenized:\n    for pos, word in enumerate(doc):\n        i = word_to_index[word]\n        start = max(0, pos - window)\n        end = min(len(doc), pos + window + 1)\n        for ctx_pos in range(start, end):\n            if ctx_pos != pos:\n                C[i, word_to_index[doc[ctx_pos]]] += 1\n\nprint(f\"vocabulary size: {V}, co-occurrence matrix shape: {C.shape}\")\nprint()\n\ndef cosine_similarity(a, b):\n    denom = np.linalg.norm(a) * np.linalg.norm(b)\n    return float(a @ b / denom) if denom > 0 else 0.0\n\n# compare co-occurrence ROWS -- no labels, no supervision, purely from context statistics\ndef row(word):\n    return C[word_to_index[word]]\n\ncomparisons = [(\"cat\", \"dog\"), (\"cat\", \"democracy\"), (\"dog\", \"democracy\"), (\"cat\", \"pet\")]\nprint(\"cosine similarity between co-occurrence rows:\")\nfor a, b in comparisons:\n    print(f\"  sim({a:>9}, {b:>9}) = {cosine_similarity(row(a), row(b)):.4f}\")\n\nprint()\nprint(\"'cat' and 'dog' score high purely because they appear in near-identical contexts.\")\nprint(\"Nothing in this code was ever told what a cat or a dog IS -- only which words\")\nprint(\"happened to surround them in raw text. That's the distributional hypothesis at work.\")"}
+  output={"vocabulary size: 32, co-occurrence matrix shape: (32, 32)\n\ncosine similarity between co-occurrence rows:\n  sim(      cat,       dog) = 0.8333\n  sim(      cat, democracy) = 0.0000\n  sim(      dog, democracy) = 0.0000\n  sim(      cat,       pet) = 0.1667\n\n'cat' and 'dog' score high purely because they appear in near-identical contexts.\nNothing in this code was ever told what a cat or a dog IS -- only which words\nhappened to surround them in raw text. That's the distributional hypothesis at work."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is the distributional hypothesis so important for making word embeddings practical at scale?"
+  correct={0}
+  options={[
+    { text: "It means embeddings can be learned from raw, unlabeled text alone -- since 'appears in similar contexts' is a purely statistical property observable in any corpus, no human ever has to label what any word means", why: "Correct — this is exactly why it's foundational: hand-labeling the meaning of every word in a large vocabulary would be impossible, but counting which words appear near which other words scales to billions of words of ordinary text automatically." },
+    { text: "It guarantees that every word gets a completely unique embedding vector", why: "Uniqueness isn't what the hypothesis provides (and isn't especially desirable -- synonyms landing NEAR each other is the goal) -- its value is that meaning-related structure can be extracted from unlabeled text statistics." },
+    { text: "It only applies to English, which is why most embeddings are English-only", why: "The distributional hypothesis is language-independent -- words appearing in similar contexts tend to have similar meanings in any language. Embeddings are trained for many languages using exactly this principle." },
+    { text: "It proves that co-occurrence matrices are always small and efficient to store", why: "Co-occurrence matrices are actually LARGE and sparse (vocabulary-by-vocabulary) -- that's precisely a limitation the lesson notes, motivating the dense methods (Word2Vec, GloVe) covered next. The hypothesis says nothing about storage efficiency." },
+  ]}
+/>
+
+## Summary
+
+The distributional hypothesis — words in similar contexts have similar meanings — is what makes
+learning embeddings from raw text possible at all, since context co-occurrence is a purely
+statistical property requiring no human labeling. A co-occurrence matrix makes this concrete:
+each row describes which words surround a given word, and rows for similar words score high on
+cosine similarity, verified directly above with "cat" and "dog" scoring far higher than either
+does against "democracy" — with nothing in the code ever told what those words mean. The next
+lesson covers Word2Vec, which learns *dense* versions of this same distributional signal.
+
+## Further reading
+
+- Firth, *"A Synopsis of Linguistic Theory"* (1957) — the origin of the famous phrasing, "you
+  shall know a word by the company it keeps."
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 6 — co-occurrence matrices, PPMI
+  weighting, and their relationship to modern embeddings.

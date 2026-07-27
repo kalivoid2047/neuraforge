@@ -1,0 +1,105 @@
+---
+slug: evaluating-embeddings
+month: 6
+week: 4
+ord: 2
+title: "Evaluating Embeddings: Analogies and Similarity"
+code: "6.4.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Implement the vector-arithmetic analogy test and explain what it claims about embedding geometry"
+  - "Evaluate embeddings against human similarity judgments using rank correlation"
+  - "Distinguish intrinsic from extrinsic evaluation, and state the limits of analogy benchmarks"
+prereqs:
+  - "Building the Skip-gram Training Loop ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Intrinsic Tests }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">How do you tell whether embeddings are any good?</h2>
+
+Training loss going down tells you the model fit its objective — but the objective (predicting
+context words) was only ever a scaffold. What matters is whether the resulting *geometry*
+captures meaning. **Intrinsic evaluation** probes that geometry directly, via analogies and
+similarity judgments. **Extrinsic evaluation** instead plugs the embeddings into a real
+downstream task and measures whether they help. Both matter, and they don't always agree.
+
+<h2 id="math">Two intrinsic tests</h2>
+
+**Analogy** — the famous `king - man + woman ≈ queen` test. The claim is that *relationships*
+correspond to consistent vector offsets: if the "male→female" relationship is the same
+direction throughout the embedding space, then adding that offset to `king` should land near
+`queen`:
+
+<MathBlock tex="\hat{v} = v_{\text{king}} - v_{\text{man}} + v_{\text{woman}} \qquad \text{answer} = \arg\max_{w \notin \{\text{king,man,woman}\}} \cos(v_w, \hat{v})" />
+
+**Similarity correlation** — take word pairs humans have rated for similarity, compute cosine
+similarity for each pair, and measure the **Spearman rank correlation** between the model's
+ordering and the human ordering. Rank correlation (rather than raw correlation) is used because
+only the relative ordering needs to agree, not the absolute scale.
+
+<Callout kind="tip" title="Analogy benchmarks are weaker evidence than they look">
+  The standard analogy protocol *excludes the three input words* from the candidate answers —
+  without that exclusion, the nearest vector is very often just `king` itself. Later analyses
+  showed a substantial fraction of analogy "successes" are partly explained by that exclusion
+  rule plus general word frequency effects, rather than by genuinely learned relational
+  structure. Analogies are a useful sanity check, not proof that an embedding space encodes
+  relationships cleanly — which is exactly why extrinsic evaluation on a real task matters.
+</Callout>
+
+<h2 id="python">Both evaluations, on hand-constructed embeddings</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# hand-built embeddings with deliberate structure:\n# dimension 0 = royalty, dimension 1 = gender (negative=male, positive=female), dimension 2 = animal\nembeddings = {\n    \"king\":   np.array([0.9, -0.8, 0.0]),\n    \"queen\":  np.array([0.9,  0.8, 0.0]),\n    \"man\":    np.array([0.1, -0.8, 0.0]),\n    \"woman\":  np.array([0.1,  0.8, 0.0]),\n    \"cat\":    np.array([0.0, -0.1, 0.9]),\n    \"dog\":    np.array([0.0,  0.0, 0.9]),\n    \"palace\": np.array([0.7,  0.0, 0.0]),\n}\n\ndef cos(a, b):\n    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))\n\ndef solve_analogy(a, b, c, embeddings):\n    \"\"\"a is to b as c is to ? -- e.g. solve_analogy('man','king','woman') -> 'queen'\"\"\"\n    target = embeddings[b] - embeddings[a] + embeddings[c]\n    excluded = {a, b, c}   # the standard protocol EXCLUDES the three input words\n    candidates = {w: cos(v, target) for w, v in embeddings.items() if w not in excluded}\n    best = max(candidates, key=candidates.get)\n    return best, candidates\n\nbest, scores = solve_analogy(\"man\", \"king\", \"woman\", embeddings)\nprint(\"analogy: man is to king as woman is to ___\")\nfor w, s in sorted(scores.items(), key=lambda x: -x[1]):\n    print(f\"  {w:>7}: {s:+.4f}\")\nprint(f\"  -> answer: '{best}'\")\nprint()\n\n# show what happens WITHOUT the exclusion rule\ntarget = embeddings[\"king\"] - embeddings[\"man\"] + embeddings[\"woman\"]\nall_scores = {w: cos(v, target) for w, v in embeddings.items()}\nranked = sorted(all_scores.items(), key=lambda x: -x[1])\nprint(\"same analogy WITHOUT excluding the input words -- top 3:\")\nfor w, s in ranked[:3]:\n    print(f\"  {w:>7}: {s:+.4f}\")\nprint(\"  (note how the input words themselves score highly -- hence the exclusion rule)\")\nprint()\n\n# similarity correlation against 'human' judgments\nhuman_ratings = [\n    (\"king\", \"queen\", 8.5), (\"cat\", \"dog\", 8.0), (\"king\", \"palace\", 6.0),\n    (\"man\", \"woman\", 7.5), (\"cat\", \"king\", 1.0), (\"dog\", \"palace\", 0.5),\n]\nmodel_sims = [cos(embeddings[a], embeddings[b]) for a, b, _ in human_ratings]\nhuman_scores = [r for _, _, r in human_ratings]\n\ndef spearman(x, y):\n    def rank(vals):\n        order = sorted(range(len(vals)), key=lambda i: vals[i])\n        ranks = [0.0] * len(vals)\n        for pos, idx in enumerate(order):\n            ranks[idx] = float(pos)\n        return ranks\n    rx, ry = rank(x), rank(y)\n    mx, my = np.mean(rx), np.mean(ry)\n    num = sum((a-mx)*(b-my) for a, b in zip(rx, ry))\n    den = np.sqrt(sum((a-mx)**2 for a in rx) * sum((b-my)**2 for b in ry))\n    return float(num/den) if den else 0.0\n\nprint(f\"{'pair':>18} {'human':>7} {'model cos':>11}\")\nfor (a, b, r), m in zip(human_ratings, model_sims):\n    print(f\"{a + '/' + b:>18} {r:>7.1f} {m:>11.4f}\")\nprint()\nprint(f\"Spearman rank correlation with human judgments: {spearman(model_sims, human_scores):.4f}\")\nprint(\"(1.0 = the model ranks every pair in exactly the same order humans did)\")"}
+  output={"analogy: man is to king as woman is to ___\n    queen: +1.0000\n   palace: +0.7474\n      dog: +0.0000\n      cat: -0.0734\n  -> answer: 'queen'\n\nsame analogy WITHOUT excluding the input words -- top 3:\n    queen: +1.0000\n    woman: +0.7519\n   palace: +0.7474\n  (note how the input words themselves score highly -- hence the exclusion rule)\n\n              pair   human   model cos\n        king/queen     8.5      0.1172\n           cat/dog     8.0      0.9939\n       king/palace     6.0      0.7474\n         man/woman     7.5     -0.9692\n          cat/king     1.0      0.0734\n        dog/palace     0.5      0.0000\n\nSpearman rank correlation with human judgments: 0.4286\n(1.0 = the model ranks every pair in exactly the same order humans did)"}
+/>
+
+<Callout kind="warning" title="Look closely: this embedding ACED the analogy and still failed on similarity">
+  The analogy returned `queen` with a perfect `+1.0000` score — yet the very same embeddings
+  scored only `0.4286` Spearman correlation against human similarity judgments. Look at the
+  `man/woman` row: humans rate them highly similar (7.5), while the model gives `-0.9692` —
+  almost perfectly *opposite*. That's because these hand-built vectors encode gender as a single
+  signed dimension, which is exactly what makes the analogy arithmetic work so cleanly, and
+  exactly what makes `man` and `woman` point in opposing directions.
+
+  This isn't a contrived failure — it's the concrete demonstration of the caveat above. Analogy
+  performance and similarity performance measure genuinely different properties, and a space can
+  be excellent at one while poor at the other. Never conclude "the embeddings are good" from a
+  single intrinsic benchmark.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the standard analogy evaluation protocol EXCLUDE the three input words from the candidate answers?"
+  correct={1}
+  options={[
+    { text: "Because those three words have no embeddings assigned to them", why: "They very much do have embeddings -- their vectors are precisely what the analogy arithmetic is computed FROM. The exclusion is about the answer candidates, not about missing vectors." },
+    { text: "Because the computed target vector often lands closest to one of the input words themselves (especially the 'b' term), so without exclusion the test would frequently just return an input back rather than a genuine analogy completion -- which is also why analogy scores overstate how cleanly relational structure is encoded", why: "Correct — this is exactly what the code demonstrates by showing the unexcluded ranking, and it's the reason later analyses argued analogy benchmarks are weaker evidence than they initially appeared." },
+    { text: "To make the computation faster by checking fewer candidates", why: "Excluding three words from a large vocabulary is a negligible speed difference -- the exclusion exists to prevent trivially-correct-looking answers, not for performance." },
+    { text: "Because analogies only work when the vocabulary has fewer than 10 words", why: "Analogy tests are run over full vocabularies of tens of thousands of words -- there's no small-vocabulary restriction, and the exclusion rule applies at any vocabulary size." },
+  ]}
+/>
+
+## Summary
+
+Intrinsic evaluation probes embedding geometry directly: analogies test whether relationships
+correspond to consistent vector offsets, and Spearman rank correlation against human similarity
+judgments tests whether the model orders word pairs the way people do — both implemented and
+verified above, where the same embedding space scored a *perfect* analogy result while managing
+only `0.4286` similarity correlation, a concrete demonstration that these two benchmarks measure
+genuinely different properties. The analogy protocol's exclusion of input words is likewise not
+a detail but a significant caveat, as shown by how highly the inputs score without it. Extrinsic
+evaluation on a real downstream task remains the stronger evidence. The next lesson visualizes
+embedding structure directly by projecting it down to two dimensions.
+
+## Further reading
+
+- Levy, Goldberg & Dagan, *"Improving Distributional Similarity with Lessons Learned from Word
+  Embeddings"* — a careful analysis of embedding evaluation, including the analogy task's
+  limitations.

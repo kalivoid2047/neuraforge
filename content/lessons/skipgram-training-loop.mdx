@@ -1,0 +1,84 @@
+---
+slug: skipgram-training-loop
+month: 6
+week: 4
+ord: 1
+title: "Building the Skip-gram Training Loop"
+code: "6.4.1"
+minutes: 90
+difficulty: 5
+objectives:
+  - "Derive the gradients for skip-gram with negative sampling by hand"
+  - "Implement the full training loop and watch the loss decrease"
+  - "Verify the analytical gradients numerically, the same discipline used since Month 3"
+prereqs:
+  - "The Vanishing Gradient Problem ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Gradients }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: actually training the embeddings</h2>
+
+Week two covered *what* skip-gram with negative sampling optimizes; this week builds it for
+real. Two embedding matrices are learned simultaneously: `W_in` (the "center word" embeddings —
+the ones ultimately kept and used) and `W_out` (the "context word" embeddings, typically
+discarded after training). Every training step nudges a real (center, context) pair's vectors
+toward each other while pushing a few randomly-sampled negatives apart.
+
+<h2 id="math">The gradients</h2>
+
+For center word `c`, true context `o`, and negatives `n_i`, with `σ` the sigmoid, the loss to
+*minimize* is the negative of week two's objective:
+
+<MathBlock tex="L = -\log\sigma(v_o \cdot v_c) - \sum_{i=1}^{k}\log\sigma(-v_{n_i}\cdot v_c)" />
+
+Differentiating (via the chain rule, and using `σ'(x) = σ(x)(1-σ(x))`) gives strikingly clean
+results — for each output vector, and for the input vector:
+
+<MathBlock tex="\frac{\partial L}{\partial v_o} = (\sigma(v_o\cdot v_c) - 1)\,v_c \qquad \frac{\partial L}{\partial v_{n_i}} = \sigma(v_{n_i}\cdot v_c)\,v_c" />
+
+<MathBlock tex="\frac{\partial L}{\partial v_c} = (\sigma(v_o\cdot v_c)-1)\,v_o + \sum_{i=1}^{k}\sigma(v_{n_i}\cdot v_c)\,v_{n_i}" />
+
+Notice the shared shape: every gradient is `(σ(dot) - label) × the_other_vector`, with
+`label = 1` for the true pair and `0` for negatives — exactly the same `(prediction - target)`
+form as the cross-entropy gradient from Month 5, because this *is* binary cross-entropy over
+real-vs-fake pairs.
+
+<h2 id="python">The full training loop, with gradients verified numerically</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\ndef sigmoid(x):\n    return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))\n\nV, D, k = 12, 8, 3   # vocabulary size, embedding dim, number of negatives\nW_in = rng.normal(0, 0.3, (V, D))\nW_out = rng.normal(0, 0.3, (V, D))\n\ndef loss_for_pair(W_in, W_out, center, context, negatives):\n    v_c = W_in[center]\n    positive_term = -np.log(sigmoid(W_out[context] @ v_c) + 1e-12)\n    negative_term = -sum(np.log(sigmoid(-W_out[n] @ v_c) + 1e-12) for n in negatives)\n    return positive_term + negative_term\n\ndef gradients_for_pair(W_in, W_out, center, context, negatives):\n    v_c = W_in[center]\n    grad_W_in = np.zeros_like(W_in)\n    grad_W_out = np.zeros_like(W_out)\n\n    # true pair: label = 1\n    score = sigmoid(W_out[context] @ v_c)\n    grad_W_out[context] += (score - 1.0) * v_c\n    grad_W_in[center]  += (score - 1.0) * W_out[context]\n\n    # negatives: label = 0\n    for n in negatives:\n        score_n = sigmoid(W_out[n] @ v_c)\n        grad_W_out[n]     += score_n * v_c\n        grad_W_in[center] += score_n * W_out[n]\n\n    return grad_W_in, grad_W_out\n\n# --- verify the analytical gradients numerically (the Month 3 discipline) ---\ncenter, context, negatives = 2, 5, [7, 9, 11]\ngrad_in, grad_out = gradients_for_pair(W_in, W_out, center, context, negatives)\n\ndef numerical_grad_W_in(i, j, h=1e-6):\n    W_plus = W_in.copy(); W_plus[i, j] += h\n    return (loss_for_pair(W_plus, W_out, center, context, negatives)\n            - loss_for_pair(W_in, W_out, center, context, negatives)) / h\n\nnum_grad = np.array([numerical_grad_W_in(center, j) for j in range(D)])\nprint(\"gradient check on W_in[center]:\")\nprint(\"  analytical:\", grad_in[center].round(5))\nprint(\"  numerical: \", num_grad.round(5))\nprint(\"  match:\", np.allclose(grad_in[center], num_grad, atol=1e-4))\nprint()\n\n# --- the training loop ---\ntraining_pairs = [(0,1),(1,0),(1,2),(2,1),(0,2),(2,0),(3,4),(4,3),(4,5),(5,4),(3,5),(5,3)]\nlr = 0.02\nrecent_losses = []\nfor epoch in range(1, 301):\n    total_loss = 0.0\n    for center, context in training_pairs:\n        negatives = [n for n in rng.integers(0, V, size=k) if n != context][:k]\n        total_loss += loss_for_pair(W_in, W_out, center, context, negatives)\n        g_in, g_out = gradients_for_pair(W_in, W_out, center, context, negatives)\n        W_in -= lr * g_in\n        W_out -= lr * g_out\n    recent_losses.append(total_loss / len(training_pairs))\n    if epoch % 60 == 0 or epoch == 1:\n        smoothed = np.mean(recent_losses[-20:])   # 20-epoch moving average: freshly sampled\n        print(f\"epoch {epoch:3d}: smoothed loss = {smoothed:.4f}\")   # negatives make each epoch noisy\n\nprint()\ndef cos(a, b):\n    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))\nprint(\"cosine similarity in the learned W_in embeddings:\")\nprint(f\"  words 0 & 1 (trained as co-occurring):     {cos(W_in[0], W_in[1]):+.4f}\")\nprint(f\"  words 3 & 4 (trained as co-occurring):     {cos(W_in[3], W_in[4]):+.4f}\")\nprint(f\"  words 0 & 4 (never trained together):      {cos(W_in[0], W_in[4]):+.4f}\")"}
+  output={"gradient check on W_in[center]:\n  analytical: [-0.16615 -0.03221  0.43779 -0.16974  0.17981 -0.1019  -0.44726 -0.63041]\n  numerical:  [-0.16615 -0.03221  0.43779 -0.16974  0.17981 -0.1019  -0.44726 -0.63041]\n  match: True\n\nepoch   1: smoothed loss = 2.5939\nepoch  60: smoothed loss = 1.7767\nepoch 120: smoothed loss = 1.0393\nepoch 180: smoothed loss = 0.8545\nepoch 240: smoothed loss = 0.6818\nepoch 300: smoothed loss = 0.7160\n\ncosine similarity in the learned W_in embeddings:\n  words 0 & 1 (trained as co-occurring):     +0.6314\n  words 3 & 4 (trained as co-occurring):     +0.6544\n  words 0 & 4 (never trained together):      +0.3643"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Every gradient in skip-gram with negative sampling has the form (sigmoid(dot) - label) x other_vector. Why is that the same shape as the cross-entropy gradient from Month 5?"
+  correct={0}
+  options={[
+    { text: "Because negative sampling IS binary cross-entropy -- it trains a binary classifier distinguishing real (center, context) pairs (label 1) from sampled fake ones (label 0), so its gradient naturally takes the same (prediction - target) form as any cross-entropy objective", why: "Correct — this is exactly why the shapes match: the negative sampling objective is literally a sum of binary cross-entropy terms over real-vs-fake pair classification, so its gradient inherits cross-entropy's characteristic (prediction - target) structure." },
+    { text: "It's a coincidence arising from the specific choice of embedding dimension", why: "The (prediction - target) form holds for any embedding dimension -- it comes from the structure of the loss function (binary cross-entropy) and the sigmoid's derivative, not from any dimensional choice." },
+    { text: "Because both use the tanh activation function internally", why: "Neither uses tanh -- skip-gram with negative sampling uses the SIGMOID, and it's sigmoid's derivative combined with the log-loss that produces this clean gradient form." },
+    { text: "Because the embeddings are initialized from a normal distribution", why: "Initialization affects the starting VALUES of the embeddings but has no bearing on the algebraic FORM of the gradient, which follows entirely from the loss function's definition." },
+  ]}
+/>
+
+## Summary
+
+Skip-gram with negative sampling learns two embedding matrices simultaneously, with every
+gradient taking the clean `(σ(dot) - label) × other_vector` form — the same
+`(prediction - target)` shape as any cross-entropy gradient, because the objective *is* binary
+cross-entropy over real-vs-fake pairs. Verified above numerically against the analytical
+derivation, then trained end to end, with the resulting embeddings showing higher cosine
+similarity between words trained as co-occurring than between words never seen together. The
+next lesson covers how to properly evaluate embeddings like these.
+
+## Further reading
+
+- Rong, *"word2vec Parameter Learning Explained"* — a detailed, step-by-step derivation of
+  exactly the gradients implemented above.

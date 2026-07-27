@@ -1,0 +1,95 @@
+---
+slug: glove-embeddings
+month: 6
+week: 2
+ord: 5
+title: "GloVe: Embeddings from Global Co-occurrence Ratios"
+code: "6.2.5"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain GloVe's central insight: co-occurrence RATIOS carry the meaningful signal"
+  - "Compute co-occurrence ratios and show they distinguish related from unrelated probe words"
+  - "Contrast GloVe's global matrix factorization with Word2Vec's local sliding-window training"
+prereqs:
+  - "Negative Sampling: Making Word2Vec Trainable at Scale ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Ratios, Not Raw Probabilities }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: the same destination, a different road</h2>
+
+Word2Vec learns embeddings by sliding a window across text, one local context at a time, never
+looking at the corpus as a whole. **GloVe** (Global Vectors) takes the opposite approach: build
+the full co-occurrence matrix first (exactly the one from lesson 6.2.2), then directly factorize
+it into dense vectors. Its key insight is that the meaningful signal lives not in raw
+co-occurrence probabilities, but in their **ratios**.
+
+<h2 id="math">Ratios, not raw probabilities</h2>
+
+Consider the words `ice` and `steam`, and probe words `k`. Looking at the ratio:
+
+<MathBlock tex="\frac{P(k \mid \text{ice})}{P(k \mid \text{steam})}" />
+
+- For `k = solid` (related to ice, not steam), the ratio is **large**
+- For `k = gas` (related to steam, not ice), the ratio is **small**
+- For `k = water` (related to both) or `k = fashion` (related to neither), the ratio is **near 1**
+
+The ratio cleanly separates "discriminating" probe words from non-discriminating ones, in a way
+raw probabilities alone don't — `P(water|ice)` and `P(fashion|ice)` might both be unremarkable
+numbers individually, but their *ratios* against steam behave very differently. GloVe's training
+objective is built to make embedding dot products reproduce the log of these co-occurrence
+counts:
+
+<MathBlock tex="w_i \cdot \tilde{w}_j + b_i + \tilde{b}_j \approx \log C_{ij}" />
+
+<Callout kind="tip" title="Two routes to remarkably similar destinations">
+  Word2Vec (local windows, predictive) and GloVe (global matrix, count-based) come from
+  genuinely different traditions and were argued about extensively when GloVe was published. In
+  practice the embeddings they produce perform comparably on most tasks — and later theoretical
+  work showed skip-gram with negative sampling is *implicitly* factorizing a (shifted PMI)
+  co-occurrence matrix, meaning the two approaches are far more closely related than they first
+  appear.
+</Callout>
+
+<h2 id="python">Co-occurrence ratios, computed on a purpose-built corpus</h2>
+
+<CodeCell
+  code={"import numpy as np\nimport re\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\n# a corpus deliberately constructed so 'ice' associates with 'solid', 'steam' with 'gas',\n# both with 'water', and neither with 'fashion'\ncorpus = [\n    \"ice is solid and cold\", \"ice is solid frozen water\", \"solid ice forms slowly\",\n    \"ice becomes water when warm\", \"cold solid ice melts\",\n    \"steam is gas and hot\", \"steam is hot gas rising\", \"gas steam escapes quickly\",\n    \"steam becomes water when cool\", \"hot gas steam expands\",\n    \"fashion shows feature new designers\", \"designers present fashion collections\",\n]\n\ntokenized = [tokenize(d) for d in corpus]\nvocab = sorted(set(w for doc in tokenized for w in doc))\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\nwindow = 3\nC = np.zeros((V, V))\nfor doc in tokenized:\n    for pos, word in enumerate(doc):\n        i = word_to_index[word]\n        for ctx_pos in range(max(0, pos-window), min(len(doc), pos+window+1)):\n            if ctx_pos != pos:\n                C[i, word_to_index[doc[ctx_pos]]] += 1\n\ndef p_given(k, w):\n    \"\"\"P(k | w) = co-occurrence count of (w,k) divided by w's total co-occurrence count.\"\"\"\n    i, j = word_to_index[w], word_to_index[k]\n    total = C[i].sum()\n    return C[i, j] / total if total > 0 else 0.0\n\nprobes = [\"solid\", \"gas\", \"water\", \"fashion\"]\nprint(f\"{'probe k':>10} {'P(k|ice)':>10} {'P(k|steam)':>12} {'ratio':>10}\")\nfor k in probes:\n    p_ice = p_given(k, \"ice\")\n    p_steam = p_given(k, \"steam\")\n    if p_steam > 0:\n        ratio_str = f\"{p_ice/p_steam:.3f}\"\n    elif p_ice > 0:\n        ratio_str = \"inf\"\n    else:\n        ratio_str = \"0/0\"\n    print(f\"{k:>10} {p_ice:>10.4f} {p_steam:>12.4f} {ratio_str:>10}\")\n\nprint()\nprint(\"'solid' -> ratio is large (or infinite): strongly associated with ice, not steam\")\nprint(\"'gas'   -> ratio is 0: strongly associated with steam, not ice\")\nprint(\"'water' -> ratio near 1: associated with BOTH, so it doesn't discriminate\")\nprint(\"'fashion' -> associated with NEITHER, so it also doesn't discriminate\")\nprint()\nprint(\"That contrast -- large/small vs. near-1 -- is exactly the signal GloVe's objective\")\nprint(\"is built to capture, and it lives in the RATIOS, not in either probability alone.\")"}
+  output={"   probe k   P(k|ice)   P(k|steam)      ratio\n     solid     0.2667       0.0000        inf\n       gas     0.0000       0.2667      0.000\n     water     0.0667       0.0667      1.000\n   fashion     0.0000       0.0000        0/0\n\n'solid' -> ratio is large (or infinite): strongly associated with ice, not steam\n'gas'   -> ratio is 0: strongly associated with steam, not ice\n'water' -> ratio near 1: associated with BOTH, so it doesn't discriminate\n'fashion' -> associated with NEITHER, so it also doesn't discriminate\n\nThat contrast -- large/small vs. near-1 -- is exactly the signal GloVe's objective\nis built to capture, and it lives in the RATIOS, not in either probability alone."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does GloVe focus on co-occurrence RATIOS like P(k|ice)/P(k|steam), rather than on the raw probabilities P(k|ice) individually?"
+  correct={2}
+  options={[
+    { text: "Ratios are computationally cheaper to calculate than raw probabilities", why: "A ratio requires computing BOTH probabilities and then dividing -- it's strictly more computation, not less. The motivation is about what the ratio reveals, not efficiency." },
+    { text: "Raw probabilities cannot be computed from a co-occurrence matrix at all", why: "Raw conditional probabilities are computed directly from the co-occurrence matrix (that's exactly what p_given does in the code above) -- they're perfectly computable, they just carry less discriminating signal on their own." },
+    { text: "The ratio cleanly separates probe words that DISCRIMINATE between two target words from those that don't -- words related to just one target give a very large or very small ratio, while words related to both (or neither) give a ratio near 1, a distinction that individual raw probabilities blur together", why: "Correct — this is exactly GloVe's central insight, verified above: 'water' and 'fashion' are entirely different kinds of words, but what makes both non-discriminating for the ice/steam distinction is precisely that their RATIO lands near 1 (or is undefined), while 'solid' and 'gas' give extreme ratios." },
+    { text: "Ratios eliminate the need for a co-occurrence matrix entirely", why: "The ratios are computed FROM the co-occurrence matrix -- GloVe very much still requires building that matrix first, which is exactly what distinguishes it from Word2Vec's local sliding-window approach." },
+  ]}
+/>
+
+## Week two summary
+
+This week built word embeddings from the ground up: one-hot vectors encode identity but no
+similarity whatsoever; the distributional hypothesis makes similarity learnable from raw
+unlabeled text via co-occurrence statistics; Word2Vec's skip-gram and CBOW learn dense
+embeddings through a throwaway prediction task; negative sampling makes that training tractable
+over large vocabularies; and GloVe reaches comparable embeddings from the opposite direction, by
+factorizing the global co-occurrence matrix with an objective built around co-occurrence ratios.
+Week three turns to language modeling itself — using representations like these to predict what
+word comes next.
+
+## Further reading
+
+- Pennington, Socher & Manning, *"GloVe: Global Vectors for Word Representation"* — the
+  original paper, whose motivating example is exactly the ice/steam ratio table computed above.
+- Levy & Goldberg, *"Neural Word Embedding as Implicit Matrix Factorization"* — the paper
+  showing skip-gram with negative sampling implicitly factorizes a shifted PMI matrix.

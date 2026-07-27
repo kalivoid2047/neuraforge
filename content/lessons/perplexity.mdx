@@ -1,0 +1,85 @@
+---
+slug: perplexity
+month: 6
+week: 3
+ord: 3
+title: "Perplexity: The Standard Language Model Metric"
+code: "6.3.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Define perplexity and connect it directly to cross-entropy from Month 5"
+  - "Interpret perplexity as an 'effective branching factor' -- how many choices the model is torn between"
+  - "Compute perplexity for several models and verify the theoretical bound for a uniform model"
+prereqs:
+  - "N-gram Language Models and Smoothing ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Perplexity Is Exponentiated Cross-Entropy }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">How surprised is the model, on average?</h2>
+
+Comparing language models needs a single number. Raw sequence probability won't do — longer
+sequences always have lower probability, so it can't compare across different test sets.
+**Perplexity** normalizes for length and exponentiates, producing a number with a genuinely
+intuitive reading: **the effective number of equally-likely choices the model felt it was
+choosing between at each token.** A perplexity of 10 means the model was, on average, about as
+uncertain as if picking uniformly among 10 options. Lower is better.
+
+<h2 id="math">Perplexity is exponentiated cross-entropy</h2>
+
+For a test sequence of `N` tokens:
+
+<MathBlock tex="\text{PPL} = \exp\left(-\frac{1}{N}\sum_{i=1}^{N} \log P(w_i \mid \text{context})\right)" />
+
+The expression inside `exp` is exactly the **average negative log-likelihood** — which Month 5,
+week two established *is* cross-entropy loss. So perplexity is simply `exp(cross-entropy)`:
+the same quantity models are already trained to minimize, re-expressed on a more interpretable
+scale.
+
+<Callout kind="tip" title="The uniform-model bound gives perplexity its intuitive meaning">
+  A model that assigns *uniform* probability `1/V` to every one of `V` vocabulary words has
+  perplexity exactly `V` — it's genuinely choosing uniformly among all `V` options, with no
+  information at all. That's the ceiling any useful model must beat. Verified numerically below,
+  and it's why "perplexity 30" on a 50,000-word vocabulary means the model has narrowed 50,000
+  possibilities down to an effective ~30, a substantial amount of learned structure.
+</Callout>
+
+<h2 id="python">Perplexity across models of varying quality, with the uniform bound verified</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef perplexity(token_probabilities):\n    \"\"\"token_probabilities: the model's assigned probability for each ACTUAL next token.\"\"\"\n    log_probs = np.log(np.array(token_probabilities))\n    avg_neg_log_likelihood = -np.mean(log_probs)   # this IS cross-entropy (Month 5, week 2)\n    return float(np.exp(avg_neg_log_likelihood)), float(avg_neg_log_likelihood)\n\n# verify the uniform-model bound: a model assigning 1/V to every token has perplexity exactly V\nprint(\"uniform-model bound check:\")\nfor V in [10, 100, 50_000]:\n    uniform_probs = [1.0 / V] * 20   # 20 tokens, each assigned probability 1/V\n    ppl, ce = perplexity(uniform_probs)\n    print(f\"  vocabulary size V={V:>6}: perplexity = {ppl:.4f}  (cross-entropy = {ce:.4f} nats)\")\nprint(\"  -> perplexity equals V exactly, confirming the 'effective number of choices' reading.\")\nprint()\n\n# compare models of differing quality on the same 8-token test sequence\nmodels = {\n    \"excellent (confident and right)\": [0.60, 0.55, 0.70, 0.50, 0.65, 0.58, 0.62, 0.55],\n    \"decent\":                          [0.25, 0.20, 0.30, 0.22, 0.28, 0.24, 0.26, 0.21],\n    \"weak\":                            [0.08, 0.05, 0.10, 0.06, 0.09, 0.07, 0.08, 0.06],\n    \"uniform over 50 words (baseline)\": [1/50] * 8,\n}\n\nprint(f\"{'model':>34} {'cross-entropy':>14} {'perplexity':>12}\")\nfor name, probs in models.items():\n    ppl, ce = perplexity(probs)\n    print(f\"{name:>34} {ce:>14.4f} {ppl:>12.2f}\")\n\nprint()\nprint(\"lower perplexity = the model was less surprised by the actual text = better model.\")\nprint(\"the 'excellent' model behaves as if choosing among ~2 options per token;\")\nprint(\"the uniform baseline is stuck at exactly 50, its full vocabulary.\")"}
+  output={"uniform-model bound check:\n  vocabulary size V=    10: perplexity = 10.0000  (cross-entropy = 2.3026 nats)\n  vocabulary size V=   100: perplexity = 100.0000  (cross-entropy = 4.6052 nats)\n  vocabulary size V= 50000: perplexity = 50000.0000  (cross-entropy = 10.8198 nats)\n  -> perplexity equals V exactly, confirming the 'effective number of choices' reading.\n\n                             model  cross-entropy   perplexity\n   excellent (confident and right)         0.5262         1.69\n                            decent         1.4152         4.12\n                              weak         2.6305        13.88\n  uniform over 50 words (baseline)         3.9120        50.00\n\nlower perplexity = the model was less surprised by the actual text = better model.\nthe 'excellent' model behaves as if choosing among ~2 options per token;\nthe uniform baseline is stuck at exactly 50, its full vocabulary."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A language model reports perplexity 30 on a 50,000-token vocabulary. What does that number actually mean?"
+  correct={1}
+  options={[
+    { text: "The model gets 30% of its next-token predictions exactly correct", why: "Perplexity isn't an accuracy percentage -- it's the exponentiated average negative log-likelihood, measuring how much probability mass the model assigned to the actual tokens, not a count of exactly-right predictions." },
+    { text: "On average, the model was about as uncertain as if it were choosing uniformly among 30 equally-likely options at each token -- meaning it has narrowed 50,000 vocabulary possibilities down to an effective ~30, a substantial amount of learned structure", why: "Correct — this is exactly the 'effective branching factor' interpretation the uniform-model bound establishes: a uniform model over V options has perplexity exactly V, so perplexity 30 means behaving as though choosing among 30 options." },
+    { text: "The model needs 30 more training epochs to converge", why: "Perplexity measures a model's current predictive quality on test data -- it says nothing about how many more training epochs might be needed, and isn't a training-progress countdown." },
+    { text: "The model has a vocabulary of exactly 30 tokens", why: "The vocabulary is 50,000 tokens as stated -- perplexity 30 describes the model's EFFECTIVE uncertainty per token, which is far smaller than (and unrelated to) the actual vocabulary size." },
+  ]}
+/>
+
+## Summary
+
+Perplexity is `exp(cross-entropy)` — the same quantity language models are already trained to
+minimize, re-expressed as an "effective number of equally-likely choices per token." A uniform
+model over `V` words has perplexity exactly `V`, verified numerically above, which is what gives
+the metric its intuitive reading and establishes the baseline any useful model must beat.
+Comparing models of varying quality on the same test sequence shows perplexity dropping as the
+model assigns more probability to the actual tokens. The next lesson introduces recurrent
+neural networks, the first architecture to escape the n-gram sparsity trap.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 3.8 — perplexity, its derivation
+  from cross-entropy, and practical caveats when comparing models across different tokenizers.

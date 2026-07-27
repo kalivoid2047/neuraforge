@@ -1,0 +1,83 @@
+---
+slug: one-hot-to-dense-vectors
+month: 6
+week: 2
+ord: 1
+title: "From One-Hot to Dense Vectors"
+code: "6.2.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Show that one-hot vectors make every distinct word exactly equidistant from every other"
+  - "Explain what a dense embedding provides that one-hot encoding structurally cannot"
+  - "Compute similarities in both representations and compare them directly"
+prereqs:
+  - "Comparing Tokenizers: Vocabulary Size, Compression, and Fairness Across Languages ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Why One-Hot Encodes No Similarity }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: giving words a geometry</h2>
+
+After tokenization, each token is just an *index* into a vocabulary. The simplest way to feed
+an index into a network is a **one-hot vector**: a vector of all zeros except a single `1` at
+that token's position. This works — Month 5's bag-of-words used exactly this idea — but it has a
+structural flaw that no amount of training data fixes: in one-hot space, *every distinct word is
+exactly equally far from every other word*. "cat" is precisely as similar to "dog" as it is to
+"democracy." The representation itself carries no information about meaning at all.
+
+<h2 id="math">Why one-hot encodes no similarity</h2>
+
+For any two distinct one-hot vectors `u` and `v` (with their `1`s at different positions):
+
+<MathBlock tex="u \cdot v = 0 \qquad \text{and} \qquad \|u - v\| = \sqrt{2}" />
+
+Every pair of distinct words has dot product exactly `0` (perfect dissimilarity) and Euclidean
+distance exactly `√2` — identical, for every pair. A **dense embedding** replaces this with a
+much shorter vector of learned real numbers, where similar words *can* land near each other,
+because nothing forces them apart.
+
+<Callout kind="tip" title="Dense embeddings are also dramatically smaller">
+  A one-hot vector for a 50,000-token vocabulary is 50,000 numbers long, of which 49,999 are
+  zero — enormously wasteful. A typical dense embedding for the same token might be 300 or 768
+  numbers, all carrying information. That's both a large memory saving and, crucially, a
+  representation where the *values themselves* can encode learned relationships between words.
+</Callout>
+
+<h2 id="python">One-hot vs. dense: similarity structure, compared directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nvocab = [\"cat\", \"dog\", \"kitten\", \"democracy\"]\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\ndef one_hot(word):\n    vec = np.zeros(V)\n    vec[word_to_index[word]] = 1.0\n    return vec\n\ndef cosine_similarity(a, b):\n    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))\n\nprint(\"ONE-HOT representation (4-dimensional, one slot per vocabulary word):\")\nfor w in vocab:\n    print(f\"  {w:>10}: {one_hot(w)}\")\nprint()\n\nprint(\"pairwise cosine similarity in one-hot space:\")\npairs = [(\"cat\", \"dog\"), (\"cat\", \"kitten\"), (\"cat\", \"democracy\")]\nfor a, b in pairs:\n    sim = cosine_similarity(one_hot(a), one_hot(b))\n    dist = float(np.linalg.norm(one_hot(a) - one_hot(b)))\n    print(f\"  sim({a}, {b}) = {sim:.4f}   distance = {dist:.4f}\")\nprint(\"  -> EVERY distinct pair is identical: similarity 0, distance sqrt(2)=1.4142.\")\nprint(\"     'cat' is exactly as close to 'kitten' as it is to 'democracy'.\")\nprint()\n\n# a hand-crafted 3-dimensional DENSE embedding, for illustration\n# (dimensions loosely: [is-animal, is-small, is-abstract])\ndense = {\n    \"cat\":       np.array([0.9, 0.6, 0.0]),\n    \"dog\":       np.array([0.9, 0.3, 0.0]),\n    \"kitten\":    np.array([0.9, 0.9, 0.0]),\n    \"democracy\": np.array([0.0, 0.1, 0.95]),\n}\nprint(\"DENSE representation (3-dimensional, values carry meaning):\")\nfor w in vocab:\n    print(f\"  {w:>10}: {dense[w]}\")\nprint()\nprint(\"pairwise cosine similarity in dense space:\")\nfor a, b in pairs:\n    print(f\"  sim({a}, {b}) = {cosine_similarity(dense[a], dense[b]):.4f}\")\nprint(\"  -> now the similarities DIFFER, and rank sensibly:\")\nprint(\"     cat/kitten and cat/dog are both high, cat/democracy is near zero.\")"}
+  output={"ONE-HOT representation (4-dimensional, one slot per vocabulary word):\n         cat: [1. 0. 0. 0.]\n         dog: [0. 1. 0. 0.]\n      kitten: [0. 0. 1. 0.]\n   democracy: [0. 0. 0. 1.]\n\npairwise cosine similarity in one-hot space:\n  sim(cat, dog) = 0.0000   distance = 1.4142\n  sim(cat, kitten) = 0.0000   distance = 1.4142\n  sim(cat, democracy) = 0.0000   distance = 1.4142\n  -> EVERY distinct pair is identical: similarity 0, distance sqrt(2)=1.4142.\n     'cat' is exactly as close to 'kitten' as it is to 'democracy'.\n\nDENSE representation (3-dimensional, values carry meaning):\n         cat: [0.9 0.6 0. ]\n         dog: [0.9 0.3 0. ]\n      kitten: [0.9 0.9 0. ]\n   democracy: [0.   0.1  0.95]\n\npairwise cosine similarity in dense space:\n  sim(cat, dog) = 0.9648\n  sim(cat, kitten) = 0.9806\n  sim(cat, democracy) = 0.0581\n  -> now the similarities DIFFER, and rank sensibly:\n     cat/kitten and cat/dog are both high, cat/democracy is near zero."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't a model simply LEARN word similarity from one-hot vectors, given enough training data?"
+  correct={2}
+  options={[
+    { text: "It can -- one-hot vectors work perfectly well for encoding similarity with sufficient training", why: "One-hot vectors themselves structurally cannot encode similarity -- every distinct pair has identical dot product (0) and identical distance, no matter how much data is available. A model can learn an embedding FROM one-hot inputs, but the one-hot representation itself carries no similarity information." },
+    { text: "One-hot vectors are too short to hold similarity information", why: "One-hot vectors are actually extremely LONG (one dimension per vocabulary word, often 50,000+) -- length isn't the constraint. The problem is that all but one of those dimensions is zero, making every distinct pair equidistant by construction." },
+    { text: "The one-hot representation ITSELF is fixed and encodes zero similarity structure -- every distinct pair has dot product exactly 0 and distance exactly sqrt(2), by construction. A model can learn a dense embedding as a downstream transformation OF one-hot inputs, but the one-hot vectors it starts from contribute no similarity information for it to build on", why: "Correct — this is the key distinction: one-hot is a fixed, similarity-free input encoding. Embeddings (the next several lessons' subject) are precisely the learned transformation that GIVES tokens a meaningful geometry, since one-hot provides none." },
+    { text: "One-hot vectors only work for vocabularies smaller than 100 words", why: "One-hot encoding works mechanically for any vocabulary size (though it gets memory-expensive) -- the equidistance problem is present at every size, including the 4-word vocabulary demonstrated above." },
+  ]}
+/>
+
+## Summary
+
+One-hot vectors encode a token's identity but nothing about its meaning: every distinct pair has
+dot product exactly `0` and distance exactly `√2`, making "cat" precisely as similar to "kitten"
+as to "democracy" — verified directly above. Dense embeddings replace this with a much shorter
+vector of real values where similar words *can* cluster together, since nothing structurally
+forces them apart. The next lesson covers the distributional hypothesis: the idea that makes it
+possible to *learn* such embeddings from raw text, with no hand-labeling of what any word means.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 6 — vector semantics, contrasting
+  sparse one-hot/count representations against dense learned embeddings.

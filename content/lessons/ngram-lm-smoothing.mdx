@@ -1,0 +1,88 @@
+---
+slug: ngram-lm-smoothing
+month: 6
+week: 3
+ord: 2
+title: "N-gram Language Models and Smoothing"
+code: "6.3.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why unsmoothed n-gram models assign zero probability to any sequence with an unseen n-gram"
+  - "Implement add-k (Laplace) smoothing and backoff, and compare their behavior"
+  - "Describe the sparsity trade-off that makes larger n both more powerful and less usable"
+prereqs:
+  - "What Is a Language Model? ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Smoothing Strategies }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Zero probability is catastrophic, not merely inaccurate</h2>
+
+Last lesson's bigram model assigned `-inf` log-probability to "the mat ate the cat" — because
+one single bigram in it was never observed in training. That's not a small inaccuracy: because
+the chain rule *multiplies* per-token probabilities, **a single unseen n-gram forces the entire
+sequence's probability to exactly zero**, regardless of how ordinary every other part of the
+sentence was. **Smoothing** fixes this by reserving some probability mass for unseen events —
+exactly the same problem, and the same `+1` solution, as Month 5's Naive Bayes classifier.
+
+<h2 id="math">Smoothing strategies</h2>
+
+**Add-k (Laplace) smoothing** adds a small constant to every count, including unseen ones:
+
+<MathBlock tex="P_{\text{add-}k}(w_i \mid w_{i-1}) = \frac{\text{count}(w_{i-1}, w_i) + k}{\text{count}(w_{i-1}) + k|V|}" />
+
+**Backoff** takes a different approach: if the bigram was never seen, *fall back* to the unigram
+probability of `w_i` alone (which is much more likely to have been observed), scaled by a
+discount factor:
+
+<MathBlock tex="P_{\text{backoff}}(w_i \mid w_{i-1}) = \begin{cases} P(w_i \mid w_{i-1}) & \text{if count}(w_{i-1},w_i) > 0 \\ \lambda \cdot P(w_i) & \text{otherwise}\end{cases}" />
+
+<Callout kind="tip" title="The sparsity trade-off behind choosing n">
+  A larger `n` captures more context (a 5-gram model knows far more about what precedes a word
+  than a bigram does) — but n-gram counts get *exponentially* sparser as `n` grows, since the
+  number of possible n-grams grows as `|V|^n` while the corpus size stays fixed. Past a point,
+  almost every n-gram in new text was never seen in training, and the model is smoothing or
+  backing off constantly, learning little. This inherent tension — more context vs. unusable
+  sparsity — is precisely what neural language models (next lesson) sidestep, by learning dense
+  representations that generalize across contexts instead of counting exact sequences.
+</Callout>
+
+<h2 id="python">Unsmoothed vs. add-k vs. backoff, compared directly</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\ncorpus = [\n    \"the cat sat on the mat\", \"the cat ate the fish\",\n    \"the dog sat on the rug\", \"the dog ate the bone\", \"a cat ate a fish\",\n]\n\nbigram_counts = defaultdict(lambda: defaultdict(int))\nunigram_counts = defaultdict(int)\ntotal_tokens = 0\nfor doc in corpus:\n    tokens = tokenize(doc)\n    for t in tokens:\n        unigram_counts[t] += 1\n        total_tokens += 1\n    for i in range(len(tokens) - 1):\n        bigram_counts[tokens[i]][tokens[i+1]] += 1\n\nvocab = sorted(unigram_counts.keys())\nV = len(vocab)\n\ndef p_unsmoothed(prev, curr):\n    total = sum(bigram_counts[prev].values())\n    return bigram_counts[prev][curr] / total if total else 0.0\n\ndef p_add_k(prev, curr, k=1.0):\n    total = sum(bigram_counts[prev].values())\n    return (bigram_counts[prev][curr] + k) / (total + k * V)\n\ndef p_backoff(prev, curr, discount=0.4):\n    count = bigram_counts[prev][curr]\n    if count > 0:\n        return count / sum(bigram_counts[prev].values())\n    return discount * (unigram_counts[curr] / total_tokens)   # fall back to the unigram\n\ntest_bigrams = [(\"the\", \"cat\"), (\"the\", \"fish\"), (\"mat\", \"ate\"), (\"cat\", \"bone\")]\nprint(f\"{'bigram':>16} {'count':>6} {'unsmoothed':>12} {'add-1':>10} {'backoff':>10}\")\nfor prev, curr in test_bigrams:\n    c = bigram_counts[prev][curr]\n    print(f\"{prev + ' -> ' + curr:>16} {c:>6} {p_unsmoothed(prev,curr):>12.4f} \"\n          f\"{p_add_k(prev,curr):>10.4f} {p_backoff(prev,curr):>10.4f}\")\n\nprint()\n\ndef sequence_log_prob(sentence, prob_fn):\n    tokens = tokenize(sentence)\n    total = 0.0\n    for i in range(len(tokens) - 1):\n        p = prob_fn(tokens[i], tokens[i+1])\n        if p == 0.0:\n            return float('-inf')\n        total += np.log(p)\n    return total\n\nsentence = \"the mat ate the cat\"   # contains bigrams never seen in training\nprint(f\"scoring '{sentence}' (contains UNSEEN bigrams):\")\nfor name, fn in [(\"unsmoothed\", p_unsmoothed), (\"add-1\", p_add_k), (\"backoff\", p_backoff)]:\n    lp = sequence_log_prob(sentence, fn)\n    lp_str = f\"{lp:.4f}\" if lp != float('-inf') else \"-inf (model says IMPOSSIBLE)\"\n    print(f\"  {name:>11}: {lp_str}\")\nprint()\nprint(\"unsmoothed calls the sentence flatly impossible; both smoothing methods assign it a\")\nprint(\"low-but-finite probability -- unusual, not impossible, which is the honest answer.\")"}
+  output={"          bigram  count   unsmoothed      add-1    backoff\n      the -> cat      2       0.2500     0.1579     0.2500\n     the -> fish      1       0.1250     0.1053     0.1250\n      mat -> ate      0       0.0000     0.0909     0.0444\n     cat -> bone      0       0.0000     0.0714     0.0148\n\nscoring 'the mat ate the cat' (contains UNSEEN bigrams):\n   unsmoothed: -inf (model says IMPOSSIBLE)\n        add-1: -8.0355\n      backoff: -6.9847\n\nunsmoothed calls the sentence flatly impossible; both smoothing methods assign it a\nlow-but-finite probability -- unusual, not impossible, which is the honest answer."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is a single unseen bigram so much more damaging to an n-gram language model than merely being 'one inaccurate estimate'?"
+  correct={2}
+  options={[
+    { text: "Unseen bigrams cause the model to crash with a division-by-zero error", why: "There's no division by zero -- the unseen bigram simply has count 0, giving probability 0, which computes fine. The damage is to the RESULT (the whole sequence becomes impossible), not a runtime crash." },
+    { text: "It only affects that one token's prediction, leaving the rest of the sequence unaffected", why: "This is exactly what does NOT happen -- because the chain rule multiplies per-token probabilities together, a single zero propagates to make the entire sequence probability zero, affecting the whole result." },
+    { text: "The chain rule MULTIPLIES per-token probabilities, so a single zero makes the entire sequence's probability exactly zero -- the model declares the whole sentence impossible, no matter how ordinary and well-attested every other token transition in it was", why: "Correct — this multiplicative propagation is precisely why smoothing is essential rather than merely nice-to-have: one gap in the training data would otherwise veto an entire otherwise-plausible sentence." },
+    { text: "Unseen bigrams make the model's vocabulary permanently larger", why: "Encountering an unseen bigram at scoring time doesn't change the model's vocabulary or counts at all -- the model is already trained. The issue is purely how a zero probability propagates through the chain rule." },
+  ]}
+/>
+
+## Summary
+
+Because the chain rule multiplies per-token probabilities, a single unseen n-gram zeroes out an
+entire sequence's probability — a catastrophic failure, not a small inaccuracy. Add-k smoothing
+distributes a little probability mass to every possible continuation; backoff falls back to the
+lower-order (unigram) estimate when a bigram is unseen; both convert `-inf` into a low but
+finite score, verified directly above. Larger `n` captures more context but makes counts
+exponentially sparser — a tension neural models resolve differently. The next lesson covers
+perplexity, the standard metric for comparing language models like these.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 3 — smoothing in depth, including
+  Good-Turing, Kneser-Ney, and interpolation beyond the simple methods implemented here.

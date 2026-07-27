@@ -1,0 +1,84 @@
+---
+slug: why-word-tokenization-breaks-down
+month: 6
+week: 1
+ord: 1
+title: "Why Word-Level Tokenization Breaks Down"
+code: "6.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Demonstrate the out-of-vocabulary (OOV) problem with a fixed word-level vocabulary"
+  - "Explain why word-level vocabularies grow enormous and still can't cover every input"
+  - "State the subword tokenization idea that fixes both problems at once"
+prereqs:
+  - "Capstone: A Complete Text Classifier Pipeline ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The OOV Problem, Precisely }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 6: from bag-of-words counting to real language model tokenizers</h2>
+
+Month 5's `tokenize` function split text on whitespace and punctuation, then looked words up in
+a vocabulary built from the training corpus. That works for a small classroom example, but it
+has a fatal flaw at real scale: **any word never seen during vocabulary-building has no
+representation at all.** A model trained on English news text has literally no way to handle a
+typo, a brand-new word, a name, or a different language — it either crashes or silently drops
+the word, discarding whatever information it carried. This month builds the tokenization,
+embedding, and language-modeling machinery that makes today's LLMs handle *any* input text, not
+just text resembling their training vocabulary.
+
+<h2 id="math">The OOV problem, precisely</h2>
+
+For a word-level vocabulary `V` built from a training corpus, any word `w \notin V` encountered
+at inference time is **out-of-vocabulary (OOV)** — the model has no embedding, no learned
+representation, nothing to do with it except a generic `<UNK>` placeholder that throws away all
+information the specific word carried.
+
+<Callout kind="tip" title="Why you can't just make the vocabulary bigger">
+  English alone has hundreds of thousands of word forms (plurals, verb tenses, and so on), names
+  are essentially infinite, and typos/misspellings multiply that further. Covering even 99% of
+  real-world text with whole words requires a vocabulary so large that the embedding table
+  itself (one vector per vocabulary entry) becomes a huge fraction of the entire model's
+  parameters — and the last 1% (rare words, new words, other languages) is *still* uncovered, no
+  matter how large the vocabulary grows.
+</Callout>
+
+<h2 id="python">The OOV problem, demonstrated directly</h2>
+
+<CodeCell
+  code={"import re\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\n# a vocabulary built from a small 'training corpus'\ntraining_corpus = [\n    \"the cat sat on the mat\",\n    \"the dog ran in the park\",\n    \"a bird flew over the house\",\n]\nvocab = set(w for doc in training_corpus for w in tokenize(doc))\nprint(\"vocabulary:\", sorted(vocab))\nprint(\"vocabulary size:\", len(vocab))\nprint()\n\n# new text at 'inference time' -- a mix of known and unknown words\ntest_sentences = [\n    \"the cat sat\",                    # every word is in-vocabulary\n    \"the cats sat\",                    # 'cats' (plural) is OOV -- 'cat' was seen, 'cats' wasn't\n    \"the kitten meowed loudly\",        # almost entirely OOV\n]\n\nfor sentence in test_sentences:\n    tokens = tokenize(sentence)\n    covered = [t if t in vocab else \"<UNK>\" for t in tokens]\n    oov_count = sum(1 for t in tokens if t not in vocab)\n    print(f\"'{sentence}'\")\n    print(f\"  tokens with OOV replaced: {covered}\")\n    print(f\"  {oov_count}/{len(tokens)} words are OUT-OF-VOCABULARY, despite 'cats' and 'kitten' being\")\n    print(f\"  perfectly ordinary English words, just not ones seen during vocabulary-building.\")\n    print()\n\nprint(\"note: 'cats' and 'cat' share almost their entire spelling, yet a word-level vocabulary\")\nprint(\"treats them as completely unrelated tokens -- one known, one totally OOV. Subword\")\nprint(\"tokenization (next lesson) fixes exactly this by working below the whole-word level.\")"}
+  output={"vocabulary: ['a', 'bird', 'cat', 'dog', 'flew', 'house', 'in', 'mat', 'on', 'over', 'park', 'ran', 'sat', 'the']\nvocabulary size: 14\n\n'the cat sat'\n  tokens with OOV replaced: ['the', 'cat', 'sat']\n  0/3 words are OUT-OF-VOCABULARY, despite 'cats' and 'kitten' being\n  perfectly ordinary English words, just not ones seen during vocabulary-building.\n\n'the cats sat'\n  tokens with OOV replaced: ['the', '<UNK>', 'sat']\n  1/3 words are OUT-OF-VOCABULARY, despite 'cats' and 'kitten' being\n  perfectly ordinary English words, just not ones seen during vocabulary-building.\n\n'the kitten meowed loudly'\n  tokens with OOV replaced: ['the', '<UNK>', '<UNK>', '<UNK>']\n  3/4 words are OUT-OF-VOCABULARY, despite 'cats' and 'kitten' being\n  perfectly ordinary English words, just not ones seen during vocabulary-building.\n\nnote: 'cats' and 'cat' share almost their entire spelling, yet a word-level vocabulary\ntreats them as completely unrelated tokens -- one known, one totally OOV. Subword\ntokenization (next lesson) fixes exactly this by working below the whole-word level."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why doesn't simply enlarging the word-level vocabulary solve the out-of-vocabulary problem?"
+  correct={0}
+  options={[
+    { text: "The space of possible words (including typos, names, new coinages, and other languages) is effectively unbounded, so no finite vocabulary -- however large -- can cover every word that will ever appear, and a larger vocabulary also means a larger, more expensive embedding table", why: "Correct — this is exactly the two-sided problem: the OOV tail never fully disappears no matter how large the vocabulary grows, while the parameter cost of the embedding table keeps growing right along with it." },
+    { text: "Vocabularies are technically limited to exactly 50,000 words by programming language constraints", why: "There's no such hard technical limit -- vocabularies of any size can be constructed. The real constraints are the practical trade-off between coverage and embedding-table size, not a fixed programming limitation." },
+    { text: "A larger vocabulary would make 'cat' and 'cats' automatically recognized as related", why: "Word-level vocabularies treat every distinct word form as a completely separate, unrelated token regardless of vocabulary size -- 'cat' and 'cats' would still be entirely different vocabulary entries with no shared structure recognized, no matter how large the vocabulary gets." },
+    { text: "This problem only affects languages other than English", why: "The demonstration above is entirely in English ('cats', 'kitten') -- the OOV problem affects every language with productive morphology (plurals, verb conjugations, compounds, etc.), not just non-English text." },
+  ]}
+/>
+
+## Summary
+
+Word-level tokenization fails because the space of possible words is effectively unbounded —
+any finite vocabulary leaves some words permanently out-of-vocabulary, replaced by a generic
+`<UNK>` token that discards all their information — verified directly above with "cats" and
+"kitten" both falling outside a small vocabulary built from ordinary English sentences. Making
+the vocabulary larger only partially helps, at the cost of a larger embedding table, and never
+fully closes the gap. The next lesson builds Byte-Pair Encoding, the subword tokenization
+algorithm that solves this by working below the whole-word level.
+
+## Further reading
+
+- Sennrich, Haddow & Birch, *"Neural Machine Translation of Rare Words with Subword Units"* —
+  the paper that introduced BPE for NLP and motivated the shift away from word-level vocabularies.

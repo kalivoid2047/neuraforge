@@ -1,0 +1,93 @@
+---
+slug: vanishing-gradients-rnn
+month: 6
+week: 3
+ord: 5
+title: "The Vanishing Gradient Problem"
+code: "6.3.5"
+minutes: 90
+difficulty: 5
+objectives:
+  - "Explain why backpropagating through many timesteps multiplies gradients repeatedly"
+  - "Measure gradient magnitude decaying across timesteps, from scratch"
+  - "Connect this limitation directly to why attention (Month 7) was invented"
+prereqs:
+  - "Recurrent Neural Networks for Language Modeling ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Backpropagation Through Time }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: RNNs can't actually use the long memory they theoretically have</h2>
+
+Last lesson claimed an RNN's hidden state *can in principle* carry information from any earlier
+position. In practice, it usually can't — and the reason is a direct consequence of the chain
+rule from Month 3. To learn a dependency spanning 50 timesteps, the gradient must propagate
+back through 50 recurrence steps, and at each one it gets multiplied by a factor. Multiply 50
+numbers slightly less than 1 together and the result is essentially zero: the **vanishing
+gradient problem**. The early timesteps receive almost no learning signal, so long-range
+dependencies never get learned, no matter how long you train.
+
+<h2 id="math">Backpropagation through time</h2>
+
+The gradient of the loss at timestep `t` with respect to a hidden state `k` steps earlier
+involves a product of Jacobians (Month 3, week two), one per intervening step:
+
+<MathBlock tex="\frac{\partial h_t}{\partial h_{t-k}} = \prod_{i=t-k+1}^{t} \frac{\partial h_i}{\partial h_{i-1}} = \prod_{i} W_{hh}^\top \text{diag}(\tanh'(\cdot))" />
+
+Two multiplicative factors compound at every step: `W_hh`'s magnitude, and `tanh'` — which is
+`1 - tanh²`, at most `1` and typically well below it (recall Month 4's saturation discussion).
+Their product raised to the power `k` shrinks **exponentially** with distance.
+
+<Callout kind="tip" title="Exploding gradients: the same mechanism, the opposite direction">
+  If `W_hh` has a large enough magnitude, the same repeated multiplication makes gradients
+  *explode* toward infinity instead. That failure is far easier to fix — gradient clipping caps
+  the norm and training proceeds. Vanishing is the harder problem: there's no "un-clipping" that
+  recovers a signal already multiplied down to essentially zero. LSTMs and GRUs were designed
+  specifically to mitigate this with gated pathways that let gradients flow more directly across
+  timesteps.
+</Callout>
+
+<h2 id="python">Gradient magnitude decaying across timesteps, measured directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\nhidden_dim = 8\n\ndef measure_gradient_flow(W_scale, n_steps=50, label=\"\"):\n    \"\"\"Track how a gradient's magnitude changes as it backpropagates through n_steps.\"\"\"\n    W_hh = rng.normal(0, W_scale, (hidden_dim, hidden_dim))\n    grad = np.ones(hidden_dim)      # start with a unit-magnitude gradient at the final step\n    magnitudes = [float(np.linalg.norm(grad))]\n    h = rng.normal(0, 0.5, hidden_dim)\n    for _ in range(n_steps):\n        tanh_deriv = 1 - np.tanh(h)**2          # the tanh' factor, always <= 1\n        grad = (W_hh.T @ grad) * tanh_deriv     # one step of backprop through time\n        magnitudes.append(float(np.linalg.norm(grad)))\n        h = np.tanh(W_hh @ h)\n    return magnitudes\n\nprint(\"gradient magnitude as it backpropagates BACKWARD through timesteps:\")\nprint(f\"{'steps back':>11} {'W scale 0.2':>14} {'W scale 0.3':>14} {'W scale 1.5':>14}\")\ntiny = measure_gradient_flow(0.2)\nsmall = measure_gradient_flow(0.3)\nlarge = measure_gradient_flow(1.5)\n\nfor k in [0, 5, 10, 20, 30, 50]:\n    print(f\"{k:>11} {tiny[k]:>14.3e} {small[k]:>14.3e} {large[k]:>14.3e}\")\n\nprint()\nprint(f\"W=0.2: gradient fell from {tiny[0]:.3e} to {tiny[50]:.3e} -- shrank {tiny[0]/tiny[50]:.3e}x. VANISHED.\")\nprint(f\"W=0.3: gradient fell from {small[0]:.3e} to {small[50]:.3e} -- shrank {small[0]/small[50]:.3e}x.\")\nprint(f\"W=1.5: gradient rose from {large[0]:.3e} to {large[50]:.3e} -- grew {large[50]/large[0]:.3e}x. EXPLODED.\")\nprint()\nprint(\"both failure modes come from the SAME repeated multiplication, just with a factor\")\nprint(\"below vs. above 1. A gradient decayed this far carries no usable learning signal:\")\nprint(\"those early timesteps get effectively zero update, so long-range dependencies\")\nprint(\"are never learned at all.\")"}
+  output={"gradient magnitude as it backpropagates BACKWARD through timesteps:\n steps back    W scale 0.2    W scale 0.3    W scale 1.5\n          0      2.828e+00      2.828e+00      2.828e+00\n          5      3.268e-02      3.199e-01      4.662e+02\n         10      1.362e-03      7.012e-03      3.815e+04\n         20      5.443e-06      1.974e-05      8.408e+07\n         30      1.936e-08      2.879e-07      3.135e+11\n         50      2.503e-13      4.663e-11      3.196e+18\n\nW=0.2: gradient fell from 2.828e+00 to 2.503e-13 -- shrank 1.130e+13x. VANISHED.\nW=0.3: gradient fell from 2.828e+00 to 4.663e-11 -- shrank 6.066e+10x.\nW=1.5: gradient rose from 2.828e+00 to 3.196e+18 -- grew 1.130e+18x. EXPLODED.\n\nboth failure modes come from the SAME repeated multiplication, just with a factor\nbelow vs. above 1. A gradient decayed this far carries no usable learning signal:\nthose early timesteps get effectively zero update, so long-range dependencies\nare never learned at all."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the vanishing gradient problem specifically prevent RNNs from learning LONG-range dependencies, while short-range ones are learned fine?"
+  correct={0}
+  options={[
+    { text: "The gradient is multiplied by a shrinking factor once per intervening timestep, so the decay is EXPONENTIAL in distance -- a dependency 3 steps back still receives a usable gradient, while one 50 steps back has been multiplied down to effectively zero and gets no learning signal at all", why: "Correct — the exponential-in-distance decay is exactly why the problem is distance-specific: nearby timesteps survive only a few multiplications, while distant ones accumulate enough to destroy the signal entirely, as the measured magnitudes above show." },
+    { text: "RNNs simply discard tokens more than a few positions back, so distant tokens never enter the computation", why: "RNNs do NOT discard distant tokens -- every token updates the hidden state and that state is carried forward indefinitely. The problem is in the BACKWARD pass (learning), not the forward pass: the information is present but the gradient signal needed to learn from it has vanished." },
+    { text: "Long-range dependencies require a larger vocabulary than short-range ones", why: "Vocabulary size is entirely unrelated to this problem -- the vanishing gradient arises from repeated multiplication across TIMESTEPS during backpropagation, regardless of how many distinct tokens exist." },
+    { text: "The problem affects all distances equally, not just long ones", why: "It very much does not affect all distances equally -- that's the whole point. The measured gradient magnitudes above show near-unit magnitude at small step counts decaying to essentially zero at large ones." },
+  ]}
+/>
+
+## Week three summary
+
+This week built language modeling from the ground up: a language model is a probability
+distribution over sequences, factored by the chain rule into next-token predictions; n-gram
+models implement this by counting, but need smoothing to avoid a single unseen n-gram zeroing an
+entire sequence; perplexity (exponentiated cross-entropy) measures model quality as an effective
+branching factor; RNNs escape the n-gram sparsity trap via a carried hidden state and shared
+weights; but the vanishing gradient problem means they can't actually learn the long-range
+dependencies their architecture theoretically permits — verified above by measuring a gradient
+shrink by a factor of over 10¹³ across 50 timesteps (and, with a larger weight scale, explode
+by a comparable factor in the other direction). **That specific failure is precisely the problem
+attention solves**, which is exactly where Month 7 begins. Week four applies everything from
+weeks one and two to build this month's Word2Vec capstone.
+
+## Further reading
+
+- Bengio, Simard & Frasconi, *"Learning Long-Term Dependencies with Gradient Descent is
+  Difficult"* — the original analysis of the vanishing gradient problem in recurrent networks.
+- Hochreiter & Schmidhuber, *"Long Short-Term Memory"* — the LSTM architecture designed
+  specifically to mitigate it.

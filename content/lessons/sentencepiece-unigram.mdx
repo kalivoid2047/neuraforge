@@ -1,0 +1,92 @@
+---
+slug: sentencepiece-unigram
+month: 6
+week: 1
+ord: 4
+title: "SentencePiece and Language-Agnostic Tokenization"
+code: "6.1.4"
+minutes: 90
+difficulty: 5
+objectives:
+  - "Explain why treating whitespace as an ordinary character makes tokenization language-agnostic"
+  - "Implement Viterbi-style segmentation: finding the highest-likelihood split under a Unigram LM"
+  - "Contrast Unigram LM's top-down probabilistic framing with BPE/WordPiece's bottom-up merging"
+prereqs:
+  - "WordPiece and the Likelihood-Based Merge Criterion ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Segmentation as Maximum Likelihood }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two more ideas: no whitespace assumption, and segmentation as inference</h2>
+
+**SentencePiece** contributes two distinct ideas on top of BPE/WordPiece. First: it treats the
+input as a raw stream of characters — including spaces, encoded as an ordinary symbol (often
+written `▁`) — rather than assuming text is already pre-split on whitespace. That single choice
+makes tokenization work identically for English (which uses spaces) and Chinese or Japanese
+(which don't), with no language-specific pre-processing rules. Second: SentencePiece's
+**Unigram LM** mode reframes tokenization itself as a maximum likelihood problem (Month 5, week
+two) — given a vocabulary of subword pieces each with a probability, find the segmentation of a
+word that *maximizes the product of its pieces' probabilities*.
+
+<h2 id="math">Segmentation as maximum likelihood</h2>
+
+Given a vocabulary of pieces with unigram probabilities `P(\text{piece})`, a word can usually be
+split multiple different ways. The Unigram LM picks the segmentation `s_1, \ldots, s_k` that
+maximizes the sequence probability:
+
+<MathBlock tex="\hat{s} = \arg\max_{s_1,\ldots,s_k} \prod_{i=1}^{k} P(s_i)" />
+
+This is solved efficiently with **Viterbi-style dynamic programming**: build up the best
+(highest-probability) segmentation of each prefix of the word from the best segmentations of its
+shorter prefixes, rather than enumerating every possible way to split the word (which grows
+exponentially with word length).
+
+<Callout kind="tip" title="Bottom-up merging vs. top-down probabilistic modeling">
+  BPE and WordPiece both *build* a vocabulary bottom-up, one merge at a time, and tokenize
+  greedily by replaying those merges. Unigram LM instead starts from a large candidate vocabulary,
+  assigns every piece a probability, and *tokenizes* by finding the maximum-likelihood
+  segmentation under that probability model — training then iteratively prunes the vocabulary
+  down, keeping whichever pieces matter most for the overall likelihood. It's a genuinely
+  different framing: segmentation as inference under a probabilistic model, not as replaying a
+  fixed merge sequence.
+</Callout>
+
+<h2 id="python">Viterbi segmentation, verified against brute-force enumeration</h2>
+
+<CodeCell
+  code={"from itertools import product\n\n# a small Unigram LM vocabulary: piece -> probability (would be learned from a corpus in practice)\nvocab_probs = {\n    \"low\": 0.20, \"est\": 0.15, \"er\": 0.05, \"l\": 0.02, \"o\": 0.03, \"w\": 0.02,\n    \"e\": 0.04, \"s\": 0.03, \"t\": 0.03, \"r\": 0.02, \"lo\": 0.06, \"we\": 0.01,\n}\n\ndef all_segmentations(word):\n    \"\"\"Brute force: every way to split 'word' into a sequence of vocabulary substrings.\"\"\"\n    if word == \"\":\n        yield []\n        return\n    for i in range(1, len(word) + 1):\n        prefix = word[:i]\n        if prefix in vocab_probs:\n            for rest in all_segmentations(word[i:]):\n                yield [prefix] + rest\n\ndef segmentation_probability(segments):\n    prob = 1.0\n    for s in segments:\n        prob *= vocab_probs[s]\n    return prob\n\nword = \"lower\"\nall_splits = list(all_segmentations(word))\nprint(f\"all valid segmentations of '{word}' using only in-vocabulary pieces:\")\nfor seg in all_splits:\n    print(f\"  {seg}  ->  probability = {segmentation_probability(seg):.8f}\")\n\nbrute_force_best = max(all_splits, key=segmentation_probability)\nprint()\nprint(f\"brute-force best segmentation: {brute_force_best}\")\nprint()\n\n# now solve the SAME problem with Viterbi dynamic programming -- no exponential enumeration\ndef viterbi_segment(word, vocab_probs):\n    n = len(word)\n    best_prob = [0.0] * (n + 1)\n    best_prob[0] = 1.0\n    backpointer = [None] * (n + 1)\n    for i in range(1, n + 1):\n        for j in range(i):\n            piece = word[j:i]\n            if piece in vocab_probs and best_prob[j] > 0:\n                candidate = best_prob[j] * vocab_probs[piece]\n                if candidate > best_prob[i]:\n                    best_prob[i] = candidate\n                    backpointer[i] = j\n    # reconstruct the segmentation by following backpointers from the end\n    segments = []\n    i = n\n    while i > 0:\n        j = backpointer[i]\n        segments.append(word[j:i])\n        i = j\n    return list(reversed(segments)), best_prob[n]\n\nviterbi_result, viterbi_prob = viterbi_segment(word, vocab_probs)\nprint(f\"Viterbi DP result: {viterbi_result}  ->  probability = {viterbi_prob:.8f}\")\nprint(f\"matches brute-force best: {viterbi_result == brute_force_best}\")"}
+  output={"all valid segmentations of 'lower' using only in-vocabulary pieces:\n  ['l', 'o', 'w', 'e', 'r']  ->  probability = 0.00000001\n  ['l', 'o', 'w', 'er']  ->  probability = 0.00000060\n  ['l', 'o', 'we', 'r']  ->  probability = 0.00000012\n  ['lo', 'w', 'e', 'r']  ->  probability = 0.00000096\n  ['lo', 'w', 'er']  ->  probability = 0.00006000\n  ['lo', 'we', 'r']  ->  probability = 0.00001200\n  ['low', 'e', 'r']  ->  probability = 0.00016000\n  ['low', 'er']  ->  probability = 0.01000000\n\nbrute-force best segmentation: ['low', 'er']\n\nViterbi DP result: ['low', 'er']  ->  probability = 0.01000000\nmatches brute-force best: True"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does Viterbi dynamic programming avoid the exponential cost of brute-force segmentation enumeration, while still guaranteeing the SAME best answer?"
+  correct={1}
+  options={[
+    { text: "Viterbi doesn't guarantee the same answer -- it's a fast approximation that sometimes picks a worse segmentation", why: "The code above explicitly verifies Viterbi's result matches the brute-force best segmentation exactly -- it's not an approximation, it's an efficient way to compute the SAME exact answer." },
+    { text: "Viterbi builds up the best segmentation of each PREFIX of the word from the already-computed best segmentations of shorter prefixes, reusing that work instead of separately re-considering every combination of splits for the whole word from scratch", why: "Correct — this is exactly the dynamic programming principle: because the best segmentation of a prefix only depends on the best segmentations of its own shorter prefixes (not on the whole exponential space of full-word splits), each prefix only needs to be solved once and reused." },
+    { text: "Viterbi only works on words shorter than 5 characters", why: "There's no such length restriction -- Viterbi's efficiency advantage over brute force GROWS with word length, since brute-force enumeration grows exponentially while Viterbi grows only linearly (in the number of prefixes) times the vocabulary lookup cost." },
+    { text: "Viterbi ignores the vocabulary's probabilities and just picks the longest possible pieces", why: "Viterbi explicitly multiplies vocabulary probabilities together at every step (candidate = best_prob[j] * vocab_probs[piece]) -- it's directly using the probabilities, not ignoring them or defaulting to a longest-piece heuristic." },
+  ]}
+/>
+
+## Summary
+
+SentencePiece treats whitespace as an ordinary symbol, making tokenization language-agnostic,
+and its Unigram LM mode reframes tokenization as maximum likelihood segmentation — finding the
+piece sequence maximizing the product of vocabulary probabilities, computed efficiently via
+Viterbi dynamic programming rather than exponential brute-force enumeration, verified directly
+above to produce identical results. This is a genuinely different framing from BPE/WordPiece's
+bottom-up greedy merging: segmentation as probabilistic inference. The next, final lesson this
+week compares all three tokenizers directly on the properties that matter in practice.
+
+## Further reading
+
+- Kudo, *"Subword Regularization: Improving Neural Network Translation Models with Multiple
+  Subword Candidates"* — the paper introducing the Unigram LM tokenization algorithm implemented
+  above.

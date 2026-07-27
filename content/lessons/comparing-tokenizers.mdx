@@ -1,0 +1,93 @@
+---
+slug: comparing-tokenizers
+month: 6
+week: 1
+ord: 5
+title: "Comparing Tokenizers: Vocabulary Size, Compression, and Fairness Across Languages"
+code: "6.1.5"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Measure a trained tokenizer's compression ratio (tokens per character) on in-distribution text"
+  - "Demonstrate that the SAME tokenizer compresses out-of-distribution text far worse"
+  - "Explain the real-world fairness consequence: some languages cost more tokens per unit of meaning"
+prereqs:
+  - "SentencePiece and Language-Agnostic Tokenization ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Compression Ratio }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: a tokenizer is only as good as its training distribution</h2>
+
+BPE, WordPiece, and Unigram LM all learn their subword vocabulary *from a training corpus* —
+which means the resulting tokenizer is optimized specifically for whatever distribution of text
+that corpus represents. Text resembling the training distribution gets efficiently compressed
+into a few learned subword chunks; text unlike it gets fragmented into many small pieces,
+falling back toward character-level tokenization. This has a genuine, well-documented real-world
+consequence: language models whose tokenizers were trained mostly on English text produce
+noticeably *more* tokens for other languages representing the same amount of actual content —
+directly translating into higher API costs and a smaller effective context window for speakers
+of those languages.
+
+<h2 id="math">Compression ratio</h2>
+
+A simple, useful measure of tokenizer efficiency on some text:
+
+<MathBlock tex="\text{compression ratio} = \frac{\text{number of characters}}{\text{number of tokens}}" />
+
+A higher ratio means each token, on average, represents more characters — better compression. A
+ratio at or below `1.0` means the tokenizer is essentially falling back to individual
+characters (or worse, once a per-word end-marker token is counted) — exactly the degradation
+this month's BPE lesson showed happens gracefully (never crashing) but inefficiently for
+unfamiliar text.
+
+<h2 id="python">The same BPE tokenizer, compressing familiar vs. unfamiliar text very differently</h2>
+
+<CodeCell
+  code={"from collections import defaultdict\n\ndef get_pair_counts(word_freqs):\n    pairs = defaultdict(int)\n    for word, freq in word_freqs.items():\n        symbols = word.split()\n        for i in range(len(symbols) - 1):\n            pairs[(symbols[i], symbols[i+1])] += freq\n    return pairs\n\ndef merge_pair(pair, word_freqs):\n    merged = \"\".join(pair)\n    new_word_freqs = {}\n    for word, freq in word_freqs.items():\n        symbols = word.split()\n        new_symbols, i = [], 0\n        while i < len(symbols):\n            if i < len(symbols)-1 and symbols[i]==pair[0] and symbols[i+1]==pair[1]:\n                new_symbols.append(merged); i += 2\n            else:\n                new_symbols.append(symbols[i]); i += 1\n        new_word_freqs[\" \".join(new_symbols)] = freq\n    return new_word_freqs\n\n# train BPE on an English-like training corpus\ntraining_words = {\"the\": 20, \"and\": 12, \"that\": 8, \"this\": 6, \"with\": 9, \"have\": 7, \"they\": 5, \"there\": 4}\nword_freqs = {\" \".join(list(w)) + \" </w>\": f for w, f in training_words.items()}\n\nmerges = []\nfor _ in range(15):\n    pairs = get_pair_counts(word_freqs)\n    if not pairs:\n        break\n    best = max(pairs, key=pairs.get)\n    merges.append(best)\n    word_freqs = merge_pair(best, word_freqs)\n\ndef tokenize_with_bpe(word, merges):\n    word_str = \" \".join(list(word)) + \" </w>\"\n    for pair in merges:\n        word_str = list(merge_pair(pair, {word_str: 1}).keys())[0]\n    return word_str.split()\n\ndef compression_ratio(text, merges):\n    words = text.split()\n    total_chars = sum(len(w) for w in words)\n    total_tokens = sum(len(tokenize_with_bpe(w, merges)) for w in words)\n    return total_chars / total_tokens, total_tokens\n\n# in-distribution text: resembles the training corpus (common short English words)\nenglish_test = \"they have this and that with there\"\n\n# out-of-distribution text: uses letter patterns the tokenizer's merges never learned\nunfamiliar_test = \"xyzzq vqklm zjxpq wqrst\"\n\nratio_en, tokens_en = compression_ratio(english_test, merges)\nratio_un, tokens_un = compression_ratio(unfamiliar_test, merges)\n\nprint(f\"in-distribution text:     '{english_test}'\")\nprint(f\"  {len(english_test.replace(' ', ''))} characters -> {tokens_en} tokens -> compression ratio {ratio_en:.2f}\")\nprint()\nprint(f\"out-of-distribution text: '{unfamiliar_test}'\")\nprint(f\"  {len(unfamiliar_test.replace(' ', ''))} characters -> {tokens_un} tokens -> compression ratio {ratio_un:.2f}\")\nprint()\nprint(f\"the SAME tokenizer needs {tokens_un} tokens for the unfamiliar text vs {tokens_en} tokens\")\nprint(f\"for the similarly-sized familiar string -- {ratio_en/ratio_un:.1f}x worse compression,\")\nprint(f\"purely because those letter patterns never appeared in the training corpus.\")"}
+  output={"in-distribution text:     'they have this and that with there'\n  28 characters -> 15 tokens -> compression ratio 1.87\n\nout-of-distribution text: 'xyzzq vqklm zjxpq wqrst'\n  20 characters -> 24 tokens -> compression ratio 0.83\n\nthe SAME tokenizer needs 24 tokens for the unfamiliar text vs 15 tokens\nfor the similarly-sized familiar string -- 2.2x worse compression,\npurely because those letter patterns never appeared in the training corpus."}
+/>
+
+<Callout kind="tip" title="This is a real, documented issue -- not just a toy example">
+  Because most widely-used tokenizers were trained on corpora dominated by English (and a
+  handful of other high-resource languages), the same sentence translated into a low-resource
+  language routinely takes 2-4x more tokens to represent. Since API pricing and context-window
+  limits are both measured in tokens, this means users writing in those languages pay more and
+  fit less into the same context window, for text conveying the *same* amount of information —
+  a direct, measurable fairness consequence of a training-data choice made long before any
+  individual user's query.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the SAME BPE tokenizer produce a much worse compression ratio on text using unfamiliar letter patterns, compared to text resembling its training corpus?"
+  correct={1}
+  options={[
+    { text: "The tokenizer applies a different, worse algorithm when it detects unfamiliar text", why: "The tokenizer applies the EXACT SAME merge list and algorithm regardless of the input -- there's no detection mechanism or algorithm switch. The compression difference emerges purely from which merges happen to apply." },
+    { text: "The tokenizer's merge list was learned specifically from patterns in the training corpus, so unfamiliar letter combinations don't match any of the learned multi-character merges and fall back toward individual characters, needing far more tokens per character", why: "Correct — this is exactly the mechanism verified in the code: familiar words compress well because their letter patterns matched learned merges, while unfamiliar patterns simply don't trigger any merges, falling back to near character-level tokenization." },
+    { text: "Unfamiliar text is measured using a different character encoding that takes more space", why: "Character encoding isn't what's being varied or measured here -- both test strings use the same plain ASCII characters. The difference is purely about which multi-character merges apply, not encoding." },
+    { text: "This only happens for text that isn't real English words", why: "The underlying mechanism applies to ANY text whose letter patterns weren't well-represented in the training corpus -- this includes real words from other languages just as much as the made-up unfamiliar strings used in this demonstration." },
+  ]}
+/>
+
+## Week one summary
+
+This week built subword tokenization from first principles: BPE's bottom-up frequency-based
+merging, WordPiece's likelihood-based merge criterion, SentencePiece's language-agnostic
+whitespace handling and Unigram LM probabilistic segmentation via Viterbi, and finally a direct
+measurement of how a tokenizer's training distribution determines its real-world compression
+efficiency — with genuine fairness consequences for text unlike that distribution. Every one of
+these algorithms exists to solve the OOV problem from the first lesson, each with a different
+mechanism. Week two turns to what happens *after* tokenization: representing each token as a
+dense vector that captures something about its meaning.
+
+## Further reading
+
+- Ahia et al., *"Do All Languages Cost the Same? Tokenization in the Era of Commercial Language
+  Models"* — an empirical study of exactly the tokenization fairness issue demonstrated above,
+  across real languages.

@@ -1,0 +1,97 @@
+---
+slug: negative-sampling
+month: 6
+week: 2
+ord: 4
+title: "Negative Sampling: Making Word2Vec Trainable at Scale"
+code: "6.2.4"
+minutes: 90
+difficulty: 5
+objectives:
+  - "Explain why a full softmax over a large vocabulary makes Word2Vec impractically slow"
+  - "State the negative sampling objective and how it replaces the full softmax"
+  - "Implement the 3/4-power noise distribution and verify its effect on sampling frequencies"
+prereqs:
+  - "Word2Vec: Skip-gram and CBOW ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Replacing the Softmax }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The softmax denominator is the bottleneck</h2>
+
+Skip-gram's objective needs `P(\text{context} \mid \text{center})`, which — computed with the
+softmax from Month 5 — requires summing `e^{z_j}` over **every word in the vocabulary** just to
+get the denominator. For a 100,000-word vocabulary, that's 100,000 operations per training pair,
+and there may be billions of pairs. **Negative sampling** replaces this expensive multi-class
+problem with a much cheaper *binary* one: instead of "which of 100,000 words is the context?",
+ask "is this specific (center, context) pair real, or fake?" — and train on the one real pair
+plus just a handful of randomly-drawn fake ones.
+
+<h2 id="math">Replacing the softmax</h2>
+
+For a real (center `c`, context `o`) pair and `k` sampled negative words `n_i`:
+
+<MathBlock tex="\log \sigma(v_o \cdot v_c) + \sum_{i=1}^{k} \log \sigma(-v_{n_i} \cdot v_c)" />
+
+where `σ` is the sigmoid (Month 4). The first term pushes real pairs' embeddings toward higher
+dot product; each negative term pushes randomly-paired embeddings apart. With `k` typically 5–20,
+this costs `k+1` operations instead of the full vocabulary — a several-thousand-fold reduction.
+
+Negatives aren't drawn uniformly, nor by raw frequency, but from a **`3/4`-power distribution**:
+
+<MathBlock tex="P_n(w) = \frac{\text{count}(w)^{3/4}}{\sum_{w'} \text{count}(w')^{3/4}}" />
+
+<Callout kind="tip" title="Why the 3/4 power specifically -- and how big the effect really is">
+  The `3/4` exponent sits between raw-frequency sampling (which over-draws corpus-dominating
+  words like "the") and uniform sampling (which over-draws extremely rare ones). It *compresses*
+  the range without flattening it. Worth noting from the numbers below: the effect is **strongly
+  asymmetric**. Very frequent words barely move (in the example corpus, "the" only drops from
+  45.8% to 40.2% of draws), while rare words gain a lot in relative terms — "lachrymose" becomes
+  roughly **7x** more likely to be sampled than under raw frequency. The main practical benefit
+  is lifting rare words out of near-never-sampled territory, not dramatically suppressing common
+  ones. The exponent was found empirically in the original paper — a practical tuning result, not
+  a theoretical derivation.
+</Callout>
+
+<h2 id="python">The 3/4-power distribution's effect, measured directly</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# a realistic-ish word frequency distribution: a few very common words, many rare ones\nword_counts = {\n    \"the\": 10000, \"of\": 6000, \"and\": 5000,\n    \"cat\": 300, \"dog\": 280, \"house\": 250,\n    \"quixotic\": 5, \"zephyr\": 3, \"lachrymose\": 2,\n}\nwords = list(word_counts.keys())\ncounts = np.array([word_counts[w] for w in words], dtype=float)\n\n# three candidate sampling distributions\nuniform = np.ones(len(words)) / len(words)\nraw_frequency = counts / counts.sum()\npowered = counts ** 0.75\npowered = powered / powered.sum()\n\nprint(f\"{'word':>12} {'count':>7} {'uniform':>9} {'raw freq':>10} {'3/4 power':>11}\")\nfor i, w in enumerate(words):\n    print(f\"{w:>12} {int(counts[i]):>7} {uniform[i]:>9.4f} {raw_frequency[i]:>10.4f} {powered[i]:>11.4f}\")\n\nprint()\nprint(\"'the' under raw frequency: {:.1%} of all negative samples.\".format(raw_frequency[0]))\nprint(\"'the' under 3/4 power:     {:.1%} -- reduced, but only modestly.\".format(powered[0]))\nprint()\nprint(\"'lachrymose' under raw frequency: {:.4%} -- almost never sampled.\".format(raw_frequency[-1]))\nprint(\"'lachrymose' under 3/4 power:     {:.4%} -- {:.1f}x more likely than raw frequency.\".format(\n    powered[-1], powered[-1] / raw_frequency[-1]))\nprint()\n\n# verify the sampling distribution empirically\nrng = np.random.default_rng(0)\nsamples = rng.choice(len(words), size=200_000, p=powered)\nempirical = np.bincount(samples, minlength=len(words)) / len(samples)\nprint(\"empirical check (200,000 draws from the 3/4-power distribution):\")\nfor i in [0, 3, 8]:\n    print(f\"  {words[i]:>12}: expected {powered[i]:.4f}, observed {empirical[i]:.4f}\")"}
+  output={"        word   count   uniform   raw freq   3/4 power\n         the   10000    0.1111     0.4579      0.4021\n          of    6000    0.1111     0.2747      0.2741\n         and    5000    0.1111     0.2289      0.2391\n         cat     300    0.1111     0.0137      0.0290\n         dog     280    0.1111     0.0128      0.0275\n       house     250    0.1111     0.0114      0.0253\n    quixotic       5    0.1111     0.0002      0.0013\n      zephyr       3    0.1111     0.0001      0.0009\n  lachrymose       2    0.1111     0.0001      0.0007\n\n'the' under raw frequency: 45.8% of all negative samples.\n'the' under 3/4 power:     40.2% -- reduced, but only modestly.\n\n'lachrymose' under raw frequency: 0.0092% -- almost never sampled.\n'lachrymose' under 3/4 power:     0.0676% -- 7.4x more likely than raw frequency.\n\nempirical check (200,000 draws from the 3/4-power distribution):\n           the: expected 0.4021, observed 0.4023\n           cat: expected 0.0290, observed 0.0283\n    lachrymose: expected 0.0007, observed 0.0007"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does negative sampling make Word2Vec dramatically faster than training with a full softmax?"
+  correct={3}
+  options={[
+    { text: "Negative sampling skips the training data entirely for rare words", why: "Negative sampling doesn't skip any training data -- every real (center, context) pair is still trained on. What changes is how many OTHER words each update has to touch." },
+    { text: "It reduces the embedding dimension from 300 to about 5", why: "Negative sampling doesn't change the embedding dimension at all -- embeddings stay whatever size was chosen (often 300). What shrinks is the number of vocabulary words involved in each individual update." },
+    { text: "It replaces floating-point arithmetic with faster integer arithmetic", why: "Negative sampling still uses ordinary floating-point arithmetic (sigmoid, dot products) -- the speedup comes from doing far FEWER of those operations per training pair, not from changing the arithmetic type." },
+    { text: "A full softmax must sum over EVERY word in the vocabulary to compute its denominator (100,000+ operations per training pair), while negative sampling only evaluates the one real pair plus k sampled negatives (typically 5-20), turning a full multi-class problem into a handful of cheap binary ones", why: "Correct — this is precisely the computational trade: the softmax denominator's cost scales with vocabulary size, while negative sampling's cost is a small fixed constant regardless of how large the vocabulary is." },
+  ]}
+/>
+
+## Summary
+
+Negative sampling replaces skip-gram's expensive full softmax — which requires summing over the
+entire vocabulary per training pair — with a cheap binary discrimination task: distinguish one
+real (center, context) pair from `k` randomly sampled fake ones. Negatives are drawn from a
+`3/4`-power frequency distribution that compresses the range between very common and very rare
+words — an effect that turns out to be strongly asymmetric when measured: very frequent words
+are suppressed only modestly, while rare words become several times more likely to be sampled,
+verified above against uniform and raw-frequency sampling with empirical draw frequencies
+confirming the computed distribution. The next lesson covers GloVe, which reaches
+similar embeddings from an entirely different starting point: factorizing the co-occurrence
+matrix directly.
+
+## Further reading
+
+- Mikolov et al., *"Distributed Representations of Words and Phrases and their
+  Compositionality"* — the follow-up Word2Vec paper introducing negative sampling and the
+  `3/4`-power noise distribution.

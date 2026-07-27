@@ -1,0 +1,88 @@
+---
+slug: wordpiece-tokenization
+month: 6
+week: 1
+ord: 3
+title: "WordPiece and the Likelihood-Based Merge Criterion"
+code: "6.1.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Compute WordPiece's likelihood-based merge score and contrast it with BPE's raw frequency count"
+  - "Explain why WordPiece can choose a different merge than BPE on the same corpus"
+  - "Implement WordPiece training and show it favors 'surprising' co-occurrences over merely frequent ones"
+prereqs:
+  - "Byte-Pair Encoding (BPE) from Scratch ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: A Different Merge Score }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Same algorithm shape, a smarter merge criterion</h2>
+
+**WordPiece** (used by BERT and other models) follows the exact same iterative-merge structure
+as BPE — start from characters, repeatedly merge, build up a subword vocabulary. The only
+change is *which* pair gets merged at each step: instead of picking the single most frequent
+adjacent pair, WordPiece picks the pair that most increases the training data's **likelihood**
+under a unigram language model — favoring pairs that co-occur *more than their individual
+frequencies alone would predict*, not just pairs that are merely common.
+
+<h2 id="math">A different merge score</h2>
+
+WordPiece's merge score for a candidate pair `(A, B)`:
+
+<MathBlock tex="\text{score}(A,B) = \frac{\text{count}(AB)}{\text{count}(A)\times\text{count}(B)}" />
+
+This is closely related to **pointwise mutual information**: a high score means `A` and `B`
+appear together far more often than you'd expect if they occurred independently — even if their
+*raw* joint count is smaller than some other pair's. A pair like `("t", "h")` might have a huge
+raw count simply because both `"t"` and `"h"` are individually extremely common letters, even
+if they don't have any special affinity for each other; WordPiece's score divides that raw count
+down, correctly reflecting that.
+
+<h2 id="python">Comparing BPE's and WordPiece's merge choices on the same corpus</h2>
+
+<CodeCell
+  code={"from collections import defaultdict\n\ndef get_symbol_counts_and_pairs(word_freqs):\n    symbol_counts = defaultdict(int)\n    pair_counts = defaultdict(int)\n    for word, freq in word_freqs.items():\n        symbols = word.split()\n        for s in symbols:\n            symbol_counts[s] += freq\n        for i in range(len(symbols) - 1):\n            pair_counts[(symbols[i], symbols[i+1])] += freq\n    return symbol_counts, pair_counts\n\ncorpus = {\"low\": 5, \"lower\": 2, \"newest\": 6, \"widest\": 3}\nword_freqs = {\" \".join(list(word)) + \" </w>\": freq for word, freq in corpus.items()}\n\nsymbol_counts, pair_counts = get_symbol_counts_and_pairs(word_freqs)\n\nprint(f\"{'pair':>14} {'raw count':>10} {'BPE score (=count)':>19} {'WordPiece score':>16}\")\nfor pair, count in sorted(pair_counts.items(), key=lambda x: -x[1])[:6]:\n    a, b = pair\n    wordpiece_score = count / (symbol_counts[a] * symbol_counts[b])\n    print(f\"{str(pair):>14} {count:>10} {count:>19} {wordpiece_score:>16.4f}\")\n\nprint()\nbpe_choice = max(pair_counts, key=pair_counts.get)\nwordpiece_scores = {p: c / (symbol_counts[p[0]] * symbol_counts[p[1]]) for p, c in pair_counts.items()}\nwordpiece_choice = max(wordpiece_scores, key=wordpiece_scores.get)\n\nprint(f\"BPE would merge:       {bpe_choice}  (highest raw count: {pair_counts[bpe_choice]})\")\nprint(f\"WordPiece would merge: {wordpiece_choice}  (highest score: {wordpiece_scores[wordpiece_choice]:.4f})\")\nprint(f\"same choice this round: {bpe_choice == wordpiece_choice}\")"}
+  output={"          pair  raw count  BPE score (=count)  WordPiece score\n    ('e', 's')          9                   9           0.0588\n    ('s', 't')          9                   9           0.1111\n ('t', '</w>')          9                   9           0.0625\n    ('w', 'e')          8                   8           0.0294\n    ('l', 'o')          7                   7           0.1429\n    ('o', 'w')          7                   7           0.0625\n\nBPE would merge:       ('e', 's')  (highest raw count: 9)\nWordPiece would merge: ('i', 'd')  (highest score: 0.3333)\nsame choice this round: False"}
+/>
+
+<Callout kind="tip" title="A concrete divergence, verified above">
+  On this corpus, BPE merges `('e','s')` — the single highest raw count (9), driven by `e` and
+  `s` both appearing across *several* different words. WordPiece instead merges `('i','d')` —
+  a pair with a much lower raw count, but `i` and `d` are each individually **rare** (both occur
+  *only* in `"widest"`), so dividing by their small individual counts produces the highest score
+  of any candidate pair. WordPiece is explicitly rewarding a pair that co-occurs unusually
+  reliably relative to how rare its two symbols are elsewhere, even though it appears less often
+  in absolute terms.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why might WordPiece choose NOT to merge a pair with a very high raw count, if BPE would merge it?"
+  correct={2}
+  options={[
+    { text: "WordPiece always ignores raw counts entirely and merges pairs randomly", why: "WordPiece's score is directly computed FROM the counts (count(AB) divided by count(A) times count(B)) -- it isn't ignoring counts or choosing randomly, it's using a different formula built on top of them." },
+    { text: "WordPiece can only merge pairs that appear in exactly one word", why: "There's no such restriction -- WordPiece's scoring formula applies to any candidate pair regardless of how many different words it appears in." },
+    { text: "If a pair's high raw count comes mainly from BOTH symbols individually being very common (rather than from a genuine affinity between them), dividing by count(A) times count(B) shrinks its score -- WordPiece favors pairs that co-occur more than their individual frequencies alone would predict, not just pairs that are merely frequent", why: "Correct — this is exactly the mutual-information-like intuition behind WordPiece's score: a large denominator (from two individually common symbols) can pull down the score of a pair that BPE's raw-count criterion would rank highly." },
+    { text: "WordPiece requires a larger training corpus than BPE to function at all", why: "WordPiece's scoring formula works on any corpus size, including the tiny 4-word corpus used above -- there's no minimum corpus size requirement that distinguishes it from BPE." },
+  ]}
+/>
+
+## Summary
+
+WordPiece uses the same iterative merge-building structure as BPE, but scores candidate pairs
+by `count(AB)/(count(A)×count(B))` rather than raw frequency — a mutual-information-like measure
+favoring genuine co-occurrence affinity over pairs that are merely frequent because their
+individual symbols are common, verified directly above by comparing both scoring methods on the
+same corpus. The next lesson covers SentencePiece, which changes the framing once more — treating
+tokenization itself as a probabilistic model to optimize, rather than a sequence of greedy merges.
+
+## Further reading
+
+- Schuster & Nakajima, *"Japanese and Korean Voice Search"* — the paper that introduced
+  WordPiece's likelihood-based merge criterion, originally for speech recognition.

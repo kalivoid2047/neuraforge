@@ -1,0 +1,92 @@
+---
+slug: capstone-word2vec
+month: 6
+week: 4
+ord: 5
+title: "Capstone: Word2Vec From Scratch with an Evaluation Suite"
+code: "6.4.5"
+minutes: 120
+difficulty: 5
+objectives:
+  - "Assemble tokenization, skip-gram training, and negative sampling into one complete pipeline"
+  - "Build an evaluation suite covering nearest neighbours, similarity structure, and PCA variance"
+  - "Trace the full month's arc from the OOV problem to trained, evaluated embeddings"
+prereqs:
+  - "From Embeddings to a Neural Language Model ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Full Pipeline }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The month's arc, in one pipeline</h2>
+
+Trace the path from the first lesson to here: the OOV problem → BPE → WordPiece → SentencePiece
+and Viterbi segmentation → tokenizer compression trade-offs → one-hot's missing geometry → the
+distributional hypothesis → skip-gram and CBOW → negative sampling → GloVe → language models →
+n-gram smoothing → perplexity → RNNs → vanishing gradients → skip-gram gradients → embedding
+evaluation → PCA. This capstone uses the core of it: a real corpus, tokenized, trained with
+skip-gram plus negative sampling, and then *evaluated properly* rather than declared successful.
+
+<h2 id="math">The full pipeline</h2>
+
+<MathBlock tex="\text{corpus} \xrightarrow{\text{tokenize}} \text{tokens} \xrightarrow{\text{window}} (c,o)\ \text{pairs} \xrightarrow{\text{SGNS}} W_{in} \xrightarrow{\text{evaluate}} \text{nearest neighbours, similarity, PCA}" />
+
+The deliverable is `W_in` — one dense vector per vocabulary word — plus an honest evaluation of
+whether its geometry actually captures the corpus's semantic structure.
+
+<h2 id="python">The complete Word2Vec pipeline with its evaluation suite</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\n\nrng = np.random.default_rng(1)\n\n# --- 1. corpus with three distinct semantic domains ---\ncorpus_text = \"\"\"\nthe cat chased the mouse across the room\nthe dog chased the cat around the garden\nmy cat sleeps on the warm sofa all day\nmy dog sleeps beside the warm fire all night\nthe cat and the dog play together happily\nthe chef cooked fresh bread in the kitchen\nthe chef baked warm bread for the guests\nfresh bread and cheese make a fine meal\ncheese and bread taste wonderful together\nthe kitchen smells of fresh bread daily\nthe pilot flew the plane above the clouds\nthe pilot landed the plane safely at dawn\nthe plane climbed high above the white clouds\nclouds surrounded the plane during the flight\nthe pilot checked the plane before the flight\n\"\"\"\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\nsentences = [tokenize(line) for line in corpus_text.strip().split(\"\\n\")]\nvocab = sorted(set(w for s in sentences for w in s))\nw2i = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\n\n# --- 2. generate skip-gram pairs ---\nwindow = 2\npairs = []\nfor s in sentences:\n    for pos, center in enumerate(s):\n        for j in range(max(0, pos-window), min(len(s), pos+window+1)):\n            if j != pos:\n                pairs.append((w2i[center], w2i[s[j]]))\nprint(f\"vocabulary: {V} words, training pairs: {len(pairs)}\")\n\n# --- 3. the 3/4-power negative sampling distribution ---\ncounts = np.zeros(V)\nfor s in sentences:\n    for w in s:\n        counts[w2i[w]] += 1\nnoise = counts ** 0.75\nnoise = noise / noise.sum()\n\n# --- 4. train with skip-gram + negative sampling ---\nD, k, lr = 24, 5, 0.05\nW_in  = rng.normal(0, 0.2, (V, D))\nW_out = rng.normal(0, 0.2, (V, D))\n\ndef sigmoid(x):\n    return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))\n\nrecent = []\nfor epoch in range(1, 121):\n    total = 0.0\n    order = rng.permutation(len(pairs))\n    for idx in order:\n        c, o = pairs[idx]\n        negs = rng.choice(V, size=k, p=noise)\n        v_c = W_in[c]\n        s_pos = sigmoid(W_out[o] @ v_c)\n        total += -np.log(s_pos + 1e-12)\n        grad_c = (s_pos - 1.0) * W_out[o]\n        W_out[o] -= lr * (s_pos - 1.0) * v_c\n        for nidx in negs:\n            s_neg = sigmoid(W_out[nidx] @ v_c)\n            total += -np.log(1 - s_neg + 1e-12)\n            grad_c += s_neg * W_out[nidx]\n            W_out[nidx] -= lr * s_neg * v_c\n        W_in[c] -= lr * grad_c\n    recent.append(total / len(pairs))\n    if epoch % 30 == 0 or epoch == 1:\n        print(f\"  epoch {epoch:3d}: smoothed loss = {np.mean(recent[-10:]):.4f}\")\n\n# --- 5. EVALUATION SUITE ---\ndef cos(a, b):\n    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))\n\ndef nearest(word, n=3):\n    v = W_in[w2i[word]]\n    sims = [(w, cos(v, W_in[w2i[w]])) for w in vocab if w != word]\n    return sorted(sims, key=lambda x: -x[1])[:n]\n\nprint()\nprint(\"EVAL 1 -- nearest neighbours:\")\nfor probe in [\"cat\", \"bread\", \"plane\"]:\n    neighbours = \", \".join(f\"{w}({s:+.2f})\" for w, s in nearest(probe))\n    print(f\"  {probe:>6} -> {neighbours}\")\n\nprint()\nprint(\"EVAL 2 -- within-domain vs cross-domain similarity:\")\ndomains = {\n    \"pets\":     [\"cat\", \"dog\", \"sleeps\"],\n    \"food\":     [\"bread\", \"cheese\", \"chef\"],\n    \"aviation\": [\"plane\", \"pilot\", \"clouds\"],\n}\ndef mean_sim(a_words, b_words):\n    vals = [cos(W_in[w2i[a]], W_in[w2i[b]]) for a in a_words for b in b_words if a != b]\n    return float(np.mean(vals))\n\nwithin = [mean_sim(ws, ws) for ws in domains.values()]\nnames = list(domains)\ncross = [mean_sim(domains[names[i]], domains[names[j]])\n         for i in range(len(names)) for j in range(i+1, len(names))]\nfor name, ws in domains.items():\n    print(f\"  within {name:>8}: {mean_sim(ws, ws):+.4f}\")\nprint(f\"  mean within-domain:  {np.mean(within):+.4f}\")\nprint(f\"  mean cross-domain:   {np.mean(cross):+.4f}\")\nprint(f\"  separation (within - cross): {np.mean(within) - np.mean(cross):+.4f}\")\n\nprint()\nprint(\"EVAL 3 -- PCA explained variance (how trustworthy would a 2D plot be?):\")\nXc = W_in - W_in.mean(axis=0)\ncov = (Xc.T @ Xc) / (len(Xc) - 1)\neigvals = np.sort(np.linalg.eigh(cov)[0])[::-1]\nprint(f\"  top-2 components explain {eigvals[:2].sum()/eigvals.sum():.1%} of embedding variance\")\nprint(f\"  -> a 2D scatter plot of these embeddings would show only that fraction of the structure\")"}
+  output={"vocabulary: 59 words, training pairs: 382\n  epoch   1: smoothed loss = 4.1025\n  epoch  30: smoothed loss = 1.7612\n  epoch  60: smoothed loss = 1.6280\n  epoch  90: smoothed loss = 1.6054\n  epoch 120: smoothed loss = 1.6078\n\nEVAL 1 -- nearest neighbours:\n     cat -> garden(+0.73), dog(+0.71), mouse(+0.62)\n   bread -> chef(+0.69), make(+0.62), guests(+0.62)\n   plane -> pilot(+0.73), flight(+0.71), dawn(+0.63)\n\nEVAL 2 -- within-domain vs cross-domain similarity:\n  within     pets: +0.5990\n  within     food: +0.3984\n  within aviation: +0.5856\n  mean within-domain:  +0.5277\n  mean cross-domain:   +0.2780\n  separation (within - cross): +0.2496\n\nEVAL 3 -- PCA explained variance (how trustworthy would a 2D plot be?):\n  top-2 components explain 23.7% of embedding variance\n  -> a 2D scatter plot of these embeddings would show only that fraction of the structure"}
+/>
+
+<Callout kind="tip" title="Reporting the PCA number is the honest part">
+  It would be easy to stop at EVAL 1, show a few plausible nearest neighbours, and declare
+  success — and EVAL 1 above genuinely does look good (`plane → pilot, flight`). But EVAL 2
+  shows the within-vs-cross-domain separation is only `+0.25`, and EVAL 3 shows the top two
+  principal components capture just **23.7%** of the variance, meaning a 2D scatter plot of
+  these embeddings would hide roughly three-quarters of their actual structure. Both are honest,
+  unremarkable numbers for a 15-sentence corpus — and reporting them is exactly the point of
+  building an evaluation *suite* instead of cherry-picking one favourable example.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does this capstone report three different evaluations rather than just showing nearest neighbours?"
+  correct={0}
+  options={[
+    { text: "Nearest neighbours alone is easy to cherry-pick -- a few plausible-looking results say nothing about whether the space separates domains overall, or how much structure a 2D plot could actually convey; the other two evaluations quantify exactly those things", why: "Correct — this is the same evidence-based evaluation discipline from Month 5's classifier capstone, applied to embeddings: a single favourable example is not evidence, so the suite measures aggregate separation and visualization trustworthiness too." },
+    { text: "The three evaluations are mathematically equivalent and serve as redundant checks", why: "They measure genuinely different properties -- local neighbourhood quality, global domain separation, and dimensionality of the variance. The previous lesson demonstrated concretely that a space can score well on one intrinsic metric and poorly on another." },
+    { text: "PCA explained variance is required to compute cosine similarity", why: "Cosine similarity is computed directly from the embedding vectors and needs no PCA at all -- the two evaluations are independent, and EVAL 1 and 2 run without any PCA computation." },
+    { text: "Because nearest-neighbour search doesn't work for vocabularies larger than 50 words", why: "Nearest-neighbour search works at any vocabulary size (it's used on million-word vocabularies routinely) -- the motivation for the additional evaluations is about evidence quality, not a size limitation." },
+  ]}
+/>
+
+## Month 6 summary
+
+This month built the representation layer that sits between raw text and a language model.
+Week one solved the out-of-vocabulary problem with subword tokenization — BPE's frequency-based
+merging, WordPiece's likelihood criterion, SentencePiece's language-agnostic Viterbi
+segmentation — and measured the real compression trade-offs that follow from a tokenizer's
+training distribution. Week two gave tokens a geometry: one-hot's total absence of similarity
+structure, the distributional hypothesis that makes embeddings learnable from unlabeled text,
+Word2Vec's skip-gram/CBOW objectives, negative sampling, and GloVe's co-occurrence-ratio
+framing. Week three built language modeling itself: the chain rule factorization, n-gram
+smoothing, perplexity, RNNs, and the vanishing gradient problem that caps what recurrence can
+learn. Week four trained and honestly evaluated real embeddings, closing with this capstone.
+
+**Month 7 begins exactly where week three's final lesson left off**: attention was invented
+specifically to solve the long-range dependency problem that vanishing gradients make
+unreachable for RNNs.
+
+## Further reading
+
+- Mikolov et al., *"Distributed Representations of Words and Phrases and their
+  Compositionality"* — the Word2Vec paper this capstone implements.
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 6 — the full vector semantics
+  chapter, covering everything from co-occurrence matrices through modern embeddings.

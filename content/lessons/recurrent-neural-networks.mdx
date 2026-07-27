@@ -1,0 +1,86 @@
+---
+slug: recurrent-neural-networks
+month: 6
+week: 3
+ord: 4
+title: "Recurrent Neural Networks for Language Modeling"
+code: "6.3.4"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Describe the RNN recurrence relation and the role of the hidden state"
+  - "Implement an RNN forward pass over a sequence, from scratch"
+  - "Explain how weight sharing across timesteps escapes the n-gram sparsity trap"
+prereqs:
+  - "Perplexity: The Standard Language Model Metric ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Recurrence Relation }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A memory that carries forward, instead of a fixed window</h2>
+
+N-gram models are trapped: a bigram sees one word back, a 5-gram sees four, and extending
+further makes counts hopelessly sparse. A **recurrent neural network** breaks this by
+maintaining a **hidden state** — a vector summarizing everything seen so far — that gets updated
+at each token and carried forward. In principle, information from *any* earlier position can
+persist in that state, with no fixed window and no exponentially-growing count table.
+
+<h2 id="math">The recurrence relation</h2>
+
+At each timestep `t`, the RNN combines the current token's embedding `x_t` with the previous
+hidden state `h_{t-1}` to produce a new hidden state:
+
+<MathBlock tex="h_t = \tanh(W_{xh}x_t + W_{hh}h_{t-1} + b_h) \qquad y_t = W_{hy}h_t + b_y" />
+
+`y_t` are the output logits, which softmax turns into a next-token distribution. Crucially, the
+**same** weight matrices `W_{xh}`, `W_{hh}`, `W_{hy}` are reused at *every* timestep — the
+network learns one update rule and applies it repeatedly, rather than learning separate
+parameters per position.
+
+<Callout kind="tip" title="Weight sharing is what escapes the sparsity trap">
+  An n-gram model must observe each specific n-gram to learn anything about it. An RNN instead
+  learns a general *update rule* applied at every position, so patterns learned from one context
+  transfer to others — and its parameter count stays fixed regardless of sequence length, rather
+  than growing as `|V|^n`. This is the same weight-sharing idea that made convolution
+  parameter-efficient in Month 4, applied along the time dimension instead of across an image.
+</Callout>
+
+<h2 id="python">An RNN forward pass over a sequence, implemented from scratch</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\nvocab = [\"the\", \"cat\", \"sat\", \"on\", \"mat\"]\nword_to_index = {w: i for i, w in enumerate(vocab)}\nV = len(vocab)\nembedding_dim = 4\nhidden_dim = 6\n\n# parameters -- note there is exactly ONE of each, reused at every timestep\nE = rng.normal(0, 0.5, (V, embedding_dim))        # embedding table (week two's subject)\nW_xh = rng.normal(0, 0.5, (embedding_dim, hidden_dim))\nW_hh = rng.normal(0, 0.5, (hidden_dim, hidden_dim))\nb_h = np.zeros(hidden_dim)\nW_hy = rng.normal(0, 0.5, (hidden_dim, V))\nb_y = np.zeros(V)\n\ndef softmax(z):\n    e = np.exp(z - np.max(z))\n    return e / e.sum()\n\ndef rnn_forward(tokens):\n    h = np.zeros(hidden_dim)   # initial hidden state: no memory yet\n    states, predictions = [], []\n    for token in tokens:\n        x = E[word_to_index[token]]                       # look up this token's embedding\n        h = np.tanh(x @ W_xh + h @ W_hh + b_h)            # THE recurrence: new state from input + old state\n        logits = h @ W_hy + b_y\n        states.append(h.copy())\n        predictions.append(softmax(logits))\n    return states, predictions\n\nsequence = [\"the\", \"cat\", \"sat\", \"on\"]\nstates, predictions = rnn_forward(sequence)\n\nprint(f\"sequence: {sequence}\")\nprint(f\"hidden state dimension: {hidden_dim}\")\nprint()\nfor t, (token, h, p) in enumerate(zip(sequence, states, predictions)):\n    top_idx = int(np.argmax(p))\n    print(f\"t={t} after '{token}':\")\n    print(f\"  hidden state: {h.round(3)}\")\n    print(f\"  predicted next token: '{vocab[top_idx]}' (p={p[top_idx]:.3f})\")\n\nprint()\nprint(\"the hidden state CHANGES at every step, carrying forward a summary of everything seen.\")\nprint()\n\n# demonstrate weight sharing: parameter count is INDEPENDENT of sequence length\nn_params = E.size + W_xh.size + W_hh.size + b_h.size + W_hy.size + b_y.size\nprint(f\"total parameters: {n_params}\")\nfor length in [4, 40, 4000]:\n    print(f\"  processing a {length}-token sequence still uses exactly {n_params} parameters\")\nprint()\nprint(f\"compare an n-gram table: a 5-gram model over this {V}-word vocabulary would need up to\")\nprint(f\"{V}^5 = {V**5} counts -- and that explodes as vocabulary or n grows.\")"}
+  output={"sequence: ['the', 'cat', 'sat', 'on']\nhidden state dimension: 6\n\nt=0 after 'the':\n  hidden state: [ 0.016  0.197 -0.004  0.1   -0.008  0.01 ]\n  predicted next token: 'the' (p=0.214)\nt=1 after 'cat':\n  hidden state: [ 0.21   0.118 -0.153  0.476 -0.142  0.236]\n  predicted next token: 'the' (p=0.277)\nt=2 after 'sat':\n  hidden state: [ 0.712 -0.284  0.426  0.124  0.626  0.727]\n  predicted next token: 'cat' (p=0.313)\nt=3 after 'on':\n  hidden state: [ 0.809 -0.975  0.564  0.377  0.571  0.56 ]\n  predicted next token: 'cat' (p=0.379)\n\nthe hidden state CHANGES at every step, carrying forward a summary of everything seen.\n\ntotal parameters: 121\n  processing a 4-token sequence still uses exactly 121 parameters\n  processing a 40-token sequence still uses exactly 121 parameters\n  processing a 4000-token sequence still uses exactly 121 parameters\n\ncompare an n-gram table: a 5-gram model over this 5-word vocabulary would need up to\n5^5 = 3125 counts -- and that explodes as vocabulary or n grows."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does an RNN reuse the SAME weight matrices at every timestep, rather than learning separate parameters for each position in the sequence?"
+  correct={2}
+  options={[
+    { text: "Separate per-position weights would be mathematically impossible to compute", why: "Per-position weights are perfectly computable -- the issue is that they'd require a fixed maximum sequence length, would multiply the parameter count, and would prevent patterns learned at one position from transferring to others." },
+    { text: "Weight sharing is required to make the tanh activation function work correctly", why: "tanh works identically whether weights are shared or not -- it's an elementwise function with no dependence on how the weights feeding into it were parameterized." },
+    { text: "Sharing weights means the network learns one general update rule applicable at any position, so patterns learned in one context transfer to others, and the parameter count stays fixed regardless of sequence length -- rather than growing with position count the way an n-gram table grows as |V|^n", why: "Correct — this is exactly the escape from the sparsity trap: a fixed-size set of shared parameters that generalizes across positions, instead of needing to separately observe and store every specific context." },
+    { text: "It's an arbitrary convention with no practical consequence", why: "It has major practical consequences -- it's precisely what keeps the parameter count constant regardless of sequence length and lets learned patterns generalize across positions, as the parameter-count demonstration above shows." },
+  ]}
+/>
+
+## Summary
+
+An RNN maintains a hidden state vector that is updated at each timestep from the current token's
+embedding and the previous state, then used to predict the next token — with the *same* weight
+matrices reused at every position. That weight sharing is what escapes the n-gram sparsity trap:
+parameter count stays fixed regardless of sequence length (verified above: the same 121
+parameters process a 4-token or a 4000-token sequence), while an n-gram table would grow as
+`|V|^n`. The next lesson covers the vanishing gradient problem — the reason RNNs struggle in
+practice with exactly the long-range dependencies they were designed to capture.
+
+## Further reading
+
+- Karpathy, *"The Unreasonable Effectiveness of Recurrent Neural Networks"* — a highly readable
+  introduction to character-level RNN language models, with the same forward pass implemented
+  above.

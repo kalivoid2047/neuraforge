@@ -1,0 +1,83 @@
+---
+slug: byte-pair-encoding
+month: 6
+week: 1
+ord: 2
+title: "Byte-Pair Encoding (BPE) from Scratch"
+code: "6.1.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Implement the BPE training algorithm: repeatedly merge the most frequent adjacent symbol pair"
+  - "Tokenize new text using a trained BPE merge list"
+  - "Explain how BPE guarantees zero out-of-vocabulary tokens, even for unseen words"
+prereqs:
+  - "Why Word-Level Tokenization Breaks Down ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The BPE Algorithm }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Building a vocabulary bottom-up, from individual characters</h2>
+
+**Byte-Pair Encoding (BPE)** solves the OOV problem by starting from individual characters (or
+bytes) — a vocabulary of *those* is tiny and complete, every possible input is built from them —
+and then greedily merging the most frequent *adjacent pair* of symbols into a new, single
+symbol, repeated many times. The result is a vocabulary of common subword chunks: frequent whole
+words end up as single tokens, rare or unseen words get split into smaller familiar pieces, and
+absolute worst case, a word falls back to individual characters — never a total OOV failure.
+
+<h2 id="math">The BPE algorithm</h2>
+
+Starting from a corpus split into characters (with a special end-of-word marker so merges don't
+cross word boundaries):
+
+1. Count every adjacent symbol pair's frequency across the whole corpus
+2. Merge the single most frequent pair into one new symbol, everywhere it occurs
+3. Repeat steps 1–2 a fixed number of times (or until reaching a target vocabulary size)
+
+<Callout kind="tip" title="Why this guarantees no OOV, ever">
+  Since the starting vocabulary is individual characters, and merges only ever *combine* existing
+  symbols, every possible string can always be represented — in the worst case, by falling all
+  the way back to individual characters. A brand-new word, a typo, or a word in a different
+  script all still tokenize into *something*, even if it's a longer sequence of smaller pieces
+  than a common word would need. That's a graceful degradation, not a crash.
+</Callout>
+
+<h2 id="python">Training and applying BPE, verified by hand</h2>
+
+<CodeCell
+  code={"from collections import defaultdict\n\ndef get_pair_counts(word_freqs):\n    pairs = defaultdict(int)\n    for word, freq in word_freqs.items():\n        symbols = word.split()\n        for i in range(len(symbols) - 1):\n            pairs[(symbols[i], symbols[i+1])] += freq\n    return pairs\n\ndef merge_pair(pair, word_freqs):\n    merged = \"\".join(pair)\n    new_word_freqs = {}\n    for word, freq in word_freqs.items():\n        symbols = word.split()\n        new_symbols = []\n        i = 0\n        while i < len(symbols):\n            if i < len(symbols) - 1 and symbols[i] == pair[0] and symbols[i+1] == pair[1]:\n                new_symbols.append(merged)\n                i += 2\n            else:\n                new_symbols.append(symbols[i])\n                i += 1\n        new_word_freqs[\" \".join(new_symbols)] = freq\n    return new_word_freqs\n\n# a tiny training corpus: word -> frequency, each word pre-split into characters + end marker\ncorpus = {\"low\": 5, \"lower\": 2, \"newest\": 6, \"widest\": 3}\nword_freqs = {\" \".join(list(word)) + \" </w>\": freq for word, freq in corpus.items()}\nprint(\"initial character-level representation:\")\nfor word, freq in word_freqs.items():\n    print(f\"  '{word}' (freq={freq})\")\nprint()\n\nn_merges = 8\nmerges = []\nfor step in range(n_merges):\n    pairs = get_pair_counts(word_freqs)\n    if not pairs:\n        break\n    best_pair = max(pairs, key=pairs.get)\n    merges.append(best_pair)\n    word_freqs = merge_pair(best_pair, word_freqs)\n    print(f\"merge {step+1}: {best_pair} (count={pairs[best_pair]})  ->  '{''.join(best_pair)}'\")\n\nprint()\nprint(\"final subword representation:\")\nfor word, freq in word_freqs.items():\n    print(f\"  '{word}' (freq={freq})\")\nprint()\n\n# apply the learned merges to a NEW, unseen word -- 'lowest' was never in the training corpus\ndef apply_bpe(word, merges):\n    symbols = list(word) + [\"</w>\"]\n    word_str = \" \".join(symbols)\n    for pair in merges:\n        word_str = merge_pair(pair, {word_str: 1})\n        word_str = list(word_str.keys())[0]\n    return word_str\n\nnew_word = \"lowest\"\ntokenized = apply_bpe(new_word, merges)\nprint(f\"tokenizing UNSEEN word '{new_word}' using the learned merges:\")\nprint(f\"  -> {tokenized}\")\nprint(\"never a total failure -- 'lowest' reuses subword pieces learned from 'low' and 'newest'/'widest'.\")"}
+  output={"initial character-level representation:\n  'l o w </w>' (freq=5)\n  'l o w e r </w>' (freq=2)\n  'n e w e s t </w>' (freq=6)\n  'w i d e s t </w>' (freq=3)\n\nmerge 1: ('e', 's') (count=9)  ->  'es'\nmerge 2: ('es', 't') (count=9)  ->  'est'\nmerge 3: ('est', '</w>') (count=9)  ->  'est</w>'\nmerge 4: ('l', 'o') (count=7)  ->  'lo'\nmerge 5: ('lo', 'w') (count=7)  ->  'low'\nmerge 6: ('n', 'e') (count=6)  ->  'ne'\nmerge 7: ('ne', 'w') (count=6)  ->  'new'\nmerge 8: ('new', 'est</w>') (count=6)  ->  'newest</w>'\n\nfinal subword representation:\n  'low </w>' (freq=5)\n  'low e r </w>' (freq=2)\n  'newest</w>' (freq=6)\n  'w i d est</w>' (freq=3)\n\ntokenizing UNSEEN word 'lowest' using the learned merges:\n  -> low est</w>\nnever a total failure -- 'lowest' reuses subword pieces learned from 'low' and 'newest'/'widest'."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does BPE start from individual CHARACTERS rather than whole words, even though the goal is to end up with a vocabulary of useful word-like chunks?"
+  correct={1}
+  options={[
+    { text: "Starting from characters makes the algorithm run faster", why: "Starting from characters doesn't make BPE run faster -- in fact it requires more merge steps to build up to word-length units. The reason for starting there is about GUARANTEEING coverage, not speed." },
+    { text: "A vocabulary of individual characters is small and complete -- every possible string can be built from characters, so starting there guarantees that merges (which only ever combine existing symbols) can never produce a word that can't be represented, even in the worst case falling back to individual characters", why: "Correct — this is exactly the guarantee verified in the code above: tokenizing the never-before-seen word 'lowest' still produces valid output by reusing learned subword pieces, precisely because the character-level foundation ensures total coverage." },
+    { text: "Characters are used only for languages that don't have clear word boundaries, like Chinese", why: "BPE's character-level starting point is used universally across languages, including English -- it's not a special-case mechanism only for languages without clear word boundaries." },
+    { text: "It's an arbitrary implementation choice with no bearing on OOV handling", why: "It's not arbitrary -- it's specifically what gives BPE its OOV-proof guarantee. Starting from any other unit (like whole words) would reintroduce exactly the OOV problem this algorithm exists to solve." },
+  ]}
+/>
+
+## Summary
+
+BPE starts from individual characters (a small, complete vocabulary) and repeatedly merges the
+most frequent adjacent pair, building up a vocabulary of common subword chunks — verified above
+by training on a tiny corpus and then tokenizing "lowest," a word never seen during training,
+using the learned merges. Because merges only ever combine existing symbols, BPE can always
+represent any input, degrading gracefully to smaller pieces rather than failing outright. The
+next lesson covers WordPiece, a closely related algorithm that changes *which* pair gets merged
+at each step.
+
+## Further reading
+
+- Sennrich, Haddow & Birch, *"Neural Machine Translation of Rare Words with Subword Units"* —
+  the original BPE-for-NLP paper, with the exact algorithm implemented above.

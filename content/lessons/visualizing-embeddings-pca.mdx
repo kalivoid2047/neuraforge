@@ -1,0 +1,92 @@
+---
+slug: visualizing-embeddings-pca
+month: 6
+week: 4
+ord: 3
+title: "Visualizing Embeddings with PCA"
+code: "6.4.3"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Implement PCA from scratch using the eigendecomposition from Month 2"
+  - "Project high-dimensional embeddings down to 2D and inspect the resulting cluster structure"
+  - "Explain what a low explained-variance ratio means for how much to trust a 2D plot"
+prereqs:
+  - "Evaluating Embeddings: Analogies and Similarity ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: PCA via Eigendecomposition }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Seeing a 300-dimensional space on a flat screen</h2>
+
+Embeddings live in hundreds of dimensions; humans see two. **Principal Component Analysis
+(PCA)** finds the directions along which the data varies *most*, then projects onto the top few
+— keeping as much of the original spread as possible in the reduced space. This directly reuses
+Month 2's eigenvalues and eigenvectors: PCA is precisely the eigendecomposition of the data's
+covariance matrix.
+
+<h2 id="math">PCA via eigendecomposition</h2>
+
+Given centered data `X` (mean subtracted from every column):
+
+<MathBlock tex="\Sigma = \frac{1}{n-1}X^\top X \qquad \Sigma v_i = \lambda_i v_i" />
+
+The eigenvectors `v_i` of the covariance matrix are the **principal components** — the
+directions of greatest variance — and each eigenvalue `λ_i` is exactly how much variance lies
+along its direction. Sorting by eigenvalue and keeping the top `k` gives the best possible
+`k`-dimensional linear projection, in the sense of preserving the most variance.
+
+The **explained variance ratio** for the top `k` components says how much of the total spread
+survived the projection:
+
+<MathBlock tex="\text{explained variance ratio} = \frac{\sum_{i=1}^{k}\lambda_i}{\sum_{j}\lambda_j}" />
+
+<Callout kind="warning" title="A 2D embedding plot can be actively misleading">
+  If the top two components explain only, say, 25% of the variance, then 75% of the structure
+  that actually distinguishes those embeddings is *invisible* in the plot. Words that appear
+  adjacent on screen may be far apart in the real space, and vice versa. Always report the
+  explained variance ratio alongside any embedding visualization — a beautiful-looking cluster
+  plot with 15% explained variance is close to decorative.
+</Callout>
+
+<h2 id="python">PCA from scratch, with explained variance reported</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# 8-dimensional embeddings for three deliberately distinct semantic groups\nrng = np.random.default_rng(0)\n\ndef make_group(center, n, spread=0.15):\n    return center + rng.normal(0, spread, (n, 8))\n\nanimal_center  = np.array([2.0, 2.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0])\nroyalty_center = np.array([0.0, 0.0, 2.0, 2.0, 0.0, 0.1, 0.0, 0.0])\nfood_center    = np.array([0.0, 0.1, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0])\n\nwords  = [\"cat\", \"dog\", \"horse\", \"king\", \"queen\", \"prince\", \"bread\", \"cheese\", \"apple\"]\nlabels = [\"animal\"]*3 + [\"royalty\"]*3 + [\"food\"]*3\nX = np.vstack([make_group(animal_center, 3), make_group(royalty_center, 3), make_group(food_center, 3)])\nprint(f\"embedding matrix shape: {X.shape} (9 words, 8 dimensions)\")\nprint()\n\ndef pca(X, n_components=2):\n    X_centered = X - X.mean(axis=0)                       # center the data\n    cov = (X_centered.T @ X_centered) / (len(X) - 1)      # covariance matrix\n    eigenvalues, eigenvectors = np.linalg.eigh(cov)       # eigh: symmetric matrix -> real eigenvalues\n    order = np.argsort(eigenvalues)[::-1]                 # sort descending by eigenvalue\n    eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]\n    projected = X_centered @ eigenvectors[:, :n_components]\n    explained = eigenvalues[:n_components].sum() / eigenvalues.sum()\n    return projected, float(explained), eigenvalues\n\nprojected, explained_ratio, eigenvalues = pca(X, n_components=2)\n\nprint(\"eigenvalues (variance along each principal component), largest first:\")\nprint(\" \", eigenvalues.round(4))\nprint()\nprint(f\"explained variance ratio for the top 2 components: {explained_ratio:.4f} ({explained_ratio*100:.1f}%)\")\nprint()\n\nprint(f\"{'word':>8} {'group':>9} {'PC1':>9} {'PC2':>9}\")\nfor w, lab, (pc1, pc2) in zip(words, labels, projected):\n    print(f\"{w:>8} {lab:>9} {pc1:>9.3f} {pc2:>9.3f}\")\nprint()\n\n# verify the projection preserved group structure: within-group vs between-group distances\ndef mean_distance(indices_a, indices_b):\n    ds = [np.linalg.norm(projected[i] - projected[j]) for i in indices_a for j in indices_b if i != j]\n    return float(np.mean(ds))\n\nanimals, royals, foods = [0,1,2], [3,4,5], [6,7,8]\nprint(f\"mean WITHIN-group distance in 2D:  animals={mean_distance(animals,animals):.3f}, \"\n      f\"royalty={mean_distance(royals,royals):.3f}, food={mean_distance(foods,foods):.3f}\")\nprint(f\"mean BETWEEN-group distance in 2D: animals<->royalty={mean_distance(animals,royals):.3f}, \"\n      f\"animals<->food={mean_distance(animals,foods):.3f}\")\nprint()\nprint(\"between-group distances are far larger than within-group ones, so the 2D projection\")\nprint(\"genuinely preserved the cluster structure -- which the high explained variance predicts.\")"}
+  output={"embedding matrix shape: (9, 8) (9 words, 8 dimensions)\n\neigenvalues (variance along each principal component), largest first:\n  [3.0087e+00 2.5723e+00 4.7100e-02 2.8600e-02 8.8000e-03 4.5000e-03\n 2.3000e-03 1.1000e-03]\n\nexplained variance ratio for the top 2 components: 0.9837 (98.4%)\n\n    word     group       PC1       PC2\n     cat    animal    -0.926    -2.000\n     dog    animal    -0.869    -2.052\n   horse    animal    -0.911    -1.836\n    king   royalty     2.073     0.193\n   queen   royalty     2.335     0.234\n  prince   royalty     2.445     0.326\n   bread      food    -1.594     1.671\n  cheese      food    -1.497     1.662\n   apple      food    -1.056     1.801\n\nmean WITHIN-group distance in 2D:  animals=0.154, royalty=0.268, food=0.371\nmean BETWEEN-group distance in 2D: animals<->royalty=3.881, animals<->food=3.713\n\nbetween-group distances are far larger than within-group ones, so the 2D projection\ngenuinely preserved the cluster structure -- which the high explained variance predicts."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A 2D PCA plot of some embeddings reports an explained variance ratio of 0.18. What should you conclude from the plot?"
+  correct={2}
+  options={[
+    { text: "The embeddings are of poor quality and should be retrained", why: "A low explained variance ratio says the DATA is spread across many dimensions roughly evenly -- that's a statement about dimensionality, not about embedding quality. High-quality embeddings routinely have low 2D explained variance precisely because they encode many distinct kinds of information." },
+    { text: "The plot is reliable, since PCA always finds the optimal projection", why: "PCA does find the optimal LINEAR 2D projection -- but 'optimal' here still only captured 18% of the variance. Being the best available 2D view doesn't make it a faithful one." },
+    { text: "Only 18% of the variation between these embeddings is visible in the plot -- the other 82% of the distinguishing structure is invisible, so apparent closeness or distance on screen may not reflect actual relationships in the full space", why: "Correct — this is exactly why the explained variance ratio must be reported alongside any embedding visualization: it quantifies how much of the real structure the picture is actually showing." },
+    { text: "The plot shows 18% of the words in the vocabulary", why: "The explained variance ratio measures retained VARIANCE, not a fraction of words -- every word is plotted, but each one's position reflects only the 18% of variation captured by the top two components." },
+  ]}
+/>
+
+## Summary
+
+PCA projects high-dimensional embeddings into a viewable 2D space by finding the eigenvectors of
+the covariance matrix — directly reusing Month 2's eigendecomposition — and keeping those with
+the largest eigenvalues, since each eigenvalue *is* the variance along its direction. The
+explained variance ratio quantifies how much real structure survived the projection, and must be
+reported alongside any embedding plot: a low value means most of what distinguishes the
+embeddings is invisible on screen. Verified above with three semantic groups whose separation
+survives the projection cleanly. The next lesson connects embeddings back to language modeling
+before the capstone.
+
+## Further reading
+
+- Jolliffe, *Principal Component Analysis* — the standard reference, including the covariance
+  eigendecomposition derivation implemented above.
+- van der Maaten & Hinton, *"Visualizing Data using t-SNE"* — a nonlinear alternative that often
+  reveals cluster structure PCA's linear projection misses.

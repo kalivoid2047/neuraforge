@@ -1,0 +1,87 @@
+---
+slug: what-is-a-language-model
+month: 6
+week: 3
+ord: 1
+title: "What Is a Language Model?"
+code: "6.3.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Define a language model as a probability distribution over token sequences"
+  - "Apply the chain rule of probability to factor a sequence probability into next-token predictions"
+  - "Generate text by sampling from a trained next-token distribution"
+prereqs:
+  - "GloVe: Embeddings from Global Co-occurrence Ratios ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Chain Rule of Probability }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: predicting what comes next</h2>
+
+A **language model** assigns a probability to any sequence of tokens — high for fluent,
+plausible text and low for gibberish. That single capability is more powerful than it sounds:
+because of how sequence probability factors, a model that can assign probabilities to sequences
+is *exactly* a model that can predict the next token given everything before it — which is the
+entire basis of text generation, and the training objective behind every LLM covered in the
+rest of this curriculum.
+
+<h2 id="math">The chain rule of probability</h2>
+
+The probability of a whole sequence factors into a product of next-token conditional
+probabilities — a direct application of the conditional probability definition from Month 5,
+week one, applied repeatedly:
+
+<MathBlock tex="P(w_1, w_2, \ldots, w_n) = \prod_{i=1}^{n} P(w_i \mid w_1, \ldots, w_{i-1})" />
+
+This factorization is why "assign probability to sequences" and "predict the next token" are the
+same problem. Training maximizes this sequence probability — which, taking logs (Month 5, week
+two), is exactly maximum likelihood estimation, and equivalently cross-entropy minimization over
+next-token predictions.
+
+<Callout kind="tip" title="Generation is just repeated sampling from the next-token distribution">
+  Once you can compute `P(next token | everything so far)`, generating text is straightforward:
+  sample a token from that distribution, append it to the context, and repeat. Every difference
+  between a coherent LLM response and random noise comes down to how well the model estimates
+  that one conditional distribution — and how you sample from it (a topic Month 8 covers in
+  depth: temperature, top-k, top-p).
+</Callout>
+
+<h2 id="python">A bigram language model: scoring sequences and generating text</h2>
+
+<CodeCell
+  code={"import re\nimport numpy as np\nfrom collections import defaultdict\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\ncorpus = [\n    \"the cat sat on the mat\",\n    \"the cat ate the fish\",\n    \"the dog sat on the rug\",\n    \"the dog ate the bone\",\n    \"a cat ate a fish\",\n]\n\n# count bigrams to estimate P(next | current) -- the MLE from Month 5, applied to word pairs\nbigram_counts = defaultdict(lambda: defaultdict(int))\nfor doc in corpus:\n    tokens = [\"<start>\"] + tokenize(doc) + [\"<end>\"]\n    for i in range(len(tokens) - 1):\n        bigram_counts[tokens[i]][tokens[i+1]] += 1\n\ndef next_token_distribution(context_word):\n    counts = bigram_counts[context_word]\n    total = sum(counts.values())\n    return {w: c / total for w, c in counts.items()} if total else {}\n\nprint(\"P(next | 'the'):\")\nfor w, p in sorted(next_token_distribution(\"the\").items(), key=lambda x: -x[1]):\n    print(f\"  {w:>8}: {p:.4f}\")\nprint()\n\n# score a whole sequence via the chain rule\ndef sequence_log_probability(sentence):\n    tokens = [\"<start>\"] + tokenize(sentence) + [\"<end>\"]\n    total_log_p = 0.0\n    for i in range(len(tokens) - 1):\n        dist = next_token_distribution(tokens[i])\n        p = dist.get(tokens[i+1], 0.0)\n        if p == 0.0:\n            return float('-inf')   # sequence is impossible under this model\n        total_log_p += np.log(p)\n    return total_log_p\n\ntest_sentences = [\"the cat sat on the mat\", \"the dog ate the bone\", \"the mat ate the cat\"]\nprint(\"sequence log-probabilities (via the chain rule):\")\nfor s in test_sentences:\n    lp = sequence_log_probability(s)\n    lp_str = f\"{lp:.4f}\" if lp != float('-inf') else \"-inf (impossible)\"\n    print(f\"  '{s}': {lp_str}\")\nprint()\n\n# generate text by repeatedly sampling from the next-token distribution\nrng = np.random.default_rng(0)\ndef generate(max_tokens=10):\n    current = \"<start>\"\n    output = []\n    for _ in range(max_tokens):\n        dist = next_token_distribution(current)\n        if not dist:\n            break\n        words, probs = list(dist.keys()), list(dist.values())\n        current = rng.choice(words, p=probs)\n        if current == \"<end>\":\n            break\n        output.append(current)\n    return \" \".join(output)\n\nprint(\"generated samples (repeated sampling from the next-token distribution):\")\nfor _ in range(4):\n    print(f\"  '{generate()}'\")"}
+  output={"P(next | 'the'):\n       cat: 0.2500\n       dog: 0.2500\n       mat: 0.1250\n      fish: 0.1250\n       rug: 0.1250\n      bone: 0.1250\n\nsequence log-probabilities (via the chain rule):\n  'the cat sat on the mat': -4.7875\n  'the dog ate the bone': -4.7875\n  'the mat ate the cat': -inf (impossible)\n\ngenerated samples (repeated sampling from the next-token distribution):\n  'the mat'\n  'the rug'\n  'the dog ate a fish'\n  'a cat ate the rug'"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is 'assign a probability to a whole sequence' the SAME capability as 'predict the next token'?"
+  correct={1}
+  options={[
+    { text: "They aren't the same -- sequence scoring requires a completely separate model from next-token prediction", why: "They are directly equivalent, connected by the chain rule of probability -- the same model provides both, as the code above demonstrates by using one set of bigram probabilities for both scoring and generation." },
+    { text: "The chain rule of probability factors any sequence's probability into a PRODUCT of next-token conditional probabilities, so a model that provides each conditional probability automatically provides the sequence probability (and vice versa)", why: "Correct — this factorization is exactly why the two capabilities are equivalent, and why 'predict the next token' is the universal training objective for language models that also need to score sequences." },
+    { text: "Because all sequences of the same length have equal probability", why: "Sequences of the same length very much do NOT have equal probability -- the code above shows 'the cat sat on the mat' has a finite log-probability while 'the mat ate the cat' is impossible under the model, despite similar length." },
+    { text: "Because language models only ever process one token at a time and never see sequences", why: "Language models absolutely do process sequences (the conditional probability is conditioned on ALL preceding tokens) -- the equivalence comes from the chain rule's factorization, not from any restriction to single tokens." },
+  ]}
+/>
+
+## Summary
+
+A language model is a probability distribution over token sequences, and the chain rule of
+probability factors any sequence's probability into a product of next-token conditionals —
+making "score a sequence" and "predict the next token" the same capability, verified above with
+a bigram model that does both from one set of estimated probabilities, plus generates text by
+repeatedly sampling from its next-token distribution. The next lesson makes n-gram language
+models practical by addressing what happens when an unseen n-gram makes the whole sequence
+probability collapse to zero.
+
+## Further reading
+
+- Jurafsky & Martin, *Speech and Language Processing*, Ch. 3 — n-gram language models, the
+  chain rule factorization, and text generation by sampling.

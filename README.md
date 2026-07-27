@@ -60,20 +60,25 @@ work, authored as [`.mdx` files](content/lessons/) per a lightweight version of
 [ADR-0005](docs/adr/0005-content-as-code.md) (no schema validation/versioning/publish pipeline
 yet — see the ADR for what's deliberately deferred).
 
-**Months 1, 2, 3, 4, 5, and 7 complete: 120/240 lessons.** Month 1 (Python & Math Foundations →
-Matrix Calculator), Month 2 (Linear Algebra & Neural Nets I → Neural Network From Scratch),
-Month 3 (Calculus, Optimization & Backprop → Backpropagation Engine, a from-scratch
+**Months 1–7 complete: 140/240 lessons — and now contiguous.** Month 1 (Python & Math
+Foundations → Matrix Calculator), Month 2 (Linear Algebra & Neural Nets I → Neural Network From
+Scratch), Month 3 (Calculus, Optimization & Backprop → Backpropagation Engine, a from-scratch
 micrograd-style autograd library that trains a real MLP to solve XOR), Month 4 (Deep Learning
 with PyTorch → Image Classifier, a from-scratch conv/pool/linear network trained on synthetic
 images — PyTorch snippets are reference-only since Pyodide doesn't ship `torch`, with every
 interactive cell verified via an equivalent NumPy implementation instead), Month 5 (Probability,
 Statistics & NLP I → Text Classifier, covering probability/information theory through to a
 from-scratch classical NLP pipeline — bag-of-words, TF-IDF, Naive Bayes — plus a neural
-classifier, compared fairly via cross-validated precision/recall/F1), and Month 7 (Transformers
-From Scratch) are each fully authored, 20/20 lessons. Months 6 and 8–12 (120 lessons) are not
-yet authored — the curriculum is not sequentially navigable end to end yet; `/learn/[slug]`
-correctly flags month-boundary gaps rather than presenting a cross-month jump as the next lesson
-in sequence.
+classifier, compared fairly via cross-validated precision/recall/F1), Month 6 (Embeddings &
+Language Modeling I → Word2Vec from scratch with an evaluation suite, covering subword
+tokenization (BPE/WordPiece/SentencePiece), embeddings, n-gram and RNN language models,
+perplexity, and the vanishing-gradient limitation that motivates attention), and Month 7
+(Transformers From Scratch) are each fully authored, 20/20 lessons.
+
+Months 1 through 7 now run end to end with no gaps, so `/learn/[slug]` presents each
+month-to-month transition as a normal "next lesson." Months 8–12 (100 lessons) are not yet
+authored; the navigation still flags a genuine month gap explicitly rather than presenting a
+skip as the next lesson in sequence.
 
 ## License
 

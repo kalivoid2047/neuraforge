@@ -1,0 +1,89 @@
+---
+slug: word2vec-skipgram-cbow
+month: 6
+week: 2
+ord: 3
+title: "Word2Vec: Skip-gram and CBOW"
+code: "6.2.3"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Describe the skip-gram and CBOW training objectives and how they differ"
+  - "Generate (center, context) training pairs from a corpus with a sliding window"
+  - "Explain why the learned embedding matrix -- not the model's predictions -- is the actual goal"
+prereqs:
+  - "The Distributional Hypothesis and Co-occurrence Matrices ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Prediction Tasks }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Learning embeddings by solving a fake prediction task</h2>
+
+Co-occurrence matrices (last lesson) capture distributional information but are huge and sparse.
+**Word2Vec** gets dense embeddings by a clever trick: set up a *prediction task* — predict a
+word's context from the word, or vice versa — train a small network on it, then **throw the
+prediction task away and keep the network's internal weight matrix**, which turns out to be
+exactly a table of dense word embeddings. The prediction task is never the point; it's a
+scaffold that forces the network to learn useful representations.
+
+<h2 id="math">Two prediction tasks</h2>
+
+**Skip-gram**: given a center word, predict its surrounding context words.
+
+<MathBlock tex="\max \sum_{\text{center}} \sum_{\text{context} \in \text{window}} \log P(\text{context} \mid \text{center})" />
+
+**CBOW (Continuous Bag of Words)**: the reverse — given the surrounding context words, predict
+the center word.
+
+<MathBlock tex="\max \sum_{\text{center}} \log P(\text{center} \mid \text{context words})" />
+
+Both train an embedding matrix `E` of shape `(vocab_size, embedding_dim)`. Row `i` of `E` is
+word `i`'s dense embedding — and *that matrix* is the deliverable, extracted and used elsewhere
+long after the prediction task is discarded.
+
+<Callout kind="tip" title="Skip-gram vs. CBOW, practically">
+  CBOW is faster to train and tends to work better for frequent words (it averages several
+  context words into one prediction, which smooths noise). Skip-gram is slower but generally
+  produces better embeddings for *rare* words, since each individual (center, context) pair
+  becomes its own training example rather than being averaged away. Skip-gram with negative
+  sampling (next lesson) is the more commonly used combination in practice.
+</Callout>
+
+<h2 id="python">Generating skip-gram and CBOW training pairs from a corpus</h2>
+
+<CodeCell
+  code={"import re\n\ndef tokenize(text):\n    return [t for t in re.split(r'[^a-zA-Z]+', text.lower()) if t]\n\nsentence = \"the quick brown fox jumps over the lazy dog\"\ntokens = tokenize(sentence)\nwindow = 2\n\nprint(f\"sentence: '{sentence}'\")\nprint(f\"tokens: {tokens}\")\nprint(f\"window size: {window}\")\nprint()\n\n# SKIP-GRAM: for each center word, emit one (center -> context) pair per context word\nskipgram_pairs = []\nfor pos, center in enumerate(tokens):\n    start = max(0, pos - window)\n    end = min(len(tokens), pos + window + 1)\n    for ctx_pos in range(start, end):\n        if ctx_pos != pos:\n            skipgram_pairs.append((center, tokens[ctx_pos]))\n\nprint(f\"SKIP-GRAM pairs (center -> context), {len(skipgram_pairs)} total:\")\nfor center, context in skipgram_pairs[:10]:\n    print(f\"  predict '{context}' from '{center}'\")\nprint(f\"  ... ({len(skipgram_pairs) - 10} more)\")\nprint()\n\n# CBOW: for each center word, emit ONE (context list -> center) example\ncbow_examples = []\nfor pos, center in enumerate(tokens):\n    start = max(0, pos - window)\n    end = min(len(tokens), pos + window + 1)\n    context = [tokens[i] for i in range(start, end) if i != pos]\n    cbow_examples.append((context, center))\n\nprint(f\"CBOW examples (context -> center), {len(cbow_examples)} total:\")\nfor context, center in cbow_examples[:5]:\n    print(f\"  predict '{center}' from {context}\")\nprint(f\"  ... ({len(cbow_examples) - 5} more)\")\nprint()\n\nprint(f\"note the volume difference: skip-gram produces {len(skipgram_pairs)} separate training\")\nprint(f\"examples from this one sentence, while CBOW produces only {len(cbow_examples)} --\")\nprint(\"exactly why skip-gram trains more slowly but gives rare words more individual attention.\")"}
+  output={"sentence: 'the quick brown fox jumps over the lazy dog'\ntokens: ['the', 'quick', 'brown', 'fox', 'jumps', 'over', 'the', 'lazy', 'dog']\nwindow size: 2\n\nSKIP-GRAM pairs (center -> context), 30 total:\n  predict 'quick' from 'the'\n  predict 'brown' from 'the'\n  predict 'the' from 'quick'\n  predict 'brown' from 'quick'\n  predict 'fox' from 'quick'\n  predict 'the' from 'brown'\n  predict 'quick' from 'brown'\n  predict 'fox' from 'brown'\n  predict 'jumps' from 'brown'\n  predict 'quick' from 'fox'\n  ... (20 more)\n\nCBOW examples (context -> center), 9 total:\n  predict 'the' from ['quick', 'brown']\n  predict 'quick' from ['the', 'brown', 'fox']\n  predict 'brown' from ['the', 'quick', 'fox', 'jumps']\n  predict 'fox' from ['quick', 'brown', 'jumps', 'over']\n  predict 'jumps' from ['brown', 'fox', 'over', 'the']\n  ... (4 more)\n\nnote the volume difference: skip-gram produces 30 separate training\nexamples from this one sentence, while CBOW produces only 9 --\nexactly why skip-gram trains more slowly but gives rare words more individual attention."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="After Word2Vec finishes training, what is actually kept and used -- and what gets discarded?"
+  correct={2}
+  options={[
+    { text: "The model's context predictions are kept; the embedding matrix is discarded after training", why: "This is exactly backwards -- the predictions are the throwaway scaffold, while the embedding matrix is the valuable output that gets extracted and reused." },
+    { text: "Both the predictions and the embeddings are kept and used together for downstream tasks", why: "The prediction task itself has no downstream use -- nobody actually wants to predict a word's context words. Only the embedding matrix is extracted and reused." },
+    { text: "The embedding matrix (one dense row per vocabulary word) is extracted and kept; the prediction task itself -- predicting context words from a center word, or vice versa -- is discarded entirely, having served only as a scaffold to force the network to learn useful representations", why: "Correct — this is the central trick of Word2Vec: the prediction task is never the goal, it's a proxy objective whose only purpose is to shape the embedding matrix into something meaningful, which is then the actual deliverable." },
+    { text: "Neither is kept -- Word2Vec's output is a co-occurrence matrix", why: "Word2Vec's whole purpose is producing DENSE embeddings, specifically as an improvement over the large sparse co-occurrence matrices from the previous lesson -- it doesn't output a co-occurrence matrix." },
+  ]}
+/>
+
+## Summary
+
+Word2Vec learns dense embeddings by training on a proxy prediction task — skip-gram predicts
+context words from a center word, CBOW predicts the center word from its context — and then
+discarding the predictions entirely, keeping only the learned embedding matrix. Skip-gram
+generates far more individual training examples per sentence than CBOW (verified above: 30 vs. 9
+from one nine-word sentence), which is exactly why it trains more slowly but handles rare words
+better. The next lesson covers negative sampling, the optimization that makes training this
+efficiently over a large vocabulary actually feasible.
+
+## Further reading
+
+- Mikolov et al., *"Efficient Estimation of Word Representations in Vector Space"* — the
+  original Word2Vec paper introducing both the skip-gram and CBOW architectures.
