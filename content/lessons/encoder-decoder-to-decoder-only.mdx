@@ -1,0 +1,90 @@
+---
+slug: encoder-decoder-to-decoder-only
+month: 8
+week: 1
+ord: 1
+title: "From Encoder-Decoder to Decoder-Only"
+code: "8.1.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain why a decoder-only stack can handle tasks the encoder-decoder split was designed for"
+  - "Compute the parameter cost that cross-attention adds to an encoder-decoder model"
+  - "Describe how prompt and completion occupy one shared sequence in a decoder-only model"
+prereqs:
+  - "Capstone: Word2Vec From Scratch with an Evaluation Suite ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Dropping the Encoder }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 8: from a translation model to a general-purpose one</h2>
+
+Month 7 built an encoder-decoder Transformer for translation: the encoder reads the source
+sentence, the decoder generates the target while attending back to the encoder's output via
+cross-attention. That split makes obvious sense when input and output are genuinely different
+things (English in, French out).
+
+GPT-style models throw the split away entirely. There is **one stack**, and the "input" and
+"output" simply occupy different positions in **one sequence**. Translation becomes:
+`English: the cat sat. French: le chat...` — a single token sequence where the model predicts
+what comes next, exactly as in Month 6's language modeling. The task didn't change; the framing
+did, and that reframing is what makes one architecture handle translation, summarization,
+question answering, and code completion without any structural change per task.
+
+<h2 id="math">Dropping the encoder</h2>
+
+A decoder-only block is an encoder block plus causal masking (Month 7, lesson 7.1.5). What it
+*drops* is the cross-attention sublayer — the part that attended to encoder output — because
+there is no encoder to attend to. Per block, that removes:
+
+<MathBlock tex="\underbrace{4d_{\text{model}}^2}_{W_Q,W_K,W_V,W_O} + \underbrace{2d_{\text{model}}}_{\text{its LayerNorm}}" />
+
+Everything else survives unchanged: self-attention, the feed-forward network, LayerNorm,
+residual connections — all exactly as Month 7 built them.
+
+<Callout kind="tip" title="Causal masking is what makes one stack sufficient">
+  Without causal masking, a single stack couldn't generate anything — every position would see
+  the whole sequence including its own answer. Causal masking (7.1.5) is precisely what lets one
+  stack read a prompt *and* generate a continuation: positions in the prompt attend only
+  backward, and each generated token attends to everything before it and nothing after. The
+  encoder-decoder split was one way to separate "reading" from "writing"; causal masking is a
+  cheaper one.
+</Callout>
+
+<h2 id="python">The parameter cost of cross-attention, measured</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef transformer_block_params(d_model, d_ff, cross_attention=False):\n    attn = 4 * d_model * d_model              # W_Q, W_K, W_V, W_O\n    ffn  = 2 * d_model * d_ff                 # up-projection + down-projection\n    ln   = 2 * 2 * d_model                    # two LayerNorms (gamma + beta each)\n    total = attn + ffn + ln\n    if cross_attention:\n        total += 4 * d_model * d_model + 2 * d_model   # a second attention + its LayerNorm\n    return total\n\nd_model, d_ff, n_layers, vocab = 512, 2048, 6, 32000\n\n# encoder-decoder (Month 7's translation architecture)\nenc = n_layers * transformer_block_params(d_model, d_ff)\ndec = n_layers * transformer_block_params(d_model, d_ff, cross_attention=True)\nembed = vocab * d_model\nenc_dec_total = enc + dec + embed\n\n# decoder-only (GPT): same depth budget, no encoder, no cross-attention\ngpt_layers = n_layers * 2      # spend the whole depth budget on one stack\ngpt_blocks = gpt_layers * transformer_block_params(d_model, d_ff)\ngpt_total = gpt_blocks + embed\n\nprint(f\"config: d_model={d_model}, d_ff={d_ff}, vocab={vocab}\")\nprint()\nprint(\"ENCODER-DECODER (Month 7's translation model):\")\nprint(f\"  encoder: {n_layers} blocks x {transformer_block_params(d_model,d_ff):,} = {enc:,}\")\nprint(f\"  decoder: {n_layers} blocks x {transformer_block_params(d_model,d_ff,True):,} = {dec:,}\")\nprint(f\"  embeddings: {embed:,}\")\nprint(f\"  TOTAL: {enc_dec_total:,}\")\nprint()\nprint(\"DECODER-ONLY / GPT (same total depth, one stack):\")\nprint(f\"  blocks: {gpt_layers} x {transformer_block_params(d_model,d_ff):,} = {gpt_blocks:,}\")\nprint(f\"  embeddings: {embed:,}\")\nprint(f\"  TOTAL: {gpt_total:,}\")\nprint()\nprint(f\"decoder-only uses {gpt_total/enc_dec_total:.1%} of the parameters for the same depth,\")\nprint(\"because every block drops its cross-attention sublayer (4*d_model^2 + 2*d_model each).\")\nprint()\ncross_cost = n_layers * (4*d_model*d_model + 2*d_model)\nprint(f\"cross-attention alone accounted for {cross_cost:,} parameters \"\n      f\"({cross_cost/enc_dec_total:.1%} of the encoder-decoder model).\")"}
+  output={"config: d_model=512, d_ff=2048, vocab=32000\n\nENCODER-DECODER (Month 7's translation model):\n  encoder: 6 blocks x 3,147,776 = 18,886,656\n  decoder: 6 blocks x 4,197,376 = 25,184,256\n  embeddings: 16,384,000\n  TOTAL: 60,454,912\n\nDECODER-ONLY / GPT (same total depth, one stack):\n  blocks: 12 x 3,147,776 = 37,773,312\n  embeddings: 16,384,000\n  TOTAL: 54,157,312\n\ndecoder-only uses 89.6% of the parameters for the same depth,\nbecause every block drops its cross-attention sublayer (4*d_model^2 + 2*d_model each).\n\ncross-attention alone accounted for 6,297,600 parameters (10.4% of the encoder-decoder model)."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="How does a decoder-only model perform translation, given it has no encoder to read the source sentence?"
+  correct={2}
+  options={[
+    { text: "It translates word-by-word using a lookup table, since it cannot represent the source sentence", why: "Decoder-only models do not use lookup tables -- the source sentence is fully represented in the model's hidden states, exactly as any other tokens in the sequence are." },
+    { text: "It runs the source sentence through the stack once, then resets and runs the target separately", why: "There is no reset or separate pass -- source and target occupy ONE continuous sequence processed by one stack, which is precisely what removes the need for cross-attention." },
+    { text: "Source and target occupy one continuous token sequence (e.g. 'English: ... French: ...'), and causal masking lets each generated token attend back over the source and everything generated so far -- so ordinary next-token prediction performs the translation", why: "Correct — this is the central reframing: with one sequence and causal masking, 'reading the input' and 'writing the output' are the same next-token-prediction operation, differing only in which positions are given versus generated." },
+    { text: "It requires a separate encoder model loaded alongside it at inference time", why: "No separate encoder exists or is loaded -- dropping the encoder entirely is exactly what makes the architecture decoder-only, and the parameter comparison above measures the savings that follow." },
+  ]}
+/>
+
+## Summary
+
+A decoder-only model replaces the encoder-decoder split with a single causally-masked stack, in
+which prompt and completion are just different positions in one sequence — so translation,
+summarization, and question answering all become ordinary next-token prediction with no
+per-task structural change. Dropping cross-attention removes `4d² + 2d` parameters per block,
+which on the configuration measured above accounted for 10.4% of the encoder-decoder model.
+The next lesson contrasts this causal language modeling objective with BERT's masked one.
+
+## Further reading
+
+- Radford et al., *"Improving Language Understanding by Generative Pre-Training"* — the original
+  GPT paper, which introduced the decoder-only-plus-task-reframing approach described here.

@@ -1,0 +1,67 @@
+---
+slug: warmup-lr-schedules
+month: 8
+week: 4
+ord: 2
+title: "Learning Rate Warmup and Schedules for Transformers"
+code: "8.4.2"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Implement linear warmup followed by cosine decay"
+  - "Explain why Adam specifically needs warmup at the start of training"
+  - "Identify the peak learning rate and where it occurs in the schedule"
+prereqs:
+  - "Scaling Laws and Compute-Optimal Training ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Warmup Then Decay }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Why the learning rate cannot be constant</h2>
+
+Month 4 introduced learning rate schedules and the capstone at the end of this month will show a run that diverges without one. Transformers add a second requirement on top of decay: the learning rate must also **start near zero and ramp up**. Skipping that warmup is one of the most reliable ways to make a large Transformer diverge in its first few hundred steps.
+
+<h2 id="math">Warmup Then Decay</h2>
+
+<MathBlock tex="\eta_t = \eta_{\max}\cdot\frac{t}{t_{\text{warmup}}} \quad (t < t_{\text{warmup}})" />
+
+<MathBlock tex="\eta_t = \eta_{\max}\cdot\frac{1}{2}\left(1+\cos\left(\pi\frac{t-t_{\text{warmup}}}{T-t_{\text{warmup}}}\right)\right) \quad (t \geq t_{\text{warmup}})" />
+
+The schedule rises linearly to a peak at the end of warmup, then decays smoothly to zero.
+
+<Callout kind="tip" title="Why Adam in particular needs warmup">
+  Adam divides by `√v̂`, its running estimate of squared-gradient magnitude. At step 1 that estimate is built from a *single* gradient, so it is almost pure noise — and dividing by a noisy, near-zero denominator produces enormous, effectively random parameter updates. Warmup keeps the step size small until `v` has accumulated enough samples to be a meaningful scale. This is why plain SGD often trains fine without warmup while Adam frequently does not.
+</Callout>
+
+<h2 id="python">Verified output</h2>
+
+<CodeCell
+  code={"import numpy as np\nprint(\"=\" * 62)\ndef lr_at(step, total, base, warmup):\n    if step < warmup:\n        return base * step / warmup                      # linear warmup\n    prog = (step - warmup) / max(1, total - warmup)\n    return base * 0.5 * (1 + np.cos(np.pi * prog))       # cosine decay\n\ntotal, base, warmup = 10000, 3e-4, 500\nprint(f\"WARMUP + COSINE DECAY (base={base:.0e}, warmup={warmup}, total={total})\")\nprint(f\"{'step':>7} {'lr':>12} {'phase':>10}\")\nfor s in [1, 100, 250, 500, 2000, 5000, 8000, 10000]:\n    lr = lr_at(s, total, base, warmup)\n    print(f\"{s:>7} {lr:>12.3e} {'warmup' if s < warmup else 'decay':>10}\")\nprint()\npeak = max(lr_at(s, total, base, warmup) for s in range(1, total+1))\nprint(f\"peak lr {peak:.3e} reached at step {warmup} -- exactly the end of warmup\")\nprint(f\"lr at step 1 is {lr_at(1,total,base,warmup):.3e} = base/{warmup} -- deliberately tiny\")\nprint()\nprint(\"WHY WARMUP: Adam's second-moment estimate v is near zero early on, so mh/sqrt(vh)\")\nprint(\"is dominated by noise from the first few gradients. Warmup keeps steps small until\")\nprint(\"v has accumulated enough samples to be a meaningful scale estimate.\")\nprint()\n"}
+  output={"==============================================================\nWARMUP + COSINE DECAY (base=3e-04, warmup=500, total=10000)\n   step           lr      phase\n      1    6.000e-07     warmup\n    100    6.000e-05     warmup\n    250    1.500e-04     warmup\n    500    3.000e-04      decay\n   2000    2.819e-04      decay\n   5000    1.624e-04      decay\n   8000    3.163e-05      decay\n  10000    0.000e+00      decay\n\npeak lr 3.000e-04 reached at step 500 -- exactly the end of warmup\nlr at step 1 is 6.000e-07 = base/500 -- deliberately tiny\n\nWHY WARMUP: Adam's second-moment estimate v is near zero early on, so mh/sqrt(vh)\nis dominated by noise from the first few gradients. Warmup keeps steps small until\nv has accumulated enough samples to be a meaningful scale estimate."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is the learning rate at step 1 set to base/500 rather than simply starting at the peak?"
+  correct={2}
+  options={[
+    { text: "Starting at the peak would exceed the GPU's numerical range", why: "Learning rate magnitude has no bearing on numerical range -- values like 3e-4 are far inside float32's limits. The problem is the size of the resulting parameter UPDATE, not representability." },
+    { text: "The schedule must start at zero for the cosine function to be defined", why: "The cosine term is well-defined at every step, and warmup is a separate linear phase preceding it entirely. Mathematical definedness is not the constraint." },
+    { text: "Adam's second-moment estimate v is built from almost no data at step 1, so mh/sqrt(vh) is dominated by noise -- a full-size step at that point applies a large, essentially random update to every parameter, which can wreck initialization before training begins", why: "Correct -- warmup exists to hold updates small precisely while Adam's variance estimate is still unreliable, and it is why Adam-trained Transformers need it far more than SGD-trained models do." },
+    { text: "Warmup compensates for gradient checkpointing's recomputation error", why: "Gradient checkpointing recomputes activations exactly and introduces no error at all. Warmup is unrelated to it and is needed whether or not checkpointing is used." },
+  ]}
+/>
+
+## Summary
+
+Transformer schedules combine linear warmup with cosine decay: the rate climbs from `6.000e-07` at step 1 to a peak of `3.000e-04` exactly at the end of warmup, then decays to zero. Warmup exists because Adam's second-moment estimate is unreliable when built from a handful of gradients, making early full-size steps effectively random. The next lesson covers how to evaluate the model this schedule trains.
+
+## Further reading
+
+- Vaswani et al., *"Attention Is All You Need"* -- introduced the warmup schedule that became
+  standard for Transformer training.

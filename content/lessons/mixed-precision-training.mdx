@@ -1,0 +1,97 @@
+---
+slug: mixed-precision-training
+month: 8
+week: 2
+ord: 2
+title: "Mixed Precision Training"
+code: "8.2.2"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Compare float32, float16, and bfloat16 by range and precision"
+  - "Demonstrate gradient underflow in float16 and fix it with loss scaling"
+  - "Correct the common belief that mixed precision mainly saves parameter memory"
+prereqs:
+  - "The Data Pipeline: Packing and Streaming ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Three Number Formats }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Half the bits, most of the result</h2>
+
+Every number in Months 3–7 was a 32-bit float. Modern training uses 16-bit floats for most
+arithmetic, because GPU tensor cores multiply them several times faster. The catch is that 16
+bits is not much: `float16` tops out around `65,504` and, more dangerously, loses very small
+numbers to zero — and gradients late in training are *routinely* very small.
+
+<h2 id="math">Three number formats</h2>
+
+A float splits its bits into an **exponent** (range) and a **mantissa** (precision):
+
+<MathBlock tex="\texttt{float32} = 1 + 8_{\text{exp}} + 23_{\text{mant}} \qquad \texttt{float16} = 1 + 5_{\text{exp}} + 10_{\text{mant}} \qquad \texttt{bfloat16} = 1 + 8_{\text{exp}} + 7_{\text{mant}}" />
+
+`bfloat16` makes the more useful trade for deep learning: it keeps float32's **full 8-bit
+exponent** — so it never overflows or underflows where float32 wouldn't — and sacrifices
+mantissa bits instead. Neural network training tolerates coarse precision far better than it
+tolerates values silently becoming zero or infinity, which is why bf16 has largely displaced
+fp16 on hardware that supports it, and why bf16 needs no loss scaling.
+
+<Callout kind="tip" title="Loss scaling, in one line">
+  If gradients are too small for fp16, multiply the *loss* by a large constant `S` before
+  calling backward. Every gradient is scaled by `S` too (the chain rule is linear), lifting them
+  into fp16's representable range. Divide by `S` before the optimizer step and the update is
+  unchanged. Real implementations pick `S` dynamically: raise it while gradients stay finite,
+  halve it whenever an overflow appears.
+</Callout>
+
+<h2 id="python">Underflow, loss scaling, and the real memory picture</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nprint(\"FORMAT LIMITS (real numpy dtype info):\")\nfor name, dt in [(\"float32\", np.float32), (\"float16\", np.float16)]:\n    info = np.finfo(dt)\n    print(f\"  {name}: {info.bits} bits, max={info.max:.3e}, \"\n          f\"smallest_normal={info.smallest_normal:.3e}, eps={info.eps:.3e}\")\nprint()\nprint(\"bfloat16 (not native to numpy) keeps float32's 8-bit EXPONENT with only 7 mantissa bits,\")\nprint(\"so its range matches float32 (~3.4e38) while its precision is coarser than float16's.\")\nprint()\n\n# --- the underflow problem: small gradients vanish in float16 ---\nprint(\"PROBLEM: typical gradient magnitudes underflow in float16\")\ngrads = np.array([1e-3, 1e-5, 1e-7, 1e-8, 1e-9], dtype=np.float32)\nprint(f\"{'fp32 gradient':>16} {'-> fp16':>14} {'survived?':>11}\")\nfor g in grads:\n    as_fp16 = np.float16(g)\n    survived = float(as_fp16) != 0.0\n    print(f\"{g:>16.1e} {float(as_fp16):>14.3e} {str(survived):>11}\")\nprint()\n\n# --- the fix: loss scaling ---\nscale = 1024.0\nprint(f\"FIX: multiply the loss by {scale:.0f} before backward, divide gradients after\")\nprint(f\"{'fp32 gradient':>16} {'scaled->fp16':>14} {'unscaled back':>15} {'recovered?':>12}\")\nfor g in grads:\n    scaled = np.float16(g * scale)\n    recovered = float(scaled) / scale\n    ok = recovered != 0.0\n    print(f\"{g:>16.1e} {float(scaled):>14.3e} {recovered:>15.3e} {str(ok):>12}\")\nprint()\n\nn_lost = sum(1 for g in grads if float(np.float16(g)) == 0.0)\nn_saved = sum(1 for g in grads if float(np.float16(g)) == 0.0 and float(np.float16(g*scale)) != 0.0)\nprint(f\"without scaling: {n_lost}/{len(grads)} gradients underflowed to exactly zero\")\nprint(f\"with scaling:    {n_lost - n_saved}/{len(grads)} still underflow -- {n_saved} recovered\")\nprint()\n\n# --- memory: what mixed precision actually saves ---\nn_params = 1_000_000_000\nprint(f\"MEMORY for a {n_params/1e9:.0f}B-parameter model (bytes per parameter):\")\nfp32_total = 4 + 4 + 4 + 4          # weights + grads + Adam m + Adam v\nmixed_total = 2 + 2 + 4 + 4 + 4     # fp16 weights + fp16 grads + fp32 master + Adam m + v\nprint(f\"  pure fp32: 4(w) + 4(grad) + 4(adam m) + 4(adam v) = {fp32_total} bytes/param\"\n      f\" = {n_params*fp32_total/1e9:.0f} GB\")\nprint(f\"  mixed:     2(w) + 2(grad) + 4(master) + 4(adam m) + 4(adam v) = {mixed_total} bytes/param\"\n      f\" = {n_params*mixed_total/1e9:.0f} GB\")\nprint()\nprint(f\"=> PARAMETER-side memory is unchanged ({1-mixed_total/fp32_total:.0%} saved): the fp32 master copy\")\nprint(\"   plus fp32 Adam state exactly cancel the halved weights and gradients.\")\nprint()\nprint(\"mixed precision still helps in two ways this table does not show:\")\nprint(\"  1. ACTIVATIONS stored for backward are fp16, roughly halving that memory\")\nprint(\"     (often the dominant cost at long context lengths)\")\nprint(\"  2. SPEED -- fp16/bf16 matmuls run on dedicated tensor-core hardware at\")\nprint(\"     several times fp32 throughput. This is the main reason it is used.\")"}
+  output={"FORMAT LIMITS (real numpy dtype info):\n  float32: 32 bits, max=3.403e+38, smallest_normal=1.175e-38, eps=1.192e-07\n  float16: 16 bits, max=6.550e+04, smallest_normal=6.104e-05, eps=9.766e-04\n\nbfloat16 (not native to numpy) keeps float32's 8-bit EXPONENT with only 7 mantissa bits,\nso its range matches float32 (~3.4e38) while its precision is coarser than float16's.\n\nPROBLEM: typical gradient magnitudes underflow in float16\n   fp32 gradient        -> fp16   survived?\n         1.0e-03      1.000e-03        True\n         1.0e-05      1.001e-05        True\n         1.0e-07      1.192e-07        True\n         1.0e-08      0.000e+00       False\n         1.0e-09      0.000e+00       False\n\nFIX: multiply the loss by 1024 before backward, divide gradients after\n   fp32 gradient   scaled->fp16   unscaled back   recovered?\n         1.0e-03      1.024e+00       1.000e-03         True\n         1.0e-05      1.024e-02       9.999e-06         True\n         1.0e-07      1.024e-04       1.000e-07         True\n         1.0e-08      1.025e-05       1.001e-08         True\n         1.0e-09      1.013e-06       9.895e-10         True\n\nwithout scaling: 2/5 gradients underflowed to exactly zero\nwith scaling:    0/5 still underflow -- 2 recovered\n\nMEMORY for a 1B-parameter model (bytes per parameter):\n  pure fp32: 4(w) + 4(grad) + 4(adam m) + 4(adam v) = 16 bytes/param = 16 GB\n  mixed:     2(w) + 2(grad) + 4(master) + 4(adam m) + 4(adam v) = 16 bytes/param = 16 GB\n\n=> PARAMETER-side memory is unchanged (0% saved): the fp32 master copy\n   plus fp32 Adam state exactly cancel the halved weights and gradients.\n\nmixed precision still helps in two ways this table does not show:\n  1. ACTIVATIONS stored for backward are fp16, roughly halving that memory\n     (often the dominant cost at long context lengths)\n  2. SPEED -- fp16/bf16 matmuls run on dedicated tensor-core hardware at\n     several times fp32 throughput. This is the main reason it is used."}
+/>
+
+<Callout kind="warning" title="Mixed precision does not halve your parameter memory">
+  It is widely assumed that "16-bit training halves memory." On the parameter side that is
+  **false**, and the arithmetic above shows exactly why: mixed precision keeps an fp32 *master
+  copy* of the weights (fp16 weights lose too much precision to accumulate small updates
+  reliably), and Adam's two moment buffers stay fp32 as well. Those additions cancel the halved
+  weights and gradients precisely — `16` bytes per parameter either way.
+
+  The genuine benefits are activation memory, which does roughly halve, and throughput, which is
+  the real reason for adopting it. If your model does not fit in memory, mixed precision alone
+  will not fix that — gradient checkpointing (8.2.4) and sharding (8.2.5) will.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does bfloat16 not require loss scaling, while float16 does?"
+  correct={1}
+  options={[
+    { text: "bfloat16 has more mantissa bits, so small values are represented more precisely", why: "bfloat16 has FEWER mantissa bits than float16 (7 versus 10) -- it is less precise, not more. Its advantage lies entirely in the exponent." },
+    { text: "bfloat16 keeps float32's full 8-bit exponent, so it represents the same range of magnitudes -- gradients small enough to underflow float16's 5-bit exponent remain representable, leaving nothing for loss scaling to rescue", why: "Correct — loss scaling exists purely to lift small gradients above float16's underflow threshold, and bfloat16's float32-matching exponent range means that threshold is never hit in the first place." },
+    { text: "bfloat16 automatically applies loss scaling internally in hardware", why: "No automatic scaling occurs -- bfloat16 simply does not need it, because its exponent range already covers the magnitudes involved. Loss scaling remains an explicit, software-level technique for fp16." },
+    { text: "bfloat16 is a 32-bit format, so it has the same range and precision as float32", why: "bfloat16 is 16 bits, as its name indicates. It matches float32's RANGE via the shared 8-bit exponent, but its precision is considerably coarser due to having only 7 mantissa bits." },
+  ]}
+/>
+
+## Summary
+
+`float16` has a 5-bit exponent that silently flushes small gradients to zero — verified above,
+where `1e-8` and `1e-9` both became exactly `0.0`. Loss scaling multiplies the loss by a
+constant before backward and divides it out afterward, recovering every underflowed gradient in
+the test. `bfloat16` avoids the problem entirely by keeping float32's 8-bit exponent at the cost
+of mantissa precision, which is why it needs no scaling. And the common "16-bit halves memory"
+belief is wrong on the parameter side: with fp32 master weights and fp32 Adam state, the total
+is 16 bytes per parameter either way. The next lesson covers gradient accumulation, which does
+address batch size directly.
+
+## Further reading
+
+- Micikevicius et al., *"Mixed Precision Training"* — the paper introducing the fp32 master
+  weight and dynamic loss scaling scheme described here.

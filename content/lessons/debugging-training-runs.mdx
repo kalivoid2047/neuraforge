@@ -1,0 +1,69 @@
+---
+slug: debugging-training-runs
+month: 8
+week: 4
+ord: 4
+title: "Debugging a Training Run"
+code: "8.4.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Recognize the loss-curve signature of the common training failures"
+  - "Apply the two diagnostic checks that precede any hyperparameter tuning"
+  - "Explain why a passing gradient check narrows the search dramatically"
+prereqs:
+  - "Evaluating a Language Model ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Reading a Loss Curve }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Most training failures announce themselves in the curve</h2>
+
+Training runs fail in a small number of characteristic ways, and each leaves a distinctive shape in the loss curve. Learning to read those shapes turns debugging from guesswork into a short checklist — and the capstone at the end of this week hit one of these failures for real.
+
+<h2 id="math">Reading a Loss Curve</h2>
+
+There is no formula here; the skill is pattern recognition over five shapes:
+
+- **Healthy** — smooth decay flattening toward a floor.
+- **Learning rate too high** — an initial drop, then oscillation that never settles.
+- **Learning rate too low** — near-linear, barely descending.
+- **Diverged** — loss climbs or becomes `NaN`.
+- **Overfitting** — training loss keeps falling while *validation* turns upward.
+
+<Callout kind="tip" title="Two checks before touching any hyperparameter">
+  **First, gradient-check on a tiny batch.** A wrong gradient does not crash; it trains badly, and every hour spent tuning the learning rate afterward is wasted. **Second, overfit a single batch to near-zero loss.** A correct model with a working optimizer can always memorize one batch — if it cannot, the bug is in the model or optimizer, not the hyperparameters. Only once both pass is tuning a reasonable use of time.
+</Callout>
+
+<h2 id="python">Verified output</h2>
+
+<CodeCell
+  code={"import numpy as np\nprint(\"=\" * 62)\nprint(\"DEBUGGING: loss curves and what each shape means\")\nsteps = np.arange(0, 500, 50)\ncurves = {\n    \"healthy\":            2.8*np.exp(-steps/220) + 0.55,\n    \"lr too high\":        np.where(steps < 100, 2.6, 2.4 + 0.4*np.sin(steps/40)),\n    \"lr too low\":         2.9 - 0.0009*steps,\n    \"diverged (NaN)\":     np.where(steps < 150, 2.5 - steps*0.004, np.nan),\n    \"overfit (val rises)\":np.concatenate([2.6*np.exp(-steps[:5]/150)+0.4,\n                                          0.75 + 0.05*np.arange(5)]),\n}\nprint(f\"{'step':>6} \" + \" \".join(f\"{k[:11]:>12}\" for k in curves))\nfor i, s in enumerate(steps):\n    row = \" \".join(f\"{c[i]:>12.3f}\" if not np.isnan(c[i]) else f\"{'nan':>12}\"\n                   for c in curves.values())\n    print(f\"{s:>6} {row}\")\nprint()\nprint(\"  healthy:  smooth exponential-ish decay toward a floor\")\nprint(\"  lr high:  drops then OSCILLATES without settling -> lower lr or add warmup\")\nprint(\"  lr low:   nearly linear, barely moving -> raise lr\")\nprint(\"  NaN:      diverged; check for fp16 overflow, missing grad clipping, bad init\")\nprint(\"  overfit:  training falls but VALIDATION turns upward -> regularize or stop early\")\nprint()\nprint(\"first checks when a run misbehaves:\")\nprint(\"  1. gradient-check the model on a tiny batch (catches wrong backprop)\")\nprint(\"  2. overfit a SINGLE batch to ~0 loss (if impossible, the model/opt is broken)\")\nprint(\"  3. only then tune hyperparameters\")\n"}
+  output={"==============================================================\nDEBUGGING: loss curves and what each shape means\n  step      healthy  lr too high   lr too low  diverged (N  overfit (va\n     0        3.350        2.600        2.900        2.500        3.000\n    50        2.781        2.600        2.855        2.300        2.263\n   100        2.327        2.639        2.810        2.100        1.735\n   150        1.966        2.171        2.765          nan        1.356\n   200        1.678        2.016        2.720          nan        1.085\n   250        1.449        2.387        2.675          nan        0.750\n   300        1.266        2.775        2.630          nan        0.800\n   350        1.120        2.650        2.585          nan        0.850\n   400        1.004        2.182        2.540          nan        0.900\n   450        0.912        2.013        2.495          nan        0.950\n\n  healthy:  smooth exponential-ish decay toward a floor\n  lr high:  drops then OSCILLATES without settling -> lower lr or add warmup\n  lr low:   nearly linear, barely moving -> raise lr\n  NaN:      diverged; check for fp16 overflow, missing grad clipping, bad init\n  overfit:  training falls but VALIDATION turns upward -> regularize or stop early\n\nfirst checks when a run misbehaves:\n  1. gradient-check the model on a tiny batch (catches wrong backprop)\n  2. overfit a SINGLE batch to ~0 loss (if impossible, the model/opt is broken)\n  3. only then tune hyperparameters"}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A run's loss drops steadily, then oscillates between 2.0 and 2.8 without settling. The gradient check passes at 1e-10. What is the most likely cause?"
+  correct={0}
+  options={[
+    { text: "The learning rate is too high -- a passing gradient check rules out incorrect backprop, and oscillation without settling is the classic signature of steps that repeatedly overshoot the minimum; lowering the rate or adding warmup/decay is the fix", why: "Correct -- this is exactly the value of gradient-checking first: it eliminates an entire class of causes, leaving the optimizer settings as the prime suspect, and it is precisely what happened in this month's capstone." },
+    { text: "The backpropagation implementation has a sign error", why: "A gradient check passing at 1e-10 rules this out directly -- a sign error would produce an error on the order of twice the gradient's magnitude, not 1e-10. That is exactly what the check is for." },
+    { text: "The model is overfitting", why: "Overfitting shows as training loss falling while VALIDATION loss rises -- not as oscillation in the training loss itself. The described pattern is an optimization problem, not a generalization one." },
+    { text: "The dataset is too small", why: "A small dataset causes overfitting or a high loss floor, not sustained oscillation. Oscillation reflects update steps that are too large for the loss surface, independent of dataset size." },
+  ]}
+/>
+
+## Summary
+
+Training failures have recognizable loss-curve signatures: smooth decay is healthy, oscillation means the learning rate is too high, a near-flat line means it is too low, `NaN` means divergence, and rising validation loss against falling training loss means overfitting. Two checks come before any tuning -- gradient-check on a tiny batch, then overfit a single batch to near-zero -- because both eliminate whole classes of cause. The capstone applies exactly this: a passing gradient check plus late-run collapse pointed straight at the optimizer.
+
+## Further reading
+
+- Karpathy, *"A Recipe for Training Neural Networks"* -- the standard practical checklist,
+  including the overfit-one-batch test used above.

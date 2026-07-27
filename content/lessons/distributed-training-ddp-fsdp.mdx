@@ -1,0 +1,95 @@
+---
+slug: distributed-training-ddp-fsdp
+month: 8
+week: 2
+ord: 5
+title: "Distributed Training: DDP and FSDP"
+code: "8.2.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Contrast data parallelism (DDP) with fully-sharded data parallelism (FSDP)"
+  - "Show that adding GPUs under DDP never raises the maximum trainable model size"
+  - "Quantify the extra communication FSDP pays for its memory saving"
+prereqs:
+  - "Gradient Checkpointing ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Replicate or Shard }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week two: when one GPU is not enough</h2>
+
+Packing, mixed precision, accumulation, and checkpointing all squeeze more out of a *single*
+device. Past a certain model size none of it is enough, and the work has to spread across many
+GPUs. There are two fundamentally different ways to do that, and the difference decides whether
+adding hardware lets you train a *bigger* model or merely a *faster* one.
+
+<h2 id="math">Replicate or shard</h2>
+
+**DDP (Distributed Data Parallel)** — every GPU holds a complete copy of the model and optimizer
+state, processes a different slice of the batch, and the gradients are **all-reduced** (averaged
+across devices) before each step. Since every device stores everything:
+
+<MathBlock tex="\text{memory}_{\text{DDP}} = 16 \times N_{\text{params}} \quad \text{per GPU, independent of GPU count}" />
+
+**FSDP (Fully Sharded Data Parallel)** — weights, gradients, and optimizer state are *split*
+across devices. Each GPU stores only its shard, and gathers a layer's full weights transiently
+when that layer runs:
+
+<MathBlock tex="\text{memory}_{\text{FSDP}} \approx \frac{16 \times N_{\text{params}}}{N_{\text{GPUs}}} \quad \text{per GPU}" />
+
+<Callout kind="tip" title="These compose with everything from this week">
+  DDP and FSDP are orthogonal to the single-device techniques. A real frontier training run uses
+  all of them at once: packed data, bf16 mixed precision, gradient accumulation for a large
+  effective batch, gradient checkpointing to fit activations, and FSDP to shard state across
+  thousands of GPUs. Each addresses a different bottleneck.
+</Callout>
+
+<h2 id="python">Memory, model-size ceilings, and communication cost</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# --- DDP: every GPU holds a FULL copy of the model; gradients are all-reduced ---\n# --- FSDP: model state is SHARDED across GPUs; gathered layer-by-layer on demand ---\n\ndef ddp_memory_per_gpu(n_params, n_gpus):\n    weights = 2 * n_params        # bf16 weights\n    grads   = 2 * n_params        # bf16 grads\n    master  = 4 * n_params        # fp32 master copy\n    adam    = 8 * n_params        # fp32 m + v\n    return weights + grads + master + adam    # identical on EVERY gpu -- nothing is shared\n\ndef fsdp_memory_per_gpu(n_params, n_gpus):\n    shard = n_params / n_gpus\n    weights = 2 * shard\n    grads   = 2 * shard\n    master  = 4 * shard\n    adam    = 8 * shard\n    # plus a transient full-layer gather during forward/backward (approximate as 1 layer's worth)\n    return weights + grads + master + adam\n\nn_params = 7_000_000_000\nprint(f\"a {n_params/1e9:.0f}B-parameter model, memory per GPU (GB):\")\nprint(f\"{'GPUs':>6} {'DDP':>12} {'FSDP':>12} {'FSDP saving':>13}\")\nfor g in [1, 2, 4, 8, 16, 64]:\n    d = ddp_memory_per_gpu(n_params, g) / 1e9\n    f = fsdp_memory_per_gpu(n_params, g) / 1e9\n    print(f\"{g:>6} {d:>12.1f} {f:>12.1f} {1 - f/d:>12.1%}\")\n\nprint()\nprint(\"DDP replicates everything, so per-GPU memory is CONSTANT no matter how many GPUs\")\nprint(\"you add -- adding hardware buys throughput but never lets you fit a bigger model.\")\nprint(\"FSDP shards state, so per-GPU memory falls roughly as 1/n_gpus.\")\nprint()\n\n# the practical consequence: what is the largest model each strategy can train?\ngpu_mem = 80e9      # an 80GB accelerator\nprint(f\"largest trainable model on {gpu_mem/1e9:.0f}GB GPUs (optimizer state included):\")\nprint(f\"{'GPUs':>6} {'DDP max':>14} {'FSDP max':>14}\")\nfor g in [1, 8, 64, 512]:\n    ddp_max = gpu_mem / 16              # 16 bytes/param regardless of gpu count\n    fsdp_max = gpu_mem / 16 * g         # shards scale with gpu count\n    print(f\"{g:>6} {ddp_max/1e9:>12.1f}B {fsdp_max/1e9:>12.1f}B\")\n\nprint()\nprint(\"DDP's ceiling never moves. FSDP's grows linearly with the cluster, which is\")\nprint(\"why every frontier-scale training run uses sharding of some kind.\")\nprint()\n\n# communication: DDP all-reduces gradients once per step\nprint(\"COMMUNICATION per optimizer step (bytes moved per GPU):\")\ngrad_bytes = 2 * n_params\nprint(f\"  DDP:  all-reduce gradients          ~{2*grad_bytes/1e9:.1f} GB\")\nprint(f\"  FSDP: all-gather weights (fwd+bwd)\")\nprint(f\"        + reduce-scatter gradients    ~{3*grad_bytes/1e9:.1f} GB\")\nprint()\nprint(\"FSDP moves roughly 1.5x the data of DDP -- that extra bandwidth is the price\")\nprint(\"of the memory saving, and it is why FSDP needs fast interconnects to pay off.\")"}
+  output={"a 7B-parameter model, memory per GPU (GB):\n  GPUs          DDP         FSDP   FSDP saving\n     1        112.0        112.0         0.0%\n     2        112.0         56.0        50.0%\n     4        112.0         28.0        75.0%\n     8        112.0         14.0        87.5%\n    16        112.0          7.0        93.8%\n    64        112.0          1.8        98.4%\n\nDDP replicates everything, so per-GPU memory is CONSTANT no matter how many GPUs\nyou add -- adding hardware buys throughput but never lets you fit a bigger model.\nFSDP shards state, so per-GPU memory falls roughly as 1/n_gpus.\n\nlargest trainable model on 80GB GPUs (optimizer state included):\n  GPUs        DDP max       FSDP max\n     1          5.0B          5.0B\n     8          5.0B         40.0B\n    64          5.0B        320.0B\n   512          5.0B       2560.0B\n\nDDP's ceiling never moves. FSDP's grows linearly with the cluster, which is\nwhy every frontier-scale training run uses sharding of some kind.\n\nCOMMUNICATION per optimizer step (bytes moved per GPU):\n  DDP:  all-reduce gradients          ~28.0 GB\n  FSDP: all-gather weights (fwd+bwd)\n        + reduce-scatter gradients    ~42.0 GB\n\nFSDP moves roughly 1.5x the data of DDP -- that extra bandwidth is the price\nof the memory saving, and it is why FSDP needs fast interconnects to pay off."}
+/>
+
+<Callout kind="warning" title="A 7B model cannot be trained with plain DDP on 80GB GPUs — at any cluster size">
+  Read the two tables together. A 7B model needs **112 GB** per GPU under DDP, and the DDP
+  ceiling on an 80 GB card is **5.0B parameters** — a number that does not move whether you have
+  1 GPU or 512. Adding hardware under DDP buys throughput and nothing else.
+
+  This is the single most important practical consequence of the replicate-versus-shard choice.
+  "Just add more GPUs" solves a speed problem; it does not solve a capacity problem. Only
+  sharding raises the ceiling.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A team cannot fit their model in memory and doubles their GPU count while running DDP. What happens?"
+  correct={1}
+  options={[
+    { text: "Per-GPU memory halves, and the model now fits", why: "That is FSDP's behaviour, not DDP's. Under DDP each GPU keeps a complete replica of weights, gradients, and optimizer state, so per-GPU memory is unchanged by adding devices." },
+    { text: "Per-GPU memory is unchanged, so it still does not fit -- DDP replicates full model state on every device, and its capacity ceiling (5.0B parameters on 80GB cards) is independent of cluster size. They need sharding, checkpointing, or a smaller model", why: "Correct — the DDP column is flat at 112.0 GB across every GPU count in the table, and the ceiling stays at 5.0B regardless. Doubling the cluster addresses throughput, never capacity." },
+    { text: "The model fits because gradients are all-reduced and therefore stored only once across the cluster", why: "All-reduce is a communication operation that averages gradients across devices -- it does not mean gradients are stored in only one place. Every DDP rank holds its own full gradient buffer throughout." },
+    { text: "Memory usage doubles, making the situation worse", why: "Per-GPU memory stays constant under DDP -- it neither halves nor doubles. Each additional GPU brings its own memory along with its own full replica." },
+  ]}
+/>
+
+## Week two summary
+
+Training at scale is five separate problems with five separate fixes: packing eliminates padding
+waste (45.7% recovered), mixed precision buys tensor-core throughput while — contrary to common
+belief — saving no parameter memory, gradient accumulation reaches large effective batches with
+numerically identical updates, checkpointing cuts stored activations from `O(n)` to `O(√n)` for
+33% more compute, and FSDP shards state so the trainable-model ceiling grows with the cluster
+instead of staying fixed at DDP's 5.0B. Real runs use all five together. Week three turns from
+training to inference.
+
+## Further reading
+
+- Rajbhandari et al., *"ZeRO: Memory Optimizations Toward Training Trillion Parameter Models"* —
+  the sharding strategy FSDP implements, with the memory analysis computed above.

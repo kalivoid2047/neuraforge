@@ -1,0 +1,87 @@
+---
+slug: sampling-vs-greedy
+month: 8
+week: 3
+ord: 1
+title: "Sampling vs Greedy Decoding"
+code: "8.3.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Contrast deterministic greedy decoding with stochastic sampling"
+  - "Verify empirically that sampling reproduces the model's distribution"
+  - "Explain why the highest-probability continuation is not the best-sounding one"
+prereqs:
+  - "Distributed Training: DDP and FSDP ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Ways to Choose }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: the model is fixed — how you read it is a choice</h2>
+
+Training is finished; the weights will not change again. Yet the same model can produce dull
+repetitive text or fluent varied text depending entirely on **how you select tokens** from the
+distribution it outputs. Month 7 covered greedy and beam search for translation, where there is
+roughly one correct answer. Open-ended generation is different, and this week covers the
+decoding strategies that difference demands.
+
+<h2 id="math">Two ways to choose</h2>
+
+At each step the model gives a distribution `P(w | context)`. Greedy takes its mode:
+
+<MathBlock tex="w_{\text{greedy}} = \arg\max_w P(w \mid \text{context})" />
+
+Sampling draws from it:
+
+<MathBlock tex="w_{\text{sampled}} \sim P(w \mid \text{context})" />
+
+Greedy is deterministic — identical input always gives identical output. Sampling is stochastic
+and reaches every token with nonzero probability.
+
+<Callout kind="tip" title="Why maximizing probability produces worse text">
+  It is tempting to assume the most probable continuation is the best one. Empirically it is not:
+  greedy and beam search on open-ended prompts produce noticeably bland, repetitive text, often
+  falling into loops. The reason is that human text is not the maximum-probability sequence —
+  real writing constantly makes locally-improbable choices, and a model that never does so reads
+  as flat. This is why translation (one target, beam search wins) and open-ended generation
+  (many valid targets, sampling wins) use different strategies.
+</Callout>
+
+<h2 id="python">Determinism, stochasticity, and a distribution check</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\nvocab = [\"the\",\"cat\",\"sat\",\"mat\",\"ran\",\"and\",\"a\",\"dog\"]\n# a fixed next-token distribution to decode from repeatedly\nlogits = np.array([3.2, 2.8, 1.5, 1.2, 1.0, 0.6, 0.4, 0.1])\n\ndef softmax(z):\n    e = np.exp(z - z.max()); return e / e.sum()\n\np = softmax(logits)\nprint(\"next-token distribution:\")\nfor w, pi in sorted(zip(vocab, p), key=lambda x: -x[1]):\n    print(f\"  {w:>5}: {pi:.4f}\")\nprint()\n\n# GREEDY: always argmax -- fully deterministic\nprint(\"GREEDY decoding, run 5 times:\")\nfor _ in range(5):\n    print(f\"  -> '{vocab[int(np.argmax(p))]}'\")\nprint(\"  identical every time: argmax is a deterministic function of the distribution.\")\nprint()\n\n# SAMPLING: draw from the distribution\nprint(\"SAMPLING, run 10 times:\")\ndraws = [vocab[rng.choice(len(vocab), p=p)] for _ in range(10)]\nprint(f\"  {draws}\")\nprint(f\"  distinct outcomes: {sorted(set(draws))}\")\nprint()\n\n# empirical check: sampling reproduces the distribution\nN = 200_000\ncounts = np.bincount(rng.choice(len(vocab), size=N, p=p), minlength=len(vocab)) / N\nprint(f\"empirical frequencies over {N:,} samples vs true probabilities:\")\nfor i, w in enumerate(vocab):\n    print(f\"  {w:>5}: sampled {counts[i]:.4f}  true {p[i]:.4f}\")\nprint()\n\n# the cost of greedy: it can never produce anything but the single top token\nprint(f\"greedy can only ever emit '{vocab[int(np.argmax(p))]}' here, so it explores\")\nprint(f\"{1}/{len(vocab)} of the vocabulary. Sampling reaches every token with p>0,\")\nprint(\"which is what makes generated text varied rather than repetitive.\")"}
+  output={"next-token distribution:\n    the: 0.4387\n    cat: 0.2941\n    sat: 0.0801\n    mat: 0.0594\n    ran: 0.0486\n    and: 0.0326\n      a: 0.0267\n    dog: 0.0198\n\nGREEDY decoding, run 5 times:\n  -> 'the'\n  -> 'the'\n  -> 'the'\n  -> 'the'\n  -> 'the'\n  identical every time: argmax is a deterministic function of the distribution.\n\nSAMPLING, run 10 times:\n  ['cat', 'the', 'the', 'the', 'mat', 'ran', 'cat', 'cat', 'cat', 'and']\n  distinct outcomes: ['and', 'cat', 'mat', 'ran', 'the']\n\nempirical frequencies over 200,000 samples vs true probabilities:\n    the: sampled 0.4387  true 0.4387\n    cat: sampled 0.2951  true 0.2941\n    sat: sampled 0.0812  true 0.0801\n    mat: sampled 0.0589  true 0.0594\n    ran: sampled 0.0481  true 0.0486\n    and: sampled 0.0319  true 0.0326\n      a: sampled 0.0261  true 0.0267\n    dog: sampled 0.0199  true 0.0198\n\ngreedy can only ever emit 'the' here, so it explores\n1/8 of the vocabulary. Sampling reaches every token with p>0,\nwhich is what makes generated text varied rather than repetitive."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Pure sampling reaches every token with nonzero probability -- including 'dog' at 0.0198. Why is that a problem in practice?"
+  correct={2}
+  options={[
+    { text: "It is not a problem -- matching the model's distribution exactly is always the goal", why: "Exactly matching the distribution includes matching its long tail, and a realistic vocabulary has tens of thousands of low-probability tokens whose combined mass is substantial. Drawing from that tail is what produces incoherent output." },
+    { text: "Sampling is much slower than greedy decoding", why: "Drawing one sample from a distribution costs essentially the same as taking an argmax over it -- both are trivial compared to the forward pass that produced the logits. Speed is not the concern." },
+    { text: "A realistic vocabulary has tens of thousands of tokens, and the combined probability of the long tail is large enough that genuinely nonsensical tokens get selected regularly -- occasionally derailing the whole continuation, since every later token conditions on that mistake", why: "Correct — this is exactly what the next three lessons address: temperature reshapes the distribution, and top-k/top-p truncate the tail before sampling, keeping variety without the incoherence." },
+    { text: "Sampling cannot reproduce the model's distribution accurately", why: "The empirical check above confirms sampling reproduces the distribution closely (0.4387 sampled versus 0.4387 true for the top token). Faithfulness is precisely what sampling delivers -- the issue is that faithfully including the tail is undesirable." },
+  ]}
+/>
+
+## Summary
+
+Greedy decoding takes the distribution's mode and is fully deterministic — the same five runs
+above produced `'the'` every time. Sampling draws from the distribution and faithfully
+reproduces it, verified over 200,000 draws. Maximizing probability sounds like it should give
+the best text but empirically produces bland, loop-prone output, because human writing is not a
+maximum-probability sequence. Pure sampling has the opposite failure: a realistic vocabulary's
+long tail contains enough combined mass to derail a generation. The next three lessons fix that
+tail — starting with temperature.
+
+## Further reading
+
+- Holtzman et al., *"The Curious Case of Neural Text Degeneration"* — the paper documenting why
+  maximization-based decoding degenerates, and introducing nucleus sampling.

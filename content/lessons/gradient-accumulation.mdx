@@ -1,0 +1,86 @@
+---
+slug: gradient-accumulation
+month: 8
+week: 2
+ord: 3
+title: "Gradient Accumulation"
+code: "8.2.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Show that accumulating micro-batch gradients reproduces the full-batch gradient exactly"
+  - "Identify the averaging bug that silently multiplies the effective learning rate"
+  - "Explain the time-for-memory trade accumulation makes"
+prereqs:
+  - "Mixed Precision Training ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Why the Split Is Exact }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Large-batch training on a GPU too small for a large batch</h2>
+
+Large language models train best with very large batches — often millions of tokens per
+optimizer step. Activations for a batch that size will not fit in GPU memory. **Gradient
+accumulation** resolves this without compromise: run several small **micro-batches**, keep a
+running average of their gradients, and step the optimizer only after the last one. Crucially,
+the resulting update is not an approximation of the large-batch update — it is *numerically the
+same update*.
+
+<h2 id="math">Why the split is exact</h2>
+
+The loss is a **mean** over the batch, and the derivative of a sum is the sum of derivatives, so
+splitting a batch into `k` equal micro-batches and averaging their gradients is an algebraic
+identity:
+
+<MathBlock tex="\nabla_w \left[\frac{1}{N}\sum_{i=1}^{N} \ell_i\right] = \frac{1}{k}\sum_{j=1}^{k}\left(\nabla_w \left[\frac{1}{N/k}\sum_{i \in \text{micro}_j} \ell_i\right]\right)" />
+
+Nothing is lost — provided the micro-batches are equal in size and you **average** rather than
+sum.
+
+<Callout kind="warning" title="The division is not optional">
+  Forgetting to divide by the number of accumulation steps is the classic bug here. It does not
+  crash, does not warn, and does not look wrong in the loss curve at first — it simply multiplies
+  every gradient by `k`, which is exactly equivalent to multiplying the learning rate by `k`.
+  On a run with 8 accumulation steps that is an 8× learning rate, and the first sign is usually
+  a divergence you then misdiagnose as a bad learning-rate choice. The code below reproduces the
+  bug and shows the ratio is precisely `k`.
+</Callout>
+
+<h2 id="python">Exact equivalence, the bug, and the memory trade</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\n# a simple differentiable model so we can compare gradients exactly:\n# loss = mean over batch of (x @ w - y)^2\nn, d = 32, 5\nX = rng.normal(0, 1, (n, d))\ny = rng.normal(0, 1, n)\nw = rng.normal(0, 1, d)\n\ndef loss_and_grad(Xb, yb, w):\n    pred = Xb @ w\n    err = pred - yb\n    loss = np.mean(err**2)\n    grad = (2.0 / len(yb)) * (Xb.T @ err)\n    return loss, grad\n\n# --- reference: one big batch of all 32 examples ---\nfull_loss, full_grad = loss_and_grad(X, y, w)\nprint(f\"FULL BATCH (n={n}):\")\nprint(f\"  loss = {full_loss:.10f}\")\nprint(f\"  grad = {full_grad.round(8)}\")\nprint()\n\n# --- gradient accumulation: 4 micro-batches of 8, averaged ---\nmicro = 8\nn_steps = n // micro\naccum = np.zeros(d)\naccum_loss = 0.0\nprint(f\"GRADIENT ACCUMULATION ({n_steps} micro-batches of {micro}):\")\nfor i in range(n_steps):\n    Xb, yb = X[i*micro:(i+1)*micro], y[i*micro:(i+1)*micro]\n    l, g = loss_and_grad(Xb, yb, w)\n    accum += g / n_steps          # divide by n_steps to AVERAGE, not sum\n    accum_loss += l / n_steps\n    print(f\"  micro-batch {i}: loss={l:.6f}, running grad[0]={accum[0]:.8f}\")\nprint(f\"  final accumulated loss = {accum_loss:.10f}\")\nprint(f\"  final accumulated grad = {accum.round(8)}\")\nprint()\n\nprint(f\"losses identical?   {np.isclose(full_loss, accum_loss, rtol=1e-12)}\")\nprint(f\"gradients identical? {np.allclose(full_grad, accum, rtol=1e-12)}\")\nprint(f\"max absolute difference: {np.max(np.abs(full_grad - accum)):.3e}\")\nprint()\n\n# --- the common bug: summing instead of averaging ---\nwrong = np.zeros(d)\nfor i in range(n_steps):\n    Xb, yb = X[i*micro:(i+1)*micro], y[i*micro:(i+1)*micro]\n    _, g = loss_and_grad(Xb, yb, w)\n    wrong += g                     # BUG: no division by n_steps\nprint(\"COMMON BUG -- summing micro-batch gradients without dividing:\")\nprint(f\"  buggy grad = {wrong.round(6)}\")\nprint(f\"  correct    = {accum.round(6)}\")\nprint(f\"  ratio      = {(wrong / accum).round(6)}  <- exactly n_steps ({n_steps}) too large\")\nprint(\"  effect: the effective learning rate is silently multiplied by n_steps.\")\nprint()\n\n# --- memory: accumulation trades time for peak activation memory ---\nprint(\"WHY IT MATTERS -- peak activation memory scales with the MICRO-batch size:\")\nfor mb in [32, 16, 8, 4, 1]:\n    steps = n // mb\n    print(f\"  micro-batch {mb:>2}: {steps:>2} forward/backward passes, \"\n          f\"peak activations ~{mb/32:.2f}x the full-batch requirement\")\nprint()\nprint(\"same effective batch of 32 in every row -- accumulation buys memory headroom\")\nprint(\"by spending proportionally more time, with a numerically identical update.\")"}
+  output={"FULL BATCH (n=32):\n  loss = 5.5443118377\n  grad = [ 0.48897841 -0.49026102 -2.06113211  2.12416618 -3.70078148]\n\nGRADIENT ACCUMULATION (4 micro-batches of 8):\n  micro-batch 0: loss=1.653555, running grad[0]=0.08116258\n  micro-batch 1: loss=7.875248, running grad[0]=0.67176103\n  micro-batch 2: loss=6.489451, running grad[0]=1.01753250\n  micro-batch 3: loss=6.158993, running grad[0]=0.48897841\n  final accumulated loss = 5.5443118377\n  final accumulated grad = [ 0.48897841 -0.49026102 -2.06113211  2.12416618 -3.70078148]\n\nlosses identical?   True\ngradients identical? True\nmax absolute difference: 4.441e-16\n\nCOMMON BUG -- summing micro-batch gradients without dividing:\n  buggy grad = [  1.955914  -1.961044  -8.244528   8.496665 -14.803126]\n  correct    = [ 0.488978 -0.490261 -2.061132  2.124166 -3.700781]\n  ratio      = [4. 4. 4. 4. 4.]  <- exactly n_steps (4) too large\n  effect: the effective learning rate is silently multiplied by n_steps.\n\nWHY IT MATTERS -- peak activation memory scales with the MICRO-batch size:\n  micro-batch 32:  1 forward/backward passes, peak activations ~1.00x the full-batch requirement\n  micro-batch 16:  2 forward/backward passes, peak activations ~0.50x the full-batch requirement\n  micro-batch  8:  4 forward/backward passes, peak activations ~0.25x the full-batch requirement\n  micro-batch  4:  8 forward/backward passes, peak activations ~0.12x the full-batch requirement\n  micro-batch  1: 32 forward/backward passes, peak activations ~0.03x the full-batch requirement\n\nsame effective batch of 32 in every row -- accumulation buys memory headroom\nby spending proportionally more time, with a numerically identical update."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A team adds 8-step gradient accumulation to fit a larger effective batch, forgets to divide the accumulated gradient, and their run diverges. What actually happened?"
+  correct={0}
+  options={[
+    { text: "Summing rather than averaging made every gradient exactly 8x too large, which is arithmetically identical to running at 8x the intended learning rate -- so the divergence is a learning-rate problem introduced by the accumulation bug, not by accumulation itself", why: "Correct — the measured ratio above is exactly n_steps, confirming the bug is a pure scalar multiplication of the gradient, indistinguishable in effect from raising the learning rate by the same factor." },
+    { text: "Gradient accumulation is inherently an approximation, and the error compounded over 8 steps", why: "Accumulation is exact, not approximate -- the verification above matches the full-batch gradient to 4.4e-16, which is floating-point round-off, not algorithmic error. Done correctly it introduces no approximation at all." },
+    { text: "The micro-batches were processed in the wrong order", why: "Order is irrelevant: the accumulated gradient is a sum of per-micro-batch contributions, and addition is commutative. Reordering the micro-batches produces bit-comparable results." },
+    { text: "Using 8 micro-batches requires 8x the memory, causing instability", why: "Accumulation REDUCES peak memory -- smaller micro-batches mean fewer simultaneous activations, as the final table shows. Memory pressure is what accumulation solves, not what it causes." },
+  ]}
+/>
+
+## Summary
+
+Gradient accumulation splits a large batch into micro-batches and averages their gradients,
+reproducing the full-batch gradient exactly — verified above to within `4.4e-16`, pure
+floating-point round-off. Summing instead of averaging multiplies the gradient by precisely the
+number of accumulation steps, silently scaling the effective learning rate by the same factor.
+The trade is time for memory: peak activation memory scales with the micro-batch size, so a
+smaller micro-batch buys headroom at proportionally more passes. The next lesson buys still more
+memory by discarding activations and recomputing them.
+
+## Further reading
+
+- Ott et al., *"Scaling Neural Machine Translation"* — describes accumulation ("delayed
+  updates") as a practical route to large effective batches on limited hardware.

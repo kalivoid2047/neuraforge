@@ -1,0 +1,94 @@
+---
+slug: repetition-penalties-stopping
+month: 8
+week: 3
+ord: 4
+title: "Repetition Penalties and Stopping Criteria"
+code: "8.3.4"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Implement repetition and frequency penalties and contrast how they weight repeats"
+  - "Show that frequency penalty scales with repeat count while repetition penalty does not"
+  - "List the stopping criteria without which generation never terminates"
+prereqs:
+  - "Top-k and Top-p (Nucleus) Sampling ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Penalty Formulations }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two remaining generation failures</h2>
+
+Truncated sampling fixes incoherence, but two problems survive. First, models still fall into
+**repetition loops** — once a phrase appears, conditioning on it makes the phrase more likely
+again, and the model can spiral. Second, nothing tells generation to **stop**; a language model
+predicts a next token indefinitely, so termination must be imposed from outside.
+
+<h2 id="math">Two penalty formulations</h2>
+
+**Repetition penalty** (CTRL-style) divides the logit of any already-generated token — flat,
+regardless of how many times it appeared:
+
+<MathBlock tex="z'_w = \begin{cases} z_w / \rho & \text{if } w \text{ appeared and } z_w > 0 \\ z_w \cdot \rho & \text{if } w \text{ appeared and } z_w \leq 0 \end{cases}" />
+
+The sign split exists because dividing a negative logit would *increase* it, rewarding the
+repeat rather than punishing it.
+
+**Frequency penalty** subtracts an amount proportional to the token's **count**:
+
+<MathBlock tex="z'_w = z_w - \alpha \cdot \text{count}(w)" />
+
+<Callout kind="tip" title="Presence vs frequency">
+  A third variant, **presence penalty**, subtracts a flat constant if the token appeared at all
+  (count ≥ 1), regardless of how often. The three form a natural progression: presence penalizes
+  *appearing*, frequency penalizes *how often*, and repetition rescales multiplicatively. APIs
+  commonly expose presence and frequency as separate parameters precisely because they encourage
+  different things — topic variety versus vocabulary variety.
+</Callout>
+
+<h2 id="python">Both penalties on a sequence that has over-used one token</h2>
+
+<CodeCell
+  code={"import numpy as np\ndef softmax(z):\n    e = np.exp(z - z.max()); return e / e.sum()\n\nvocab = [\"the\",\"cat\",\"sat\",\"mat\",\"and\",\"a\",\"ran\",\"dog\"]\nlogits = np.array([3.0, 2.5, 2.0, 1.8, 1.6, 1.4, 1.2, 1.0])\ngenerated = [0, 1, 0, 0, 4, 0]      # 'the' already emitted 4 times\n\nprint(\"generated so far:\", [vocab[i] for i in generated])\nprint(f\"base P(the) = {softmax(logits)[0]:.4f}  <- already dominant, will likely repeat\")\nprint()\n\ndef repetition_penalty(logits, generated, penalty):\n    \"\"\"CTRL-style: divide positive logits by penalty, multiply negative ones.\"\"\"\n    out = logits.copy()\n    for t in set(generated):\n        out[t] = out[t] / penalty if out[t] > 0 else out[t] * penalty\n    return out\n\nprint(\"REPETITION PENALTY (divides the logit of any already-generated token):\")\nprint(f\"{'penalty':>8} {'P(the)':>9} {'P(cat)':>9} {'top token':>11}\")\nfor pen in [1.0, 1.1, 1.5, 2.0]:\n    p = softmax(repetition_penalty(logits, generated, pen))\n    print(f\"{pen:>8.1f} {p[0]:>9.4f} {p[1]:>9.4f} {vocab[int(np.argmax(p))]:>11}\")\nprint()\n\ndef frequency_penalty(logits, generated, alpha):\n    \"\"\"OpenAI-style: subtract alpha * (count of that token so far).\"\"\"\n    out = logits.copy()\n    for t in set(generated):\n        out[t] -= alpha * generated.count(t)\n    return out\n\nprint(\"FREQUENCY PENALTY (subtracts alpha x how MANY times the token appeared):\")\ncounts = {vocab[t]: generated.count(t) for t in set(generated)}\nprint(f\"  counts so far: {counts}\")\nprint(f\"{'alpha':>8} {'P(the)':>9} {'P(cat)':>9} {'top token':>11}\")\nfor a in [0.0, 0.3, 0.6, 1.0]:\n    p = softmax(frequency_penalty(logits, generated, a))\n    print(f\"{a:>8.1f} {p[0]:>9.4f} {p[1]:>9.4f} {vocab[int(np.argmax(p))]:>11}\")\nprint()\nprint(\"frequency penalty scales with the repeat COUNT, so 'the' (x4) is hit four times\")\nprint(\"harder than 'cat' (x1). A flat repetition penalty treats both identically.\")\nprint()\n\n# STOPPING CRITERIA\nprint(\"STOPPING CRITERIA -- generation must be told when to halt:\")\nEOS = 7\nseq = [0, 1, 2, 3]\nmax_new = 10\nstop_strings = [\"\\n\\n\"]\nprint(f\"  1. EOS token: stop as soon as token {EOS} ('{vocab[EOS]}') is emitted\")\nprint(f\"  2. max_new_tokens={max_new}: hard cap, guarantees termination\")\nprint(f\"  3. stop strings {stop_strings}: halt when the decoded text contains one\")\nprint()\nprint(\"without at least one of these, generation never terminates -- the model\")\nprint(\"will happily continue producing tokens forever.\")"}
+  output={"generated so far: ['the', 'cat', 'the', 'the', 'and', 'the']\nbase P(the) = 0.3306  <- already dominant, will likely repeat\n\nREPETITION PENALTY (divides the logit of any already-generated token):\n penalty    P(the)    P(cat)   top token\n     1.0    0.3306    0.2005         the\n     1.1    0.2895    0.1838         the\n     1.5    0.1889    0.1353         the\n     2.0    0.1329    0.1035         sat\n\nFREQUENCY PENALTY (subtracts alpha x how MANY times the token appeared):\n  counts so far: {'the': 4, 'cat': 1, 'and': 1}\n   alpha    P(the)    P(cat)   top token\n     0.0    0.3306    0.2005         the\n     0.3    0.1431    0.2135         cat\n     0.6    0.0524    0.1924         sat\n     1.0    0.0122    0.1484         sat\n\nfrequency penalty scales with the repeat COUNT, so 'the' (x4) is hit four times\nharder than 'cat' (x1). A flat repetition penalty treats both identically.\n\nSTOPPING CRITERIA -- generation must be told when to halt:\n  1. EOS token: stop as soon as token 7 ('dog') is emitted\n  2. max_new_tokens=10: hard cap, guarantees termination\n  3. stop strings ['\\n\\n']: halt when the decoded text contains one\n\nwithout at least one of these, generation never terminates -- the model\nwill happily continue producing tokens forever."}
+/>
+
+<Callout kind="warning" title="Penalties suppress legitimate repetition too">
+  These operate on raw token identity with no notion of whether a repeat is appropriate. Function
+  words (`the`, `of`, `is`) *should* recur constantly, and so should a subject's name in a
+  paragraph about it. Notice above that at `α = 1.0` the frequency penalty drove `P(the)` down to
+  `0.0122` — a nearly forty-fold suppression of an ordinary English article. Aggressive penalty
+  settings are a common cause of oddly stilted output that avoids necessary words.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="'the' appeared 4 times and 'cat' once. At alpha=0.3 the frequency penalty made 'cat' the top token, while repetition penalty at 1.1 left 'the' on top. Why?"
+  correct={2}
+  options={[
+    { text: "The repetition penalty was applied to the wrong tokens", why: "It was applied correctly to every already-generated token, including both 'the' and 'cat'. The difference lies in how each formulation weights those tokens, not in which tokens it touches." },
+    { text: "Frequency penalty is simply a stronger penalty at every setting", why: "Strength is set by the parameter, and either can be made arbitrarily strong. The distinction is structural -- how the penalty scales with repeat count -- rather than a fixed difference in magnitude." },
+    { text: "Frequency penalty subtracts alpha x count, so 'the' (count 4) was penalized four times as hard as 'cat' (count 1), inverting their order. Repetition penalty divides by the same factor regardless of count, so it shrinks both roughly proportionally and preserves their relative ranking", why: "Correct — the count-proportional term is exactly what lets frequency penalty target the specific token that is being over-used, while a flat multiplicative penalty rescales all repeated tokens alike." },
+    { text: "The softmax normalization differs between the two methods", why: "Both apply the identical softmax to their modified logits -- the only difference is how the logits were modified beforehand. Normalization is not the distinguishing factor." },
+  ]}
+/>
+
+## Summary
+
+Repetition penalty divides the logits of already-seen tokens by a flat factor; frequency penalty
+subtracts an amount proportional to how many times each appeared. That difference is decisive:
+with `the` used four times and `cat` once, `α = 0.3` frequency penalty promoted `cat` above `the`
+while repetition penalty at 1.1 preserved the original ranking. Both risk suppressing legitimate
+repetition — at `α = 1.0`, `P(the)` collapsed to 0.0122. Stopping requires an EOS token, a token
+cap, or stop strings, since nothing intrinsic ends generation. The next lesson makes generation
+fast.
+
+## Further reading
+
+- Keskar et al., *"CTRL: A Conditional Transformer Language Model"* — introduces the
+  divide-the-logit repetition penalty implemented above.

@@ -1,0 +1,84 @@
+---
+slug: weight-tying-parameter-budgets
+month: 8
+week: 1
+ord: 4
+title: "Weight Tying and Parameter Budgets"
+code: "8.1.4"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Explain what weight tying is and the argument for why it is reasonable"
+  - "Compute a GPT's parameter budget and see where the parameters actually go"
+  - "Show that weight tying's benefit shrinks as models scale up"
+prereqs:
+  - "Pre-LN vs Post-LN and Training Stability ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Tying Input and Output }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The same matrix, used at both ends</h2>
+
+A GPT needs two `vocab × d_model` matrices: the **embedding table** turning input token IDs into
+vectors, and the **output projection** turning the final hidden state back into per-token logits.
+**Weight tying** uses *one* matrix for both — the output projection is just the embedding matrix
+transposed.
+
+The justification is more than parameter-saving. The embedding row for a token is that token's
+learned "meaning" vector; the output projection scores a hidden state against every token by dot
+product. Using the same vectors for both means "which token does this hidden state most resemble"
+is measured against exactly the same representations the model uses on input. Tying is a
+statement that these should be the same space, not two independent ones.
+
+<h2 id="math">Tying input and output</h2>
+
+<MathBlock tex="\text{input: } h_0 = E[\,\text{token}\,] \qquad \text{output: } \text{logits} = h_L E^\top" />
+
+One matrix `E`, used forward at the input and transposed at the output. Untied models learn a
+separate `vocab × d_model` output matrix, costing exactly that many extra parameters.
+
+<Callout kind="tip" title="Where a GPT's parameters actually live">
+  Per transformer block: `4d²` for attention (`W_Q,W_K,W_V,W_O`), `2·d·d_ff` for the feed-forward
+  network, and a negligible `4d` for the two LayerNorms. Since `d_ff` is conventionally `4d`, the
+  FFN is `8d²` — **twice** the attention cost. The intuition that "a Transformer is mostly
+  attention" is wrong on a parameter count: most of the weights are in the feed-forward layers.
+</Callout>
+
+<h2 id="python">Parameter budgets across four model scales</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef gpt_params(vocab, d_model, d_ff, n_layers, tied):\n    embed = vocab * d_model\n    pos = 0                                  # (learned positional table excluded; RoPE-style adds none)\n    per_block = 4*d_model*d_model + 2*d_model*d_ff + 4*d_model\n    blocks = n_layers * per_block\n    final_ln = 2 * d_model\n    output_head = 0 if tied else vocab * d_model\n    return {\n        \"embedding\": embed,\n        \"blocks\": blocks,\n        \"final_ln\": final_ln,\n        \"output_head\": output_head,\n        \"total\": embed + pos + blocks + final_ln + output_head,\n    }\n\nconfigs = [\n    (\"tiny\",   8000,  256,  1024,  4),\n    (\"small\",  32000, 768,  3072,  12),\n    (\"medium\", 32000, 1024, 4096,  24),\n    (\"large\",  50000, 2048, 8192,  36),\n]\n\nprint(f\"{'config':>8} {'vocab':>7} {'d_model':>8} {'layers':>7} {'untied':>14} {'tied':>14} {'saved':>8}\")\nfor name, vocab, d, ff, L in configs:\n    untied = gpt_params(vocab, d, ff, L, tied=False)[\"total\"]\n    tied   = gpt_params(vocab, d, ff, L, tied=True)[\"total\"]\n    print(f\"{name:>8} {vocab:>7} {d:>8} {L:>7} {untied:>14,} {tied:>14,} {1-tied/untied:>7.1%}\")\n\nprint()\nprint(\"weight tying reuses the embedding matrix as the output projection, so the\")\nprint(\"vocab x d_model output head costs nothing extra.\")\nprint()\n\n# where do the parameters actually GO, for a mid-size config?\nname, vocab, d, ff, L = configs[1]\np = gpt_params(vocab, d, ff, L, tied=True)\nprint(f\"parameter breakdown for '{name}' (tied), total {p['total']:,}:\")\nfor key in [\"embedding\", \"blocks\", \"final_ln\"]:\n    print(f\"  {key:>10}: {p[key]:>12,}  ({p[key]/p['total']:>5.1%})\")\nprint()\n\n# the embedding share shrinks as the model gets deeper -- verify across configs\nprint(\"embedding share of total parameters, as models scale (tied):\")\nfor name, vocab, d, ff, L in configs:\n    p = gpt_params(vocab, d, ff, L, tied=True)\n    print(f\"  {name:>8}: embeddings are {p['embedding']/p['total']:>5.1%} of the model\")\nprint()\nprint(\"weight tying matters most for SMALL models, where the vocab x d_model table\")\nprint(\"is a large fraction of everything. At scale the transformer blocks dominate.\")"}
+  output={"  config   vocab  d_model  layers         untied           tied    saved\n    tiny    8000      256       4      7,246,336      5,198,336   28.3%\n   small   32000      768      12    134,125,056    109,549,056   18.3%\n  medium   32000     1024      24    367,626,240    334,858,240    8.9%\n   large   50000     2048      36  2,017,038,336  1,914,638,336    5.1%\n\nweight tying reuses the embedding matrix as the output projection, so the\nvocab x d_model output head costs nothing extra.\n\nparameter breakdown for 'small' (tied), total 109,549,056:\n   embedding:   24,576,000  (22.4%)\n      blocks:   84,971,520  (77.6%)\n    final_ln:        1,536  ( 0.0%)\n\nembedding share of total parameters, as models scale (tied):\n      tiny: embeddings are 39.4% of the model\n     small: embeddings are 22.4% of the model\n    medium: embeddings are  9.8% of the model\n     large: embeddings are  5.3% of the model\n\nweight tying matters most for SMALL models, where the vocab x d_model table\nis a large fraction of everything. At scale the transformer blocks dominate."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Weight tying saves 28.3% of parameters on the 'tiny' config but only 5.1% on the 'large' one. Why does its benefit shrink with scale?"
+  correct={3}
+  options={[
+    { text: "Large models use a smaller vocabulary, so there is less to tie", why: "The 'large' config actually uses the LARGEST vocabulary (50,000 vs tiny's 8,000) -- the embedding table grows in absolute terms, it just grows more slowly than the rest of the model." },
+    { text: "Weight tying becomes numerically unstable above a certain model size", why: "There is no stability limit involved -- tying works identically at any scale. What changes is only its share of the parameter budget." },
+    { text: "Large models drop the output projection entirely, so there is nothing to save", why: "Every model needs an output projection to produce logits -- large models still have one. Tying still saves exactly vocab x d_model parameters; that amount is simply smaller relative to the whole." },
+    { text: "The saving is always exactly vocab x d_model, but transformer blocks grow as n_layers x d^2 -- so the blocks come to dominate the budget and the fixed embedding-sized saving becomes a shrinking fraction (39.4% of the tiny model is embeddings, versus 5.3% of the large one)", why: "Correct — the saving is absolute and fixed by vocab and d_model, while block parameters scale with both depth and d^2, so the same saving represents an ever-smaller share as models grow." },
+  ]}
+/>
+
+## Summary
+
+Weight tying reuses the embedding matrix as the output projection, saving `vocab × d_model`
+parameters and asserting that input and output token representations should share one space.
+Its benefit is largest for small models (28.3% of the tiny config) and shrinks with scale (5.1%
+of the large one), because transformer blocks grow with depth and `d²` while the saving stays
+fixed. The breakdown also corrects a common intuition: at `d_ff = 4d`, feed-forward layers hold
+roughly twice the parameters attention does. The next lesson assembles all of this into a
+complete GPT.
+
+## Further reading
+
+- Press & Wolf, *"Using the Output Embedding to Improve Language Models"* — the paper
+  introducing weight tying and its representational argument.

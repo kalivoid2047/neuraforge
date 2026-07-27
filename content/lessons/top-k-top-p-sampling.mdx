@@ -1,0 +1,86 @@
+---
+slug: top-k-top-p-sampling
+month: 8
+week: 3
+ord: 3
+title: "Top-k and Top-p (Nucleus) Sampling"
+code: "8.3.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Implement top-k and top-p truncation and renormalization"
+  - "Show that top-p adapts its cutoff to the model's confidence while top-k cannot"
+  - "Explain how temperature and top-p compose in the standard decoding pipeline"
+prereqs:
+  - "Temperature ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Truncation Rules }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Cut the tail off before sampling from it</h2>
+
+Temperature reshapes the whole distribution but cannot remove the incoherent tail — flattening
+makes the tail *more* likely, and sharpening suppresses it only by collapsing toward greedy.
+**Truncation** solves this directly: discard the unlikely tokens outright, renormalize what
+remains, and sample from that. Two rules dominate, and the difference between them is whether
+the cutoff can adapt.
+
+<h2 id="math">Two truncation rules</h2>
+
+**Top-k**: keep the `k` highest-probability tokens, discard everything else, renormalize.
+
+<MathBlock tex="V_k = \text{top-}k\text{ tokens by } P(w) \qquad P'(w) = \frac{P(w)}{\sum_{v \in V_k} P(v)} \text{ for } w \in V_k" />
+
+**Top-p (nucleus)**: keep the *smallest* set of tokens whose cumulative probability reaches `p`.
+
+<MathBlock tex="V_p = \text{smallest set with} \sum_{v \in V_p} P(v) \geq p \qquad P'(w) = \frac{P(w)}{\sum_{v \in V_p} P(v)}" />
+
+The distinction is that `k` is a fixed *count* while `p` is a mass target — so top-p keeps
+however many tokens that particular distribution requires, which varies from step to step.
+
+<Callout kind="tip" title="Why adaptivity matters more than it sounds">
+  Consider two positions in one generation. After "the capital of France is" the model is nearly
+  certain, and any `k > 1` forces you to keep plausible-but-wrong alternatives. After "he walked
+  into the" the model is genuinely uncertain across many valid nouns, and `k = 3` discards most
+  of the legitimate variety. A single fixed `k` is simultaneously too loose in the first case and
+  too tight in the second. Top-p handles both correctly with one parameter.
+</Callout>
+
+<h2 id="python">Adaptivity, discarded mass, and composing with temperature</h2>
+
+<CodeCell
+  code={"import numpy as np\n\ndef softmax(z):\n    e = np.exp(z - z.max()); return e / e.sum()\n\ndef top_k_filter(p, k):\n    out = np.zeros_like(p)\n    idx = np.argsort(-p)[:k]\n    out[idx] = p[idx]\n    return out / out.sum()\n\ndef top_p_filter(p, top_p):\n    order = np.argsort(-p)\n    cum = np.cumsum(p[order])\n    # keep the smallest prefix whose cumulative mass reaches top_p\n    n_keep = int(np.searchsorted(cum, top_p) + 1)\n    out = np.zeros_like(p)\n    out[order[:n_keep]] = p[order[:n_keep]]\n    return out / out.sum(), n_keep\n\n# TWO different contexts: one where the model is confident, one where it is unsure\ncontexts = {\n    \"confident ('the capital of France is ___')\": np.array([9.0, 2.0, 1.8, 1.5, 1.2, 1.0, 0.8, 0.5]),\n    \"uncertain ('he walked into the ___')\":       np.array([2.2, 2.1, 2.0, 1.9, 1.85, 1.8, 1.75, 1.7]),\n}\n\nfor name, logits in contexts.items():\n    p = softmax(logits)\n    print(f\"{name}\")\n    print(f\"  distribution: {np.round(p,4)}\")\n    _, n_kept = top_p_filter(p, 0.9)\n    print(f\"  top-k (k=3) keeps 3 tokens ALWAYS, regardless of confidence\")\n    print(f\"  top-p (p=0.9) keeps {n_kept} tokens -- ADAPTS to the distribution's shape\")\n    print()\n\nprint(\"that adaptivity is the whole point:\")\np_conf = softmax(contexts[\"confident ('the capital of France is ___')\"])\np_unc  = softmax(contexts[\"uncertain ('he walked into the ___')\"])\n_, k_conf = top_p_filter(p_conf, 0.9)\n_, k_unc  = top_p_filter(p_unc, 0.9)\nprint(f\"  when the model is confident, top-p keeps {k_conf} token(s) -- near-greedy, correctly\")\nprint(f\"  when the model is unsure,   top-p keeps {k_unc} tokens -- preserving real variety\")\nprint(f\"  top-k with k=3 would keep 3 in BOTH cases: too many in the first, too few in the second\")\nprint()\n\n# how much tail mass each method discards\nprint(\"tail mass discarded (confident context):\")\nfor k in [1, 3, 5]:\n    kept = top_k_filter(p_conf, k)\n    print(f\"  top-k k={k}: discarded {1 - p_conf[np.argsort(-p_conf)[:k]].sum():.4f} of original mass\")\nfor tp in [0.9, 0.95, 0.99]:\n    _, n = top_p_filter(p_conf, tp)\n    print(f\"  top-p p={tp}: kept {n} tokens, discarded {1-p_conf[np.argsort(-p_conf)[:n]].sum():.4f}\")\nprint()\n\n# combining: temperature THEN top-p is the standard pipeline\nmoderate = np.array([3.2, 2.8, 1.5, 1.2, 1.0, 0.6, 0.4, 0.1])\nprint(\"standard pipeline -- temperature first, then top-p truncation:\")\nprint(\"(on a moderately-spread distribution, where sharpening actually bites)\")\nfor T in [0.3, 0.5, 0.7, 1.0, 1.5, 2.0]:\n    p_t = softmax(moderate / T)\n    _, n = top_p_filter(p_t, 0.9)\n    print(f\"  T={T}: top-p(0.9) keeps {n} tokens\")\nprint()\nprint(\"lower temperature sharpens the distribution, so a smaller set of tokens already\")\nprint(\"covers 0.9 of the mass -- the two controls compose rather than duplicating each other.\")"}
+  output={"confident ('the capital of France is ___')\n  distribution: [9.966e-01 9.000e-04 7.000e-04 6.000e-04 4.000e-04 3.000e-04 3.000e-04\n 2.000e-04]\n  top-k (k=3) keeps 3 tokens ALWAYS, regardless of confidence\n  top-p (p=0.9) keeps 1 tokens -- ADAPTS to the distribution's shape\n\nuncertain ('he walked into the ___')\n  distribution: [0.1644 0.1487 0.1346 0.1218 0.1158 0.1102 0.1048 0.0997]\n  top-k (k=3) keeps 3 tokens ALWAYS, regardless of confidence\n  top-p (p=0.9) keeps 7 tokens -- ADAPTS to the distribution's shape\n\nthat adaptivity is the whole point:\n  when the model is confident, top-p keeps 1 token(s) -- near-greedy, correctly\n  when the model is unsure,   top-p keeps 7 tokens -- preserving real variety\n  top-k with k=3 would keep 3 in BOTH cases: too many in the first, too few in the second\n\ntail mass discarded (confident context):\n  top-k k=1: discarded 0.0034 of original mass\n  top-k k=3: discarded 0.0018 of original mass\n  top-k k=5: discarded 0.0008 of original mass\n  top-p p=0.9: kept 1 tokens, discarded 0.0034\n  top-p p=0.95: kept 1 tokens, discarded 0.0034\n  top-p p=0.99: kept 1 tokens, discarded 0.0034\n\nstandard pipeline -- temperature first, then top-p truncation:\n(on a moderately-spread distribution, where sharpening actually bites)\n  T=0.3: top-p(0.9) keeps 2 tokens\n  T=0.5: top-p(0.9) keeps 2 tokens\n  T=0.7: top-p(0.9) keeps 3 tokens\n  T=1.0: top-p(0.9) keeps 5 tokens\n  T=1.5: top-p(0.9) keeps 6 tokens\n  T=2.0: top-p(0.9) keeps 7 tokens\n\nlower temperature sharpens the distribution, so a smaller set of tokens already\ncovers 0.9 of the mass -- the two controls compose rather than duplicating each other."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="With p=0.9, top-p kept 1 token in the confident context and 7 in the uncertain one. What does that behaviour accomplish that a fixed k cannot?"
+  correct={1}
+  options={[
+    { text: "It guarantees the same amount of randomness at every step, making output more consistent", why: "It deliberately does the opposite -- randomness varies by step, being near-zero where the model is confident and high where it is genuinely uncertain. That variation is the feature, not a flaw." },
+    { text: "It matches the amount of randomness to the model's actual uncertainty -- staying near-greedy where the model is confident (avoiding needless errors) while preserving genuine variety where many continuations are valid, which no single fixed k can do for both cases at once", why: "Correct — a fixed k=3 would keep two implausible alternatives in the confident case and discard four legitimate options in the uncertain one. Top-p resolves both with one parameter by targeting mass rather than count." },
+    { text: "It always discards more probability mass than top-k, producing safer output", why: "The discarded-mass table shows top-p at p=0.9 discarded 0.0034 -- the same as top-k with k=1 and MORE than k=3 or k=5. Top-p does not uniformly discard more; how much it discards depends on the distribution." },
+    { text: "It reorders tokens so the most contextually appropriate one is ranked first", why: "Neither top-k nor top-p reorders anything -- both keep a prefix of the existing ranking and renormalize. Reordering would require changing the model's own scores, which decoding strategies never do." },
+  ]}
+/>
+
+## Summary
+
+Top-k keeps a fixed count of tokens; top-p (nucleus) keeps the smallest set reaching a target
+probability mass. That distinction makes top-p adaptive: with `p=0.9` it kept 1 token where the
+model was confident and 7 where it was uncertain, while `k=3` would have been simultaneously too
+permissive in the first case and too restrictive in the second. Temperature and top-p compose
+naturally — sharpening the distribution first means fewer tokens are needed to reach the mass
+target (2 tokens at `T=0.3` rising to 7 at `T=2.0`), which is why production APIs expose both.
+The next lesson covers repetition penalties and stopping criteria.
+
+## Further reading
+
+- Holtzman et al., *"The Curious Case of Neural Text Degeneration"* — introduces nucleus
+  sampling and the adaptivity argument measured above.

@@ -1,0 +1,83 @@
+---
+slug: kv-cache
+month: 8
+week: 3
+ord: 5
+title: "The KV Cache"
+code: "8.3.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Explain why keys and values for past tokens never change during generation"
+  - "Measure the asymptotic speedup caching delivers on the projection cost"
+  - "Compute KV cache memory and explain why long-context serving is memory-bound"
+prereqs:
+  - "Repetition Penalties and Stopping Criteria ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: What Can Be Reused }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week three: never compute the same thing twice</h2>
+
+Generating token 500 naively means running the model over all 500 preceding tokens — then token
+501 runs over 501, and so on. That is enormously wasteful, because **causal masking guarantees
+the earlier tokens' representations cannot change**. Token 3's key and value vectors depend only
+on tokens 1–3; appending token 500 cannot affect them. So compute them once and keep them. That
+is the **KV cache**, and it is the single most important inference optimization there is.
+
+<h2 id="math">What can be reused</h2>
+
+Attention needs a query from the *current* position and keys and values from *all* positions:
+
+<MathBlock tex="\text{attn}(q_t, K_{1:t}, V_{1:t}) = \text{softmax}\!\left(\frac{q_t K_{1:t}^\top}{\sqrt{d_h}}\right)V_{1:t}" />
+
+`K_{1:t-1}` and `V_{1:t-1}` are identical to what they were at the previous step. Only the new
+row `k_t, v_t` is genuinely new. Caching turns per-step projection work from `O(t)` into `O(1)`,
+and total generation cost from `O(n²)` into `O(n)`.
+
+<Callout kind="tip" title="Why only K and V, not Q">
+  Queries are *not* cached, because a past token's query is never needed again. Under causal
+  masking, position 3 attends to positions 1–3 and that computation already happened at step 3;
+  no later step revisits it. Keys and values, by contrast, are read by *every* subsequent query.
+  The asymmetry is exactly why it is a "KV" cache rather than a "QKV" cache.
+</Callout>
+
+<h2 id="python">Speedup measured, and the memory it costs</h2>
+
+<CodeCell
+  code={"import numpy as np, time\n\nd_model, n_heads = 256, 8\nd_head = d_model // n_heads\nrng = np.random.default_rng(0)\nWq, Wk, Wv = (rng.normal(0,0.02,(d_model,d_model)) for _ in range(3))\n\ndef softmax(z):\n    e = np.exp(z - z.max(axis=-1, keepdims=True)); return e / e.sum(axis=-1, keepdims=True)\n\ndef attend(Q, K, V):\n    s = (Q @ K.T) / np.sqrt(d_head)\n    T = Q.shape[0]\n    if T > 1:\n        s = np.where(np.triu(np.ones((T, K.shape[0])), k=1+K.shape[0]-T).astype(bool), -np.inf, s)\n    return softmax(s) @ V\n\n# WITHOUT cache: recompute K,V for the ENTIRE prefix at every new token\ndef generate_no_cache(prompt_len, n_new):\n    x = rng.normal(0, 1, (prompt_len, d_model))\n    ops = 0\n    for _ in range(n_new):\n        K = x @ Wk; V = x @ Wv; Q = x @ Wq        # full recompute, every step\n        ops += 3 * x.shape[0] * d_model * d_model\n        _ = attend(Q, K, V)\n        x = np.vstack([x, rng.normal(0, 1, (1, d_model))])\n    return ops\n\n# WITH cache: K,V for past tokens are stored; only the NEW token is projected\ndef generate_with_cache(prompt_len, n_new):\n    x = rng.normal(0, 1, (prompt_len, d_model))\n    K_cache = x @ Wk; V_cache = x @ Wv           # computed once for the prompt\n    ops = 2 * prompt_len * d_model * d_model\n    for _ in range(n_new):\n        new = rng.normal(0, 1, (1, d_model))\n        k_new = new @ Wk; v_new = new @ Wv; q_new = new @ Wq   # ONE token only\n        ops += 3 * 1 * d_model * d_model\n        K_cache = np.vstack([K_cache, k_new])\n        V_cache = np.vstack([V_cache, v_new])\n        _ = attend(q_new, K_cache, V_cache)\n    return ops\n\nprint(\"PROJECTION COST (multiply-accumulates for Q/K/V), prompt=128 tokens:\")\nprint(f\"{'new tokens':>11} {'no cache':>16} {'with cache':>16} {'speedup':>9}\")\nfor n_new in [16, 64, 256]:\n    a = generate_no_cache(128, n_new)\n    b = generate_with_cache(128, n_new)\n    print(f\"{n_new:>11} {a:>16,} {b:>16,} {a/b:>8.1f}x\")\nprint()\nprint(\"without a cache, generating token t re-projects all t previous tokens --\")\nprint(\"total work is O(n^2). With a cache each step projects exactly ONE token: O(n).\")\nprint()\n\n# the cost: cache MEMORY grows linearly with sequence length\nprint(\"KV CACHE MEMORY (bf16, 2 bytes/value):\")\nprint(f\"{'layers':>7} {'seq len':>9} {'d_model':>9} {'cache size':>14}\")\nfor layers, seq, d in [(12, 1024, 768), (32, 4096, 4096), (80, 32768, 8192)]:\n    # 2 tensors (K and V) x layers x seq x d_model x 2 bytes\n    size = 2 * layers * seq * d * 2\n    print(f\"{layers:>7} {seq:>9,} {d:>9,} {size/1e9:>12.2f} GB\")\nprint()\nprint(\"this is why long-context serving is memory-bound: at 32k context an 80-layer\")\nprint(\"model needs ~86 GB of KV cache PER SEQUENCE, dwarfing the weights themselves.\")"}
+  output={"PROJECTION COST (multiply-accumulates for Q/K/V), prompt=128 tokens:\n new tokens         no cache       with cache   speedup\n         16      426,246,144       19,922,944     21.4x\n         64    2,006,974,464       29,360,128     68.4x\n        256   12,859,736,064       67,108,864    191.6x\n\nwithout a cache, generating token t re-projects all t previous tokens --\ntotal work is O(n^2). With a cache each step projects exactly ONE token: O(n).\n\nKV CACHE MEMORY (bf16, 2 bytes/value):\n layers   seq len   d_model     cache size\n     12     1,024       768         0.04 GB\n     32     4,096     4,096         2.15 GB\n     80    32,768     8,192        85.90 GB\n\nthis is why long-context serving is memory-bound: at 32k context an 80-layer\nmodel needs ~86 GB of KV cache PER SEQUENCE, dwarfing the weights themselves."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The speedup grows from 21.4x to 191.6x as generation length increases. Why does the benefit compound rather than staying constant?"
+  correct={0}
+  options={[
+    { text: "Uncached cost is O(n^2) because step t re-projects all t previous tokens, while cached cost is O(n) since each step projects exactly one -- so their ratio grows roughly linearly with sequence length, and the advantage compounds the longer you generate", why: "Correct — the ratio of an O(n^2) quantity to an O(n) one is itself O(n), which is exactly why the measured speedup rises steadily with the number of tokens generated rather than settling at a fixed factor." },
+    { text: "The cache gets more accurate as more tokens accumulate in it", why: "The cache is not an approximation -- it stores exactly the same key and value vectors that would be recomputed, so results are numerically identical either way. Accuracy does not change with length." },
+    { text: "Longer sequences let the GPU use larger, more efficient batch sizes", why: "The measurement counts arithmetic operations, not hardware utilization, and the comparison is single-sequence. The speedup arises from the asymptotic difference in work performed, not from batching effects." },
+    { text: "Memory usage falls as generation continues, freeing capacity for speed", why: "Cache memory GROWS linearly with sequence length, as the second table shows -- reaching 85.90 GB at 32k context. Memory pressure increases with length rather than easing." },
+  ]}
+/>
+
+## Week three summary
+
+Decoding is a set of choices made *after* training, and they determine output quality as much as
+the weights do. Greedy is deterministic and bland; pure sampling is faithful but includes an
+incoherent tail; temperature reshapes the distribution without being able to remove that tail;
+top-k truncates by count and top-p by mass, with top-p adapting to the model's confidence (1
+token where certain, 7 where not); penalties suppress loops at the risk of suppressing necessary
+words; and the KV cache exploits causal masking to turn `O(n²)` generation into `O(n)` — a
+191.6× reduction in projection work at 256 tokens, paid for in cache memory that reaches 85.90 GB
+at 32k context. Week four returns to training, at the level of choosing how big a model to build.
+
+## Further reading
+
+- Pope et al., *"Efficiently Scaling Transformer Inference"* — the KV cache memory analysis and
+  the serving strategies built around it.

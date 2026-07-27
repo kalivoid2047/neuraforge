@@ -1,0 +1,85 @@
+---
+slug: causal-vs-masked-lm
+month: 8
+week: 1
+ord: 2
+title: "Causal LM vs Masked LM: Why GPT Generates and BERT Classifies"
+code: "8.1.2"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Contrast the causal and masked language modeling objectives"
+  - "Measure how many supervised prediction targets each objective extracts per sequence"
+  - "Explain why only the causal objective supports left-to-right generation"
+prereqs:
+  - "From Encoder-Decoder to Decoder-Only ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Two Objectives }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Two ways to turn raw text into supervised training data</h2>
+
+Raw text has no labels — yet both GPT and BERT train on it with a supervised objective. They
+manufacture labels from the text itself, in two genuinely different ways, and that choice
+determines what each model can and cannot do afterward.
+
+<h2 id="math">Two objectives</h2>
+
+**Causal (autoregressive) LM** — GPT. Predict each token from everything strictly before it.
+This is exactly Month 6's language modeling objective:
+
+<MathBlock tex="\mathcal{L}_{\text{causal}} = -\sum_{i} \log P(w_i \mid w_1,\ldots,w_{i-1})" />
+
+**Masked LM** — BERT. Hide a random ~15% of tokens and predict them from the *whole* remaining
+sequence, both directions:
+
+<MathBlock tex="\mathcal{L}_{\text{masked}} = -\sum_{i \in \text{masked}} \log P(w_i \mid w_{\setminus \text{masked}})" />
+
+<Callout kind="tip" title="The trade-off in one sentence">
+  Causal LM supervises nearly every position but each position sees only leftward context;
+  masked LM gives every position bidirectional context but supervises only the masked minority.
+  Bidirectional context is genuinely richer for *understanding* a fixed sentence — which is why
+  BERT-style models long dominated classification benchmarks — but it structurally rules out
+  left-to-right generation, because generating token `i` would require tokens after `i` that
+  don't exist yet.
+</Callout>
+
+<h2 id="python">Counting the supervision each objective extracts</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\ntokens = [\"the\", \"cat\", \"sat\", \"on\", \"the\", \"mat\"]\nn = len(tokens)\n\n# --- CAUSAL LM (GPT): every position predicts the NEXT token ---\nprint(\"CAUSAL LM (GPT) -- training signal from one 6-token sequence:\")\ncausal_examples = []\nfor i in range(n - 1):\n    causal_examples.append((tokens[:i+1], tokens[i+1]))\nfor context, target in causal_examples:\n    print(f\"  given {context} -> predict '{target}'\")\nprint(f\"  => {len(causal_examples)} prediction targets from {n} tokens \"\n      f\"({len(causal_examples)/n:.0%} of positions supervised)\")\nprint()\n\n# --- MASKED LM (BERT): only the ~15% masked positions are predicted ---\nmask_rate = 0.15\nprint(f\"MASKED LM (BERT) -- same sequence, {mask_rate:.0%} masking:\")\nn_masked = max(1, round(n * mask_rate))\nmasked_positions = sorted(rng.choice(n, size=n_masked, replace=False))\nmasked_view = [(\"[MASK]\" if i in masked_positions else t) for i, t in enumerate(tokens)]\nprint(f\"  model sees: {masked_view}\")\nfor i in masked_positions:\n    print(f\"  given the WHOLE masked sequence -> predict position {i} = '{tokens[i]}'\")\nprint(f\"  => {n_masked} prediction targets from {n} tokens \"\n      f\"({n_masked/n:.0%} of positions supervised)\")\nprint()\n\nprint(\"the causal objective extracts a prediction target from nearly every position;\")\nprint(\"the masked objective supervises only the masked minority. That efficiency gap is\")\nprint(\"a major reason generative pretraining scales the way it does.\")\nprint()\n\n# --- what each objective allows at inference ---\nprint(\"but the trade is real -- what CONTEXT does each position get to use?\")\nprint(f\"  causal: position {n-1} ('{tokens[n-1]}') attends to {n-1} tokens (all strictly before it)\")\nprint(f\"  masked: a masked position attends to all {n-1} other tokens (before AND after)\")\nprint()\nprint(\"causal LM can generate (nothing after a position is needed); masked LM sees both\")\nprint(\"directions but cannot generate left-to-right, which is why BERT classifies and GPT writes.\")"}
+  output={"CAUSAL LM (GPT) -- training signal from one 6-token sequence:\n  given ['the'] -> predict 'cat'\n  given ['the', 'cat'] -> predict 'sat'\n  given ['the', 'cat', 'sat'] -> predict 'on'\n  given ['the', 'cat', 'sat', 'on'] -> predict 'the'\n  given ['the', 'cat', 'sat', 'on', 'the'] -> predict 'mat'\n  => 5 prediction targets from 6 tokens (83% of positions supervised)\n\nMASKED LM (BERT) -- same sequence, 15% masking:\n  model sees: ['the', 'cat', 'sat', 'on', 'the', '[MASK]']\n  given the WHOLE masked sequence -> predict position 5 = 'mat'\n  => 1 prediction targets from 6 tokens (17% of positions supervised)\n\nthe causal objective extracts a prediction target from nearly every position;\nthe masked objective supervises only the masked minority. That efficiency gap is\na major reason generative pretraining scales the way it does.\n\nbut the trade is real -- what CONTEXT does each position get to use?\n  causal: position 5 ('mat') attends to 5 tokens (all strictly before it)\n  masked: a masked position attends to all 5 other tokens (before AND after)\n\ncausal LM can generate (nothing after a position is needed); masked LM sees both\ndirections but cannot generate left-to-right, which is why BERT classifies and GPT writes."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why can't a masked language model like BERT generate text left-to-right the way GPT does?"
+  correct={1}
+  options={[
+    { text: "BERT's vocabulary is too small to express fluent text", why: "Vocabulary size is not the obstacle -- BERT uses a full WordPiece vocabulary comparable to GPT's. The limitation comes from its training objective's use of bidirectional context." },
+    { text: "Its objective trains each masked position using context from BOTH sides, but during left-to-right generation the right-hand context doesn't exist yet -- so at generation time the model would be operating in a setting it was never trained for", why: "Correct — the mismatch is structural: the masked objective's whole advantage (bidirectional context) is unavailable during generation, since tokens to the right haven't been produced yet." },
+    { text: "BERT has no softmax layer, so it cannot produce a probability distribution over tokens", why: "BERT does have a softmax output head over the vocabulary -- that's exactly how it predicts masked tokens. The issue is what context that prediction depends on, not the output layer." },
+    { text: "Generation requires cross-attention, which BERT lacks", why: "Cross-attention is not required for generation -- the previous lesson showed decoder-only GPT models generate with no cross-attention at all. Causal masking, not cross-attention, is what enables generation." },
+  ]}
+/>
+
+## Summary
+
+Causal LM predicts each token from strictly-leftward context, supervising nearly every position
+(5 of 6 in the sequence measured above); masked LM predicts a hidden ~15% using bidirectional
+context, supervising far fewer positions (1 of 6). Bidirectional context is richer for
+understanding a fixed input, but it structurally prevents left-to-right generation, since the
+right-hand context a masked model relies on does not yet exist while generating. That difference
+is why BERT-style models became classifiers and GPT-style models became generators. The next
+lesson examines a detail that turns out to matter enormously once these stacks get deep:
+where the LayerNorm goes.
+
+## Further reading
+
+- Devlin et al., *"BERT: Pre-training of Deep Bidirectional Transformers"* — the masked LM
+  objective and its bidirectional-context argument.

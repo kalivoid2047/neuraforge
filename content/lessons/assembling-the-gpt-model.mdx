@@ -1,0 +1,95 @@
+---
+slug: assembling-the-gpt-model
+month: 8
+week: 1
+ord: 5
+title: "Assembling the Full GPT Model"
+code: "8.1.5"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Assemble embeddings, pre-LN blocks, causal attention, and a tied head into one model"
+  - "Run a complete forward pass and confirm it produces one distribution per position"
+  - "Verify causality empirically by checking the attention matrix is strictly lower-triangular"
+prereqs:
+  - "Weight Tying and Parameter Budgets ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Full Forward Pass }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Closing week one: every decision, in one working model</h2>
+
+This week made four architectural decisions: drop the encoder and use one causally-masked stack
+(8.1.1), train with a causal rather than masked objective (8.1.2), place LayerNorm inside the
+residual branch (8.1.3), and tie the embedding matrix to the output head (8.1.4). This lesson
+builds the model those decisions describe — a complete GPT, in NumPy, with nothing hidden behind
+a framework.
+
+<h2 id="math">The full forward pass</h2>
+
+<MathBlock tex="h_0 = E[\text{tokens}] + P[:T]" />
+
+<MathBlock tex="h_\ell' = h_{\ell-1} + \text{CausalAttn}\big(\text{LN}(h_{\ell-1})\big) \qquad h_\ell = h_\ell' + \text{FFN}\big(\text{LN}(h_\ell')\big)" />
+
+<MathBlock tex="\text{logits} = \text{LN}(h_L)\,E^\top" />
+
+Token plus positional embeddings enter; `L` pre-LN blocks each apply causal self-attention then
+a feed-forward network, both as residual branches; a final LayerNorm precedes the tied output
+projection. The result is a `(T, vocab)` matrix — **one full next-token distribution at every
+position**, which is exactly what makes the causal objective so efficient (8.1.2).
+
+<Callout kind="tip" title="GELU instead of ReLU">
+  The feed-forward network below uses **GELU** rather than the ReLU from Month 4. GELU is a
+  smooth approximation to ReLU that weights inputs by how far they are from zero rather than
+  hard-clipping at it. The difference is modest in principle but empirically favourable for
+  Transformers, and GPT-family models use it throughout.
+</Callout>
+
+<h2 id="python">A complete GPT forward pass in NumPy</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\n# --- config ---\nvocab, d_model, n_heads, d_ff, n_layers, max_len = 20, 32, 4, 128, 3, 8\nd_head = d_model // n_heads\n\ndef layer_norm(x, g, b, eps=1e-5):\n    mu = x.mean(axis=-1, keepdims=True)\n    sd = x.std(axis=-1, keepdims=True)\n    return g * (x - mu) / (sd + eps) + b\n\ndef softmax(z):\n    e = np.exp(z - z.max(axis=-1, keepdims=True))\n    return e / e.sum(axis=-1, keepdims=True)\n\ndef gelu(x):\n    return 0.5 * x * (1 + np.tanh(np.sqrt(2/np.pi) * (x + 0.044715 * x**3)))\n\n# --- parameters ---\ndef init(*shape, scale=0.02):\n    return rng.normal(0, scale, shape)\n\nE   = init(vocab, d_model)          # token embeddings (TIED with the output head)\nP   = init(max_len, d_model)        # learned positional embeddings\nblocks = []\nfor _ in range(n_layers):\n    blocks.append({\n        \"ln1_g\": np.ones(d_model), \"ln1_b\": np.zeros(d_model),\n        \"Wq\": init(d_model, d_model), \"Wk\": init(d_model, d_model),\n        \"Wv\": init(d_model, d_model), \"Wo\": init(d_model, d_model),\n        \"ln2_g\": np.ones(d_model), \"ln2_b\": np.zeros(d_model),\n        \"W1\": init(d_model, d_ff), \"b1\": np.zeros(d_ff),\n        \"W2\": init(d_ff, d_model), \"b2\": np.zeros(d_model),\n    })\nlnf_g, lnf_b = np.ones(d_model), np.zeros(d_model)\n\ndef causal_self_attention(x, p):\n    T = x.shape[0]\n    Q, K, V = x @ p[\"Wq\"], x @ p[\"Wk\"], x @ p[\"Wv\"]\n    # split into heads: (T, n_heads, d_head) -> (n_heads, T, d_head)\n    Q = Q.reshape(T, n_heads, d_head).transpose(1, 0, 2)\n    K = K.reshape(T, n_heads, d_head).transpose(1, 0, 2)\n    V = V.reshape(T, n_heads, d_head).transpose(1, 0, 2)\n    scores = (Q @ K.transpose(0, 2, 1)) / np.sqrt(d_head)      # (n_heads, T, T)\n    mask = np.triu(np.ones((T, T)), k=1).astype(bool)          # causal mask (Month 7)\n    scores = np.where(mask, -np.inf, scores)\n    attn = softmax(scores)\n    out = attn @ V                                             # (n_heads, T, d_head)\n    out = out.transpose(1, 0, 2).reshape(T, d_model)           # merge heads\n    return out @ p[\"Wo\"], attn\n\ndef gpt_forward(token_ids):\n    T = len(token_ids)\n    x = E[token_ids] + P[:T]                    # token + positional embeddings\n    all_attn = []\n    for p in blocks:\n        # PRE-LN (lesson 8.1.3): normalize inside the branch, residual stream untouched\n        a, attn = causal_self_attention(layer_norm(x, p[\"ln1_g\"], p[\"ln1_b\"]), p)\n        x = x + a\n        h = layer_norm(x, p[\"ln2_g\"], p[\"ln2_b\"])\n        x = x + gelu(h @ p[\"W1\"] + p[\"b1\"]) @ p[\"W2\"] + p[\"b2\"]\n        all_attn.append(attn)\n    x = layer_norm(x, lnf_g, lnf_b)\n    logits = x @ E.T                            # WEIGHT TYING (lesson 8.1.4)\n    return logits, all_attn\n\ntokens = [3, 7, 1, 9, 2]\nlogits, attns = gpt_forward(tokens)\n\nprint(f\"config: vocab={vocab}, d_model={d_model}, heads={n_heads}, layers={n_layers}\")\nprint(f\"input tokens: {tokens}\")\nprint(f\"logits shape: {logits.shape}  (one distribution per position, over the vocabulary)\")\nprint()\n\nprobs = softmax(logits)\nprint(\"next-token prediction at each position:\")\nfor i, t in enumerate(tokens):\n    top = int(np.argmax(probs[i]))\n    print(f\"  after token {t} (pos {i}): most likely next = {top} (p={probs[i][top]:.4f})\")\nprint()\n\n# verify causality: position i must place ZERO attention on any position > i\nprint(\"causal masking check (layer 0, head 0) -- attention weights:\")\na0 = attns[0][0]\nfor i in range(len(tokens)):\n    row = \" \".join(f\"{a0[i][j]:.2f}\" for j in range(len(tokens)))\n    print(f\"  pos {i}: [{row}]\")\nfuture_mass = sum(a0[i][j] for i in range(len(tokens)) for j in range(len(tokens)) if j > i)\nprint(f\"total attention paid to FUTURE positions: {future_mass:.2e} (must be 0)\")\nprint()\nprint(\"each row sums to 1 and is strictly lower-triangular -- causality holds.\")\nprint()\n\nn_params = E.size + P.size + sum(v.size for b in blocks for v in b.values()) + lnf_g.size + lnf_b.size\nprint(f\"total parameters: {n_params:,} (output head costs 0 -- tied to E)\")"}
+  output={"config: vocab=20, d_model=32, heads=4, layers=3\ninput tokens: [3, 7, 1, 9, 2]\nlogits shape: (5, 20)  (one distribution per position, over the vocabulary)\n\nnext-token prediction at each position:\n  after token 3 (pos 0): most likely next = 5 (p=0.0611)\n  after token 7 (pos 1): most likely next = 7 (p=0.0710)\n  after token 1 (pos 2): most likely next = 1 (p=0.0624)\n  after token 9 (pos 3): most likely next = 9 (p=0.0676)\n  after token 2 (pos 4): most likely next = 2 (p=0.0696)\n\ncausal masking check (layer 0, head 0) -- attention weights:\n  pos 0: [1.00 0.00 0.00 0.00 0.00]\n  pos 1: [0.50 0.50 0.00 0.00 0.00]\n  pos 2: [0.33 0.34 0.33 0.00 0.00]\n  pos 3: [0.25 0.25 0.25 0.25 0.00]\n  pos 4: [0.20 0.20 0.20 0.20 0.20]\ntotal attention paid to FUTURE positions: 0.00e+00 (must be 0)\n\neach row sums to 1 and is strictly lower-triangular -- causality holds.\n\ntotal parameters: 38,688 (output head costs 0 -- tied to E)"}
+/>
+
+<Callout kind="warning" title="These predictions are meaningless — and that is the correct result">
+  The model predicts near-uniform probabilities (about `0.06`, and `1/20 = 0.05` would be exactly
+  uniform), and several positions predict the token they just saw. That is **expected**: these
+  weights are random, having never been trained. Nothing here has learned anything yet.
+
+  What this cell verifies is that the *architecture* is correct and wired together properly —
+  shapes flow through, softmax rows normalize, and causality holds exactly. Training is week
+  four's subject. A near-uniform output from an untrained model is a sign the initialization is
+  sane, not a sign of failure.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The attention matrix shows position 4 attending equally (0.20) to all five positions, while position 0 attends only to itself (1.00). What does this pattern indicate?"
+  correct={0}
+  options={[
+    { text: "Causal masking is working correctly -- each position can attend only to itself and earlier positions, so position 0 has exactly one option while position 4 has five, and with untrained random weights the attention spreads roughly evenly across whatever is available", why: "Correct — the strictly lower-triangular structure confirms masking, and the near-even spread within each row is what untrained (near-random, pre-softmax-similar) scores produce. The zero future-attention total verifies it exactly." },
+    { text: "The model has learned that recent tokens matter more than distant ones", why: "The model has learned nothing -- its weights are random and untrained. The even spread reflects the absence of learned structure, not a learned recency preference." },
+    { text: "The attention weights are broken, since they should be identical across all positions", why: "They should NOT be identical -- position i can attend to exactly i+1 positions under causal masking, so rows necessarily differ. Identical rows would actually indicate masking had failed." },
+    { text: "Position 0 is overfitting to itself", why: "Overfitting is a training phenomenon and this model has never been trained. Position 0 attends only to itself because causal masking leaves it no other option -- there are no earlier positions." },
+  ]}
+/>
+
+## Week one summary
+
+A GPT is one causally-masked pre-LN stack with a tied output head. This week justified each of
+those choices — dropping the encoder and reframing tasks as one sequence (8.1.1), the causal
+objective's supervision efficiency and its generation capability (8.1.2), pre-LN's dramatically
+better depth-sensitivity (8.1.3), and weight tying's shrinking-with-scale parameter benefit
+(8.1.4) — then assembled them into a complete working model whose causality is verified exactly.
+Week two turns to what it takes to actually train a model like this at scale.
+
+## Further reading
+
+- Karpathy, *nanoGPT* — a compact, readable PyTorch implementation of exactly this architecture,
+  worth reading alongside the NumPy version above.

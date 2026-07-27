@@ -75,10 +75,17 @@ tokenization (BPE/WordPiece/SentencePiece), embeddings, n-gram and RNN language 
 perplexity, and the vanishing-gradient limitation that motivates attention), and Month 7
 (Transformers From Scratch) are each fully authored, 20/20 lessons.
 
-Months 1 through 7 now run end to end with no gaps, so `/learn/[slug]` presents each
-month-to-month transition as a normal "next lesson." Months 8–12 (100 lessons) are not yet
-authored; the navigation still flags a genuine month gap explicitly rather than presenting a
-skip as the next lesson in sequence.
+Month 8 (GPT & Training at Scale → GPT From Scratch) is also complete, 20/20 lessons: the
+decoder-only architecture, training at scale (packing, mixed precision, gradient accumulation
+and checkpointing, DDP/FSDP), decoding strategies and the KV cache, and scaling laws — closing
+with a capstone that derives backpropagation through a Transformer by hand, verifies every
+gradient against finite differences to ~1e-10, trains to perplexity 1.43, and generates coherent
+text.
+
+**Months 1 through 8 run end to end with no gaps: 160/240 lessons.** `/learn/[slug]` presents
+each month-to-month transition as a normal "next lesson." Months 9–12 (80 lessons) are not yet
+authored; the navigation flags a genuine month gap explicitly rather than presenting a skip as
+the next lesson in sequence.
 
 ## License
 

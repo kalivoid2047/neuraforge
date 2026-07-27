@@ -1,0 +1,91 @@
+---
+slug: gradient-checkpointing
+month: 8
+week: 2
+ord: 4
+title: "Gradient Checkpointing"
+code: "8.2.4"
+minutes: 75
+difficulty: 4
+objectives:
+  - "Explain why backpropagation must retain activations, and what checkpointing discards instead"
+  - "Derive why the optimal number of checkpoint segments is the square root of the layer count"
+  - "Quantify the memory saved and the compute paid for it"
+prereqs:
+  - "Gradient Accumulation ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Square-Root Optimum }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Throw activations away, then recompute them</h2>
+
+Month 3's autograd engine had to keep every intermediate value from the forward pass, because
+the backward pass needs them — the gradient of `a * b` with respect to `a` is `b`, so `b` must
+still be around. For a 96-layer model on a long sequence, those stored activations dominate GPU
+memory, often exceeding the weights by a wide margin.
+
+**Gradient checkpointing** takes a deliberately wasteful-sounding approach: discard most
+activations during the forward pass, keep only a few **checkpoints**, and when backward reaches
+a discarded region, *recompute it* from the nearest checkpoint. It trades compute for memory,
+and the exchange rate is unusually good.
+
+<h2 id="math">The square-root optimum</h2>
+
+Split `n` layers into `k` segments. You must store the `k` segment boundaries, plus — while
+recomputing one segment — that segment's `n/k` internal activations:
+
+<MathBlock tex="\text{memory}(k) = k + \frac{n}{k}" />
+
+Minimizing over `k` (set the derivative `1 - n/k^2` to zero) gives:
+
+<MathBlock tex="k^\star = \sqrt{n} \qquad \Rightarrow \qquad \text{memory} = 2\sqrt{n} = O(\sqrt{n})" />
+
+Memory drops from `O(n)` to `O(√n)` — for a 96-layer model, from 96 stored activations to about
+20.
+
+<Callout kind="tip" title="Why the compute cost is 33%, not 100%">
+  Checkpointing adds exactly one extra forward pass. That sounds like it should double the cost,
+  but a backward pass costs roughly **twice** a forward pass (it computes gradients with respect
+  to both inputs and weights). So a normal step is `1 + 2 = 3` units and a checkpointed step is
+  `1 + 1 + 2 = 4` units — a **33%** increase, not 100%. That is the figure the code below
+  computes, and it is why checkpointing is standard practice for large models rather than a
+  desperate measure.
+</Callout>
+
+<h2 id="python">Memory, compute, and confirming the optimum by scan</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# Simulate the memory/compute trade of gradient checkpointing across a deep stack.\n# Standard backprop must KEEP every layer's activation for the backward pass.\n# Checkpointing keeps only a few, and RECOMPUTES the rest on demand.\n\n# cost model: a backward pass costs about TWICE a forward pass per layer\nFWD_COST, BWD_COST = 1.0, 2.0\n\ndef standard(n_layers):\n    stored = n_layers                              # every activation retained\n    compute = n_layers * (FWD_COST + BWD_COST)     # forward + backward\n    return stored, compute\n\ndef checkpointed(n_layers, n_segments):\n    \"\"\"Keep only segment boundaries; recompute within a segment during backward.\"\"\"\n    seg_len = n_layers / n_segments\n    stored = n_segments + seg_len                  # boundaries + one segment live at a time\n    compute = n_layers * (FWD_COST + BWD_COST)     # same forward + backward as before\n    compute += n_layers * FWD_COST                 # PLUS one extra forward to recompute\n    return stored, compute\n\nn_layers = 96\nprint(f\"a {n_layers}-layer model -- activations stored vs total layer-computations:\")\nprint(f\"{'strategy':>28} {'stored':>9} {'compute':>9} {'mem saved':>11} {'compute cost':>13}\")\n\ns_std, c_std = standard(n_layers)\nprint(f\"{'standard backprop':>28} {s_std:>9.1f} {c_std:>9.1f} {'--':>11} {'--':>13}\")\n\nfor n_seg in [4, 8, 16, 32]:\n    s, c = checkpointed(n_layers, n_seg)\n    print(f\"{f'checkpoint, {n_seg} segments':>28} {s:>9.1f} {c:>9.1f} \"\n          f\"{1 - s/s_std:>10.1%} {c/c_std - 1:>12.0%}\")\n\nprint()\n\n# the optimum: minimize (n_segments + n_layers/n_segments) -> n_segments = sqrt(n_layers)\nbest_seg = int(round(np.sqrt(n_layers)))\ns_best, c_best = checkpointed(n_layers, best_seg)\nprint(f\"OPTIMAL segment count = sqrt({n_layers}) = {best_seg}\")\nprint(f\"  stored = {s_best:.1f} activations (vs {s_std} standard) -> {1 - s_best/s_std:.1%} saved\")\nprint(f\"  compute = {c_best:.1f} layer-passes (vs {c_std}) -> {c_best/c_std - 1:.0%} more\")\nprint()\n\n# verify sqrt is really the minimizer, by scanning\nprint(\"scanning segment counts to confirm sqrt(n) minimizes stored activations:\")\nbest = min(range(1, n_layers+1), key=lambda k: k + n_layers/k)\nfor k in [4, 8, 9, 10, 12, 16, 24]:\n    stored = k + n_layers/k\n    marker = \"  <- minimum\" if k == best else \"\"\n    print(f\"  {k:>3} segments: stored = {stored:.2f}{marker}\")\nprint(f\"argmin over all k in 1..{n_layers}: k = {best}  (sqrt({n_layers}) = {np.sqrt(n_layers):.2f})\")\nprint()\nprint(f\"memory drops from O(n)={n_layers} to O(sqrt(n))~{2*np.sqrt(n_layers):.0f} activations,\")\nprint(f\"at the cost of one extra forward pass -- {c_best/c_std - 1:.0%} more total training compute.\")"}
+  output={"a 96-layer model -- activations stored vs total layer-computations:\n                    strategy    stored   compute   mem saved  compute cost\n           standard backprop      96.0     288.0          --            --\n      checkpoint, 4 segments      28.0     384.0      70.8%          33%\n      checkpoint, 8 segments      20.0     384.0      79.2%          33%\n     checkpoint, 16 segments      22.0     384.0      77.1%          33%\n     checkpoint, 32 segments      35.0     384.0      63.5%          33%\n\nOPTIMAL segment count = sqrt(96) = 10\n  stored = 19.6 activations (vs 96 standard) -> 79.6% saved\n  compute = 384.0 layer-passes (vs 288.0) -> 33% more\n\nscanning segment counts to confirm sqrt(n) minimizes stored activations:\n    4 segments: stored = 28.00\n    8 segments: stored = 20.00\n    9 segments: stored = 19.67\n   10 segments: stored = 19.60  <- minimum\n   12 segments: stored = 20.00\n   16 segments: stored = 22.00\n   24 segments: stored = 28.00\nargmin over all k in 1..96: k = 10  (sqrt(96) = 9.80)\n\nmemory drops from O(n)=96 to O(sqrt(n))~20 activations,\nat the cost of one extra forward pass -- 33% more total training compute."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The scan shows using MORE checkpoint segments (32) stores more activations than an intermediate number (10). Why isn't more checkpointing always better for memory?"
+  correct={2}
+  options={[
+    { text: "More segments require more recomputation, which itself consumes memory", why: "Recomputation cost is the same regardless of segment count -- every discarded layer is recomputed exactly once, which is why the compute column reads 33% for every configuration in the table." },
+    { text: "Beyond 16 segments the compute cost rises sharply, forcing a smaller batch", why: "The compute cost is flat at 33% across all segment counts shown -- it does not rise with more segments. The memory non-monotonicity has a different cause." },
+    { text: "Memory is k + n/k: the boundary checkpoints you must store grow with k while the per-segment recompute buffer shrinks, so the two terms trade off and the sum is minimized in between -- at k = sqrt(n), confirmed by the scan landing on 10 for n=96", why: "Correct — this is exactly the trade the formula expresses: too few segments means large segments to buffer, too many means storing many boundaries, and the square root balances the two competing terms." },
+    { text: "Segment counts must divide the layer count evenly, and 32 does not divide 96 well", why: "32 divides 96 exactly (three layers per segment). Divisibility is not the issue -- the k + n/k trade-off is, and it applies whether or not the division is exact." },
+  ]}
+/>
+
+## Summary
+
+Gradient checkpointing discards most activations during the forward pass and recomputes them
+from stored checkpoints during backward. Storage is `k + n/k` for `k` segments, minimized at
+`k = √n` — confirmed by scanning all values for a 96-layer model, where the minimum landed at
+`k = 10` against `√96 ≈ 9.80`. That cuts stored activations from 96 to about 20 (79.6% saved)
+for one extra forward pass, which — since backward costs roughly twice forward — is a 33%
+compute increase rather than 100%. The next lesson moves beyond one device entirely.
+
+## Further reading
+
+- Chen et al., *"Training Deep Nets with Sublinear Memory Cost"* — the paper deriving the
+  `O(√n)` result implemented above.

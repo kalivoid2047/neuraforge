@@ -1,0 +1,92 @@
+---
+slug: data-packing-streaming
+month: 8
+week: 2
+ord: 1
+title: "The Data Pipeline: Packing and Streaming"
+code: "8.2.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Measure the compute wasted by padding variable-length documents to a fixed context"
+  - "Implement sequence packing and quantify the throughput it recovers"
+  - "State the trade packing makes and how document-boundary attention is handled"
+prereqs:
+  - "Assembling the Full GPT Model ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Padding vs Packing }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week two: the engineering that makes training feasible</h2>
+
+The architecture is settled; now it has to train on billions of tokens without wasting money.
+Week two covers the five pieces that decide whether that is affordable: how data reaches the
+GPU (this lesson), numeric precision, gradient accumulation, gradient checkpointing, and
+multi-GPU distribution.
+
+Start with the data. Real documents have wildly varying lengths, but a GPU wants uniform
+`(batch, context_len)` tensors. The naive fix — pad every document to the context length — means
+a 12-token document occupies a 128-token row and the model burns 116 tokens' worth of compute on
+padding it will then mask out. At scale that is a very large amount of money spent on nothing.
+
+<h2 id="math">Padding vs packing</h2>
+
+**Padding**: one document per row, filled to `context_len` with a pad token. Utilization is the
+mean document length over the context length — poor whenever documents are short or
+length-variable.
+
+**Packing**: concatenate the entire corpus into one long token stream (with a separator between
+documents), then slice it into consecutive `context_len` chunks:
+
+<MathBlock tex="\text{stream} = [d_1, \text{sep}, d_2, \text{sep}, \ldots] \quad\longrightarrow\quad \text{rows of exactly } \texttt{context\_len}" />
+
+Every slot carries a real token. Utilization is effectively 100%, minus one partial chunk at the
+very end.
+
+<h2 id="python">Measuring both strategies on the same documents</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nrng = np.random.default_rng(0)\n\n# realistic document lengths: many short, a few long\ndoc_lengths = [12, 340, 45, 8, 512, 27, 96, 150, 19, 63, 205, 31, 78, 410, 24]\ncontext_len = 128\nPAD = 0\n\n# --- STRATEGY A: pad each document to context_len (the naive approach) ---\npadded_rows = len(doc_lengths)\npadded_tokens = padded_rows * context_len\nreal_tokens = sum(min(L, context_len) for L in doc_lengths)   # truncate anything over context\nwasted = padded_tokens - real_tokens\n\nprint(\"STRATEGY A -- pad every document to the context length:\")\nprint(f\"  {padded_rows} documents -> {padded_rows} rows x {context_len} tokens = {padded_tokens:,} token slots\")\nprint(f\"  real tokens: {real_tokens:,}   padding: {wasted:,}\")\nprint(f\"  waste: {wasted/padded_tokens:.1%} of all compute spent on padding\")\nprint()\n\n# --- STRATEGY B: concatenate everything, then chunk into fixed windows ---\nstream = []\nfor i, L in enumerate(doc_lengths):\n    stream.extend([i + 1] * L)      # token value = document id, just to track provenance\n    stream.append(-1)               # end-of-document separator\nstream = np.array(stream)\n\nn_chunks = len(stream) // context_len\npacked = stream[:n_chunks * context_len].reshape(n_chunks, context_len)\nleftover = len(stream) - n_chunks * context_len\n\nprint(\"STRATEGY B -- concatenate all documents, then chunk (packing):\")\nprint(f\"  total stream: {len(stream):,} tokens (incl. {len(doc_lengths)} separators)\")\nprint(f\"  -> {n_chunks} full rows x {context_len} tokens = {packed.size:,} token slots\")\nprint(f\"  padding: 0    leftover discarded: {leftover} tokens ({leftover/len(stream):.1%})\")\nprint()\n\nprint(f\"packing uses {packed.size:,} slots to carry {packed.size:,} real tokens.\")\nprint(f\"padding used {padded_tokens:,} slots to carry {real_tokens:,} real tokens.\")\nprint(f\"=> packing delivers {packed.size/real_tokens:.2f}x the useful tokens per slot\")\nprint()\n\n# a packed row usually spans MULTIPLE documents\nprint(\"document composition of the first 3 packed rows:\")\nfor r in range(min(3, n_chunks)):\n    docs = sorted(set(int(t) for t in packed[r] if t > 0))\n    print(f\"  row {r}: contains pieces of documents {docs}\")\nprint()\nprint(\"this is the trade: packing wastes no compute, but a row can span document\")\nprint(\"boundaries -- so a position may attend across into an unrelated document.\")"}
+  output={"STRATEGY A -- pad every document to the context length:\n  15 documents -> 15 rows x 128 tokens = 1,920 token slots\n  real tokens: 1,043   padding: 877\n  waste: 45.7% of all compute spent on padding\n\nSTRATEGY B -- concatenate all documents, then chunk (packing):\n  total stream: 2,035 tokens (incl. 15 separators)\n  -> 15 full rows x 128 tokens = 1,920 token slots\n  padding: 0    leftover discarded: 115 tokens (5.7%)\n\npacking uses 1,920 slots to carry 1,920 real tokens.\npadding used 1,920 slots to carry 1,043 real tokens.\n=> packing delivers 1.84x the useful tokens per slot\n\ndocument composition of the first 3 packed rows:\n  row 0: contains pieces of documents [1, 2]\n  row 1: contains pieces of documents [2]\n  row 2: contains pieces of documents [2, 3]\n\nthis is the trade: packing wastes no compute, but a row can span document\nboundaries -- so a position may attend across into an unrelated document."}
+/>
+
+<Callout kind="tip" title="What to do about cross-document attention">
+  A packed row can contain the tail of one document and the head of another, so a position may
+  attend backward into text it has no business seeing. Three responses are used in practice:
+  (1) **ignore it** — with a separator token and long documents the contamination is small, and
+  this is what many large training runs do; (2) **document-aware masking** — extend the causal
+  mask so attention additionally cannot cross a separator, which is exact but costs a custom
+  mask per row; (3) **best-fit packing** — bin documents so rows rarely straddle boundaries.
+  The 45.7%-versus-0% waste measured above is why nobody simply pads instead.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Padding wasted 45.7% of token slots here. What determines how bad that waste gets?"
+  correct={2}
+  options={[
+    { text: "The vocabulary size -- larger vocabularies produce more padding", why: "Vocabulary size has no bearing on padding waste, which is purely about how many token POSITIONS in each row are real versus filler. A larger vocabulary changes the embedding table, not row occupancy." },
+    { text: "The number of transformer layers, since each layer re-pads its input", why: "Layers do not re-pad anything -- padding is decided once when the batch is built, and every layer then processes the same fixed-size rows. Depth does not affect the waste fraction." },
+    { text: "The gap between the mean document length and the context length -- short documents in a long context waste the most, so waste grows as context length increases relative to typical document size", why: "Correct — utilization is essentially mean-document-length over context-length, so the waste worsens precisely as models adopt longer contexts while document lengths stay fixed. That is why packing became standard as context windows grew." },
+    { text: "The learning rate, which controls how much padding contributes to the gradient", why: "Padded positions are masked out of the loss entirely, so they contribute nothing to the gradient at any learning rate -- that is exactly why the compute spent on them is wasted rather than merely unhelpful." },
+  ]}
+/>
+
+## Summary
+
+Padding each document to the context length wasted 45.7% of token slots on the corpus measured
+above; packing — concatenating the corpus into one stream and slicing fixed-length chunks —
+wasted none, delivering 1.84× the useful tokens per slot. The cost is that a packed row can span
+document boundaries, addressed by separator tokens, document-aware masking, or best-fit binning
+depending on how much exactness is worth. The next lesson turns to numeric precision, where a
+similar "roughly half the cost for nearly the same result" trade appears.
+
+## Further reading
+
+- Brown et al., *"Language Models are Few-Shot Learners"* (GPT-3) — §2.2 describes the packed
+  training-data pipeline used at scale.

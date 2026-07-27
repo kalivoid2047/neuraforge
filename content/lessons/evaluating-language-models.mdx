@@ -1,0 +1,65 @@
+---
+slug: evaluating-language-models
+month: 8
+week: 4
+ord: 3
+title: "Evaluating a Language Model"
+code: "8.4.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Show that perplexity depends on the tokenizer, not only on the model"
+  - "Compute bits-per-byte and explain why it enables cross-tokenizer comparison"
+  - "Distinguish intrinsic loss metrics from downstream task evaluation"
+prereqs:
+  - "Learning Rate Warmup and Schedules for Transformers ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Perplexity Is Not Comparable Across Tokenizers }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The metric everyone quotes has a trap in it</h2>
+
+Month 6 defined perplexity as exponentiated cross-entropy and used it to compare models. That comparison is only valid under a condition rarely stated aloud: **the models must share a tokenizer**. Perplexity is per-*token*, so a tokenizer that splits text into more pieces spreads the same total uncertainty across more predictions and reports a lower number — for an identical model on identical text.
+
+<h2 id="math">Perplexity Is Not Comparable Across Tokenizers</h2>
+
+<MathBlock tex="\text{PPL} = \exp\!\left(\frac{\text{NLL}_{\text{total}}}{N_{\text{tokens}}}\right) \qquad \text{BPB} = \frac{\text{NLL}_{\text{total}}}{\ln 2 \cdot N_{\text{bytes}}}" />
+
+Perplexity normalizes by token count, which the tokenizer controls. Bits-per-byte normalizes by **bytes**, which it cannot.
+
+<Callout kind="tip" title="What perplexity cannot tell you">
+  Even within one tokenizer, low perplexity does not imply a model is useful. It measures next-token prediction on held-out text and nothing else — not instruction-following, not factual accuracy, not reasoning. A model can have excellent perplexity and still be unhelpful, which is exactly why Month 9's alignment work exists and why downstream benchmarks are reported alongside loss rather than instead of it.
+</Callout>
+
+<h2 id="python">Verified output</h2>
+
+<CodeCell
+  code={"import numpy as np\nprint(\"=\" * 62)\nprint(\"EVALUATING A LANGUAGE MODEL\")\nrng = np.random.default_rng(0)\n\n# perplexity is tokenizer-dependent -- the SAME text, two tokenizers\ntext_tokens_a = 100      # a coarse tokenizer: 100 tokens for the passage\ntext_tokens_b = 140      # a finer tokenizer: 140 tokens for the SAME passage\ntotal_nll = 250.0        # same total negative log-likelihood in nats\n\nppl_a = np.exp(total_nll / text_tokens_a)\nppl_b = np.exp(total_nll / text_tokens_b)\nprint(f\"  identical model + identical text, total NLL = {total_nll} nats\")\nprint(f\"  tokenizer A ({text_tokens_a} tokens): perplexity {ppl_a:8.2f}\")\nprint(f\"  tokenizer B ({text_tokens_b} tokens): perplexity {ppl_b:8.2f}\")\nprint(f\"  -> perplexity differs by {ppl_a/ppl_b:.2f}x with NO change to the model.\")\nprint(\"  perplexity is only comparable between models sharing a tokenizer.\")\nprint()\n\n# bits-per-byte normalizes this away\nn_bytes = 480\nbpb_a = total_nll / np.log(2) / n_bytes\nbpb_b = total_nll / np.log(2) / n_bytes\nprint(f\"  bits-per-byte (normalize by BYTES, not tokens): {bpb_a:.4f} vs {bpb_b:.4f}\")\nprint(\"  -> identical, because bytes do not depend on the tokenizer. This is why\")\nprint(\"     cross-tokenizer comparisons report bits-per-byte rather than perplexity.\")\nprint()\n"}
+  output={"==============================================================\nEVALUATING A LANGUAGE MODEL\n  identical model + identical text, total NLL = 250.0 nats\n  tokenizer A (100 tokens): perplexity    12.18\n  tokenizer B (140 tokens): perplexity     5.96\n  -> perplexity differs by 2.04x with NO change to the model.\n  perplexity is only comparable between models sharing a tokenizer.\n\n  bits-per-byte (normalize by BYTES, not tokens): 0.7514 vs 0.7514\n  -> identical, because bytes do not depend on the tokenizer. This is why\n     cross-tokenizer comparisons report bits-per-byte rather than perplexity."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Two models report perplexity 12.18 and 5.96 on the same passage. What can you conclude?"
+  correct={1}
+  options={[
+    { text: "The second model is roughly twice as good at language modeling", why: "Not without knowing the tokenizers. The demonstration above produced exactly these two numbers from ONE model on ONE passage, differing only in tokenization -- so the gap can reflect no quality difference whatsoever." },
+    { text: "Nothing, unless both models use the same tokenizer -- the figures above came from a single model on a single passage, differing only in whether the text was split into 100 or 140 tokens, and bits-per-byte confirms the underlying quality is identical at 0.7514", why: "Correct -- this is precisely the trap: perplexity is per-token, so token count directly scales it. Only a shared tokenizer, or a byte-normalized metric, makes the comparison meaningful." },
+    { text: "The second model has a larger vocabulary and is therefore more capable", why: "Vocabulary size does not determine capability, and in fact the FINER tokenizer (more tokens per passage) here reported the LOWER perplexity despite representing the same model. The relationship runs opposite to the one suggested." },
+    { text: "The first model is overfitting and the second is not", why: "Overfitting is diagnosed by comparing training against validation loss for a single model, not by comparing perplexity between two models. Nothing in these two numbers speaks to it." },
+  ]}
+/>
+
+## Summary
+
+Perplexity is per-token, so the same model on the same text reported `12.18` under a 100-token segmentation and `5.96` under a 140-token one — a 2.04x difference caused entirely by tokenization. Bits-per-byte normalizes by bytes instead and returned an identical `0.7514` for both, which is why cross-tokenizer comparisons use it. Neither metric measures usefulness: low loss on held-out text says nothing about instruction-following or factual accuracy. The next lesson covers diagnosing a run that is not converging.
+
+## Further reading
+
+- Chip Huyen, *"Evaluation Metrics for Language Modeling"* -- a careful treatment of
+  perplexity's tokenizer dependence and the alternatives.

@@ -1,0 +1,83 @@
+---
+slug: temperature
+month: 8
+week: 3
+ord: 2
+title: "Temperature"
+code: "8.3.2"
+minutes: 60
+difficulty: 3
+objectives:
+  - "Apply temperature scaling to logits and describe its effect on the distribution"
+  - "Show that temperature changes confidence but never changes token ranking"
+  - "Identify the greedy and uniform limits as T approaches 0 and infinity"
+prereqs:
+  - "Sampling vs Greedy Decoding ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: One Divisor }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">A single knob between deterministic and chaotic</h2>
+
+Greedy is one extreme (always the mode), pure sampling another (faithful to the full
+distribution including its tail). **Temperature** is the continuous dial between them and
+beyond — one number that reshapes how peaked or flat the distribution is before you sample from
+it.
+
+<h2 id="math">One divisor</h2>
+
+Divide the logits by `T` before the softmax:
+
+<MathBlock tex="P_T(w) = \frac{\exp(z_w / T)}{\sum_j \exp(z_j / T)}" />
+
+- `T = 1` leaves the model's own distribution untouched.
+- `T < 1` **sharpens** it — differences between logits are magnified, probability concentrates on
+  the top tokens. As `T → 0` this converges to greedy.
+- `T > 1` **flattens** it — differences shrink, probability spreads toward the tail. As `T → ∞`
+  it converges to uniform.
+
+<Callout kind="tip" title="Temperature reshapes, it never reorders">
+  Dividing every logit by the same positive `T` is a monotonic transformation, so the *ranking*
+  of tokens is preserved exactly. The most likely token at `T=0.1` is the most likely token at
+  `T=5.0`. What changes is only how much probability mass sits on it — which is why temperature
+  alone cannot make a model prefer a different word, only make it more or less willing to
+  consider alternatives.
+</Callout>
+
+<h2 id="python">Temperature's effect on shape, entropy, and ranking</h2>
+
+<CodeCell
+  code={"import numpy as np\n\nvocab = [\"the\",\"cat\",\"sat\",\"mat\",\"ran\",\"and\",\"a\",\"dog\"]\nlogits = np.array([3.2, 2.8, 1.5, 1.2, 1.0, 0.6, 0.4, 0.1])\n\ndef softmax(z):\n    e = np.exp(z - z.max()); return e / e.sum()\n\ndef entropy(p):\n    nz = p[p > 0]; return float(-(nz * np.log2(nz)).sum())\n\nprint(\"TEMPERATURE divides the logits before softmax: softmax(logits / T)\")\nprint(f\"{'T':>6} \" + \" \".join(f\"{w:>7}\" for w in vocab) + f\" {'entropy':>9}\")\nfor T in [0.1, 0.5, 1.0, 1.5, 3.0]:\n    p = softmax(logits / T)\n    print(f\"{T:>6.1f} \" + \" \".join(f\"{x:>7.4f}\" for x in p) + f\" {entropy(p):>9.4f}\")\n\nprint()\np1 = softmax(logits)\nprint(f\"T=1.0 is the model's own distribution unchanged (entropy {entropy(p1):.4f} bits)\")\nprint(f\"T<1 sharpens toward the mode: at T=0.1 the top token has \"\n      f\"p={softmax(logits/0.1)[0]:.4f}, approaching greedy\")\nprint(f\"T>1 flattens toward uniform: at T=3.0 entropy rises to \"\n      f\"{entropy(softmax(logits/3.0)):.4f} bits\")\nprint(f\"(uniform over {len(vocab)} tokens would be log2({len(vocab)}) = \"\n      f\"{np.log2(len(vocab)):.4f} bits -- the ceiling)\")\nprint()\n\n# verify the limits\nprint(\"LIMITS:\")\np_cold = softmax(logits / 0.01)\nprint(f\"  T->0:  top token p={p_cold[0]:.6f}  == greedy? {np.argmax(p_cold)==np.argmax(logits)}\")\np_hot = softmax(logits / 1000.0)\nprint(f\"  T->inf: max-min spread = {p_hot.max()-p_hot.min():.2e}  (approaching uniform)\")\nprint()\n\n# temperature NEVER reorders tokens -- it only reshapes\norders = [tuple(np.argsort(-softmax(logits/T))) for T in [0.1, 0.5, 1.0, 2.0, 5.0]]\nprint(f\"token ranking identical at every temperature? {len(set(orders))==1}\")\nprint(\"temperature rescales confidence but never changes which token is most likely.\")"}
+  output={"TEMPERATURE divides the logits before softmax: softmax(logits / T)\n     T     the     cat     sat     mat     ran     and       a     dog   entropy\n   0.1  0.9820  0.0180  0.0000  0.0000  0.0000  0.0000  0.0000  0.0000    0.1300\n   0.5  0.6559  0.2947  0.0219  0.0120  0.0081  0.0036  0.0024  0.0013    1.2350\n   1.0  0.4387  0.2941  0.0801  0.0594  0.0486  0.0326  0.0267  0.0198    2.1989\n   1.5  0.3289  0.2519  0.1059  0.0867  0.0759  0.0581  0.0509  0.0416    2.6081\n   3.0  0.2171  0.1900  0.1232  0.1115  0.1043  0.0913  0.0854  0.0773    2.9025\n\nT=1.0 is the model's own distribution unchanged (entropy 2.1989 bits)\nT<1 sharpens toward the mode: at T=0.1 the top token has p=0.9820, approaching greedy\nT>1 flattens toward uniform: at T=3.0 entropy rises to 2.9025 bits\n(uniform over 8 tokens would be log2(8) = 3.0000 bits -- the ceiling)\n\nLIMITS:\n  T->0:  top token p=1.000000  == greedy? True\n  T->inf: max-min spread = 3.88e-04  (approaching uniform)\n\ntoken ranking identical at every temperature? True\ntemperature rescales confidence but never changes which token is most likely."}
+/>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Raising temperature to 3.0 pushed entropy from 2.20 to 2.90 bits, against a ceiling of 3.00. Why can't temperature alone solve the long-tail problem from the previous lesson?"
+  correct={0}
+  options={[
+    { text: "Temperature moves probability mass toward the tail rather than away from it -- raising T makes nonsensical tokens MORE likely, and lowering T suppresses the tail only by also collapsing toward greedy, losing the variety sampling was for. It rescales the whole distribution and cannot selectively remove just the tail", why: "Correct — this is exactly why top-k and top-p exist: they truncate the tail explicitly while leaving the retained distribution's relative shape intact, which no single temperature value can do." },
+    { text: "Temperature only works on models with fewer than 10,000 vocabulary tokens", why: "Temperature is a simple division applied to the logit vector and works identically at any vocabulary size. There is no size limitation involved." },
+    { text: "Temperature reorders the tokens, so the tail can end up at the top", why: "The verification above confirms the ranking is identical at every temperature -- dividing by a positive constant is monotonic and cannot reorder. The tail stays at the bottom regardless of T." },
+    { text: "Entropy cannot exceed 3.00 bits, so no further control is possible", why: "The 3.00-bit ceiling is just log2(8) for this toy 8-token vocabulary and would be far higher for a real one. The limitation is not the entropy ceiling but that temperature reshapes the whole distribution uniformly rather than truncating the tail." },
+  ]}
+/>
+
+## Summary
+
+Temperature divides logits by `T` before the softmax, sharpening the distribution when `T < 1`
+(entropy fell to 0.13 bits at `T=0.1`, with the top token at 0.9820 — effectively greedy) and
+flattening it when `T > 1` (2.90 bits at `T=3.0`, near the 3.00-bit uniform ceiling). It is
+strictly monotonic, so token ranking is preserved exactly at every temperature. That is also its
+limitation: it rescales the entire distribution and cannot selectively remove the incoherent
+tail. The next lesson truncates that tail directly.
+
+## Further reading
+
+- Ackley, Hinton & Sejnowski, *"A Learning Algorithm for Boltzmann Machines"* — the origin of
+  the temperature parameter in this exact `exp(z/T)` form, borrowed from statistical physics.

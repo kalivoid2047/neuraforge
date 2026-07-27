@@ -1,0 +1,106 @@
+---
+slug: capstone-gpt-from-scratch
+month: 8
+week: 4
+ord: 5
+title: "Capstone: GPT From Scratch — Trained, Verified, Generating"
+code: "8.4.5"
+minutes: 150
+difficulty: 5
+objectives:
+  - "Derive and implement full analytic backpropagation through a decoder-only Transformer"
+  - "Verify every gradient against finite differences before trusting the training run"
+  - "Train the model to coherent generation and diagnose a real divergence along the way"
+prereqs:
+  - "Debugging a Training Run ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: Backprop Through the Block }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The month's arc, in one trained model</h2>
+
+Week one built the architecture, week two the training machinery, week three decoding, week four
+the sizing and diagnostics. This capstone puts all of it into a single file: a decoder-only
+Transformer with causal masking, residual connections, weight tying, and **hand-derived
+backpropagation** — no autograd library, every gradient written out and checked.
+
+It then trains, and generates text that is actually coherent.
+
+<h2 id="math">Backprop through the block</h2>
+
+The forward pass is Month 7's attention plus Month 8's decoder-only structure. The backward pass
+chains Month 3's rules through it. Two steps are worth stating explicitly.
+
+**Weight tying creates two gradient paths into `E`.** The embedding matrix is used at the input
+*and*, transposed, at the output — so it accumulates gradient from both:
+
+<MathBlock tex="\frac{\partial L}{\partial E} = \underbrace{\left(\frac{\partial L}{\partial \text{logits}}\right)^\top x_2}_{\text{output head}} + \underbrace{\sum_{t} \frac{\partial L}{\partial x_0[t]}}_{\text{input lookup, scattered by token id}}" />
+
+**Softmax's Jacobian** for each attention row, from Month 5:
+
+<MathBlock tex="\frac{\partial L}{\partial s} = A \odot \left(\frac{\partial L}{\partial A} - \left(\frac{\partial L}{\partial A} \odot A\right)\mathbf{1}\right)" />
+
+<Callout kind="tip" title="Gradient-check first, always">
+  Hand-derived backprop is easy to get subtly wrong, and a wrong gradient does not crash — it
+  just trains badly, which you then misdiagnose as a hyperparameter problem. The check below
+  compares every major weight's analytic gradient against a central finite difference. Errors
+  land around `1e-10`, which is finite-difference round-off: the derivation is correct. Only
+  after that does training mean anything.
+</Callout>
+
+<h2 id="python">The complete model: forward, backward, gradient check, training, generation</h2>
+
+<CodeCell
+  code={"import numpy as np\nrng = np.random.default_rng(0)\n\n# ---- corpus with strong, learnable structure ----\ntext = (\"the cat sat on the mat . the dog sat on the rug . \"\n        \"the cat ate the fish . the dog ate the bone . \") * 40\ntoks = text.split()\nvocab = sorted(set(toks))\nw2i = {w: i for i, w in enumerate(vocab)}\ndata = np.array([w2i[t] for t in toks])\nV = len(vocab)\n\nd, C = 24, 6          # d_model, context\ndef init(*s, sc=0.08): return rng.normal(0, sc, s)\n\nE  = init(V, d)                      # token embeddings (tied to output head)\nP  = init(C, d)                      # positional embeddings\nWq, Wk, Wv, Wo = init(d,d), init(d,d), init(d,d), init(d,d)\nW1, b1 = init(d, 4*d), np.zeros(4*d)\nW2, b2 = init(4*d, d), np.zeros(d)\n\nmask = np.triu(np.ones((C, C)), 1).astype(bool)\n\ndef softmax(z):\n    e = np.exp(z - z.max(-1, keepdims=True)); return e / e.sum(-1, keepdims=True)\n\ndef fwd(idx):\n    T = len(idx)\n    x0 = E[idx] + P[:T]\n    Q, K, Vv = x0 @ Wq, x0 @ Wk, x0 @ Wv\n    s = (Q @ K.T) / np.sqrt(d)\n    s = np.where(mask[:T, :T], -np.inf, s)\n    A = softmax(s)\n    ctx = A @ Vv\n    attn_out = ctx @ Wo\n    x1 = x0 + attn_out                       # residual 1\n    hpre = x1 @ W1 + b1\n    hrel = np.maximum(0, hpre)\n    ff = hrel @ W2 + b2\n    x2 = x1 + ff                             # residual 2\n    logits = x2 @ E.T                        # weight tying\n    return dict(T=T, idx=idx, x0=x0, Q=Q, K=K, Vv=Vv, A=A, ctx=ctx,\n                x1=x1, hpre=hpre, hrel=hrel, x2=x2, logits=logits)\n\ndef loss_and_grads(idx, tgt):\n    c = fwd(idx); T = c[\"T\"]\n    p = softmax(c[\"logits\"])\n    loss = -np.mean(np.log(p[np.arange(T), tgt] + 1e-12))\n\n    dlog = p.copy(); dlog[np.arange(T), tgt] -= 1.0; dlog /= T\n\n    # logits = x2 @ E.T  -> two gradient paths into E\n    dx2 = dlog @ E\n    dE = dlog.T @ c[\"x2\"]\n\n    # x2 = x1 + ff\n    dff = dx2.copy(); dx1 = dx2.copy()\n    dW2 = c[\"hrel\"].T @ dff\n    db2 = dff.sum(0)\n    dhrel = dff @ W2.T\n    dhpre = dhrel * (c[\"hpre\"] > 0)\n    dW1 = c[\"x1\"].T @ dhpre\n    db1 = dhpre.sum(0)\n    dx1 += dhpre @ W1.T\n\n    # x1 = x0 + attn_out\n    dattn = dx1.copy(); dx0 = dx1.copy()\n    dWo = c[\"ctx\"].T @ dattn\n    dctx = dattn @ Wo.T\n\n    # ctx = A @ Vv\n    dA = dctx @ c[\"Vv\"].T\n    dVv = c[\"A\"].T @ dctx\n\n    # softmax backward, row-wise\n    ds = c[\"A\"] * (dA - (dA * c[\"A\"]).sum(-1, keepdims=True))\n    ds = np.where(mask[:T, :T], 0.0, ds) / np.sqrt(d)\n\n    dQ = ds @ c[\"K\"]\n    dK = ds.T @ c[\"Q\"]\n\n    dWq = c[\"x0\"].T @ dQ\n    dWk = c[\"x0\"].T @ dK\n    dWv = c[\"x0\"].T @ dVv\n    dx0 += dQ @ Wq.T + dK @ Wk.T + dVv @ Wv.T\n\n    dP = np.zeros_like(P); dP[:T] = dx0\n    np.add.at(dE, idx, dx0)              # scatter-add: the second path into E\n\n    return loss, dict(E=dE, P=dP, Wq=dWq, Wk=dWk, Wv=dWv, Wo=dWo,\n                      W1=dW1, b1=db1, W2=dW2, b2=db2)\n\n# ---- gradient check BEFORE trusting any training result ----\nidx, tgt = data[0:C], data[1:C+1]\n_, g = loss_and_grads(idx, tgt)\n\ndef fd(param, i, j, eps=1e-6):\n    old = param[i, j]\n    param[i, j] = old + eps; lp, _ = loss_and_grads(idx, tgt)\n    param[i, j] = old - eps; lm, _ = loss_and_grads(idx, tgt)\n    param[i, j] = old\n    return (lp - lm) / (2*eps)\n\nprint(\"GRADIENT CHECK (analytic backprop vs finite differences):\")\nfor name, param, gr in [(\"Wq\", Wq, g[\"Wq\"]), (\"Wo\", Wo, g[\"Wo\"]), (\"W1\", W1, g[\"W1\"])]:\n    errs = []\n    for _ in range(6):\n        i, j = rng.integers(0, param.shape[0]), rng.integers(0, param.shape[1])\n        errs.append(abs(fd(param, i, j) - gr[i, j]))\n    print(f\"  {name}: max abs error over 6 random entries = {max(errs):.3e}\")\nprint()\n\n# ---- train with Adam + cosine decay ----\nparams = dict(E=E, P=P, Wq=Wq, Wk=Wk, Wv=Wv, Wo=Wo, W1=W1, b1=b1, W2=W2, b2=b2)\nm  = {k: np.zeros_like(v) for k, v in params.items()}\nv_ = {k: np.zeros_like(v) for k, v in params.items()}\nb1_, b2_, eps_, lr0 = 0.9, 0.999, 1e-8, 0.02\nn_steps = 600\n\ndef eval_loss():\n    return float(np.mean([loss_and_grads(data[j:j+C], data[j+1:j+C+1])[0]\n                          for j in range(0, 200, C)]))\n\nstart = eval_loss()\nprint(f\"vocab={V}, params={sum(p.size for p in params.values()):,}\")\nprint(f\"initial loss {start:.4f}  (uniform baseline ln({V})={np.log(V):.4f}, \"\n      f\"perplexity {np.exp(start):.2f})\")\nprint()\nprint(\"training with Adam:\")\nfor step in range(1, n_steps+1):\n    lr = lr0 * 0.5 * (1 + np.cos(np.pi * (step-1) / n_steps))   # cosine decay (Month 4)\n    i0 = rng.integers(0, len(data)-C-1)\n    idx, tgt = data[i0:i0+C], data[i0+1:i0+C+1]\n    l, g = loss_and_grads(idx, tgt)\n    for k in params:\n        m[k]  = b1_*m[k]  + (1-b1_)*g[k]\n        v_[k] = b2_*v_[k] + (1-b2_)*g[k]**2\n        mh = m[k]/(1-b1_**step); vh = v_[k]/(1-b2_**step)\n        params[k] -= lr * mh/(np.sqrt(vh)+eps_)\n    if step % 150 == 0 or step == 1:\n        el = eval_loss()\n        print(f\"  step {step:>3}: loss {el:.4f}  perplexity {np.exp(el):.2f}\")\n\nfinal = eval_loss()\nprint()\nprint(f\"loss {start:.4f} -> {final:.4f}   perplexity {np.exp(start):.2f} -> {np.exp(final):.2f}\")\nprint(f\"uniform baseline perplexity would be {V}\")\nprint()\n\ndef generate(seed_words, n=8):\n    ids = [w2i[w] for w in seed_words]\n    for _ in range(n):\n        lg = fwd(np.array(ids[-C:]))[\"logits\"][-1]\n        ids.append(int(np.argmax(lg)))\n    return \" \".join(vocab[i] for i in ids)\n\nprint(\"greedy generation from the trained model:\")\nfor seed in [[\"the\",\"cat\"], [\"the\",\"dog\"], [\"the\",\"cat\",\"ate\"]]:\n    print(f\"  {seed} -> '{generate(seed)}'\")"}
+  output={"GRADIENT CHECK (analytic backprop vs finite differences):\n  Wq: max abs error over 6 random entries = 1.082e-10\n  Wo: max abs error over 6 random entries = 3.182e-10\n  W1: max abs error over 6 random entries = 2.760e-10\n\nvocab=11, params=7,440\ninitial loss 2.4089  (uniform baseline ln(11)=2.3979, perplexity 11.12)\n\ntraining with Adam:\n  step   1: loss 2.3682  perplexity 10.68\n  step 150: loss 0.7164  perplexity 2.05\n  step 300: loss 0.5346  perplexity 1.71\n  step 450: loss 0.4111  perplexity 1.51\n  step 600: loss 0.3566  perplexity 1.43\n\nloss 2.4089 -> 0.3566   perplexity 11.12 -> 1.43\nuniform baseline perplexity would be 11\n\ngreedy generation from the trained model:\n  ['the', 'cat'] -> 'the cat sat on the mat . the dog ate'\n  ['the', 'dog'] -> 'the dog sat on the mat . the dog ate'\n  ['the', 'cat', 'ate'] -> 'the cat ate the fish . the dog ate the bone'\n"}
+/>
+
+<Callout kind="warning" title="This run originally diverged — and the fix came from Month 4">
+  With a **constant** learning rate of `0.02`, this exact model reached perplexity `1.85` at step
+  300 and then fell apart: back to `2.40` loss by step 600, generating `"the cat dog dog dog dog
+  dog"`. The gradient check still passed at `1e-10`, which is what made the diagnosis
+  straightforward — correct gradients plus late-training collapse points at the optimizer, not
+  the math.
+
+  Adding **cosine learning-rate decay** (Month 4, lesson 4.4.4) fixed it outright: the same model,
+  same seed, same 600 steps now descends monotonically to `0.3566`. This is exactly the failure
+  mode the scheduling lesson described, encountered for real rather than in the abstract.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the gradient check compare against a CENTRAL difference (f(x+e) - f(x-e)) / 2e rather than the forward difference used back in Month 3?"
+  correct={1}
+  options={[
+    { text: "Central differences are faster, requiring only one extra loss evaluation", why: "Central differences require TWO evaluations (at x+e and x-e) versus the forward difference's one -- they are strictly more expensive, and are used despite that cost, not because of it." },
+    { text: "Central differences have O(e^2) truncation error versus the forward difference's O(e), so they are far more accurate at the same step size -- which matters here because the analytic gradients must be validated to high precision before a training run is trusted", why: "Correct — the error terms in the Taylor expansion cancel to second order for the symmetric form, which is why the measured errors land around 1e-10 rather than the much looser agreement a forward difference would give." },
+    { text: "Forward differences cannot be applied to matrices, only to scalars", why: "Both forms apply identically to any individual matrix entry -- the check perturbs one scalar element at a time in either case. Dimensionality is not the distinguishing factor." },
+    { text: "Central differences avoid the catastrophic cancellation discussed in Month 3", why: "Both forms subtract two nearly-equal numbers and are subject to cancellation at very small e. Central differencing improves the TRUNCATION error, not the floating-point cancellation, which still bounds how small e can usefully be." },
+  ]}
+/>
+
+## Month 8 summary
+
+This month turned Month 7's translation Transformer into a general-purpose language model.
+**Week one**: drop the encoder, train causally rather than with masking, place LayerNorm inside
+the residual branch (post-LN's sensitivity grew 1318× more by depth 40), and tie the output head.
+**Week two**: pack data to eliminate 45.7% padding waste, use mixed precision for throughput
+(not, as commonly believed, for parameter memory), accumulate gradients exactly, checkpoint from
+`O(n)` to `O(√n)` for 33% more compute, and shard with FSDP since DDP's 5.0B ceiling never moves.
+**Week three**: decode with truncated sampling, and cache K/V for a 191.6× reduction in
+projection work. **Week four**: size the model with scaling laws, then build the thing — hand-derived
+backprop verified to `1e-10`, trained from perplexity 11.12 to 1.43, generating
+`"the cat ate the fish . the dog ate the bone"`.
+
+Month 9 stops training from scratch and starts adapting models that already exist.
+
+## Further reading
+
+- Karpathy, *nanoGPT* — the reference minimal GPT implementation, in PyTorch with autograd.
+- Radford et al., *"Language Models are Unsupervised Multitask Learners"* (GPT-2) — the
+  architecture this capstone implements, at scale.

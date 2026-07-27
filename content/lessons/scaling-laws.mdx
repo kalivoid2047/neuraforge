@@ -1,0 +1,104 @@
+---
+slug: scaling-laws
+month: 8
+week: 4
+ord: 1
+title: "Scaling Laws and Compute-Optimal Training"
+code: "8.4.1"
+minutes: 90
+difficulty: 4
+objectives:
+  - "Describe the power-law relationship between loss, parameters, and training tokens"
+  - "Find the compute-optimal split of a fixed FLOP budget between model size and data"
+  - "Explain why an irreducible loss term exists and what it represents"
+prereqs:
+  - "The KV Cache ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: The Power Law }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week four: deciding how big to build before building it</h2>
+
+The remarkable empirical finding behind modern LLM development is that loss falls as a smooth
+**power law** in model size and data — predictably enough that you can estimate a model's final
+loss before training it. That predictability is what makes multi-million-dollar training runs
+defensible: the outcome is forecast, not gambled on.
+
+It also poses a concrete allocation question. Given a fixed compute budget, is it better to
+train a large model on less data, or a smaller model on more? There is a definite answer, and
+getting it wrong wastes a substantial fraction of the budget.
+
+<h2 id="math">The power law</h2>
+
+<MathBlock tex="L(N, D) = E + \frac{A}{N^{\alpha}} + \frac{B}{D^{\beta}}" />
+
+`N` is parameters, `D` is training tokens. The three terms are meaningfully different: `A/N^α`
+is loss from the model being too small to represent the data, `B/D^β` is loss from not having
+seen enough data, and **`E` is irreducible** — the intrinsic entropy of language itself. No
+amount of scale drives loss below `E`, because some genuine unpredictability in text cannot be
+modeled away.
+
+Training compute is approximately `C ≈ 6ND`, so a fixed budget defines a curve in `(N, D)` space
+along which the loss can be minimized.
+
+<Callout kind="tip" title="Power law, not exponential — diminishing returns are guaranteed">
+  Because loss falls as `N^{-α}` with `α < 1`, each *multiplicative* increase in scale yields a
+  *smaller absolute* improvement than the last. The measurement below shows a 10× parameter
+  increase buying 0.4204 at first and only 0.0401 four steps later. Progress is real and
+  predictable, but it is bought at exponentially rising cost — which is precisely why frontier
+  training budgets grew so dramatically for comparatively modest loss gains.
+</Callout>
+
+<h2 id="python">Diminishing returns and the compute-optimal split</h2>
+
+<CodeCell
+  code={"import numpy as np\n\n# Chinchilla-style power law: L(N, D) = E + A/N^alpha + B/D^beta\nE, A, B, alpha, beta = 1.69, 406.4, 410.7, 0.34, 0.28\n\ndef loss(N, D):\n    return E + A / (N ** alpha) + B / (D ** beta)\n\nprint(\"SCALING LAW: loss falls as a POWER of parameters and data, not exponentially.\")\nprint(f\"  L(N,D) = {E} + {A}/N^{alpha} + {B}/D^{beta}\")\nprint()\n\nD_fixed = 300e9\nprint(f\"holding data fixed at {D_fixed/1e9:.0f}B tokens, growing the model:\")\nprint(f\"{'params':>10} {'loss':>9} {'improvement':>13}\")\nprev = None\nfor N in [1e8, 1e9, 1e10, 1e11, 1e12]:\n    L = loss(N, D_fixed)\n    imp = \"--\" if prev is None else f\"{prev - L:.4f}\"\n    print(f\"{N/1e9:>8.1f}B {L:>9.4f} {imp:>13}\")\n    prev = L\nprint()\nprint(\"each 10x in parameters buys a SMALLER absolute gain than the last -- and the\")\nprint(f\"loss can never fall below E={E}, the irreducible entropy of the data itself.\")\nprint()\n\n# COMPUTE-OPTIMAL allocation: C ~ 6ND, so for a fixed budget how should N and D split?\ndef compute(N, D):\n    return 6 * N * D\n\nbudget = 1e22   # FLOPs\nprint(f\"COMPUTE-OPTIMAL: with a fixed budget C = {budget:.0e} FLOPs (C ~ 6ND),\")\nprint(\"how should it be split between model size and training tokens?\")\nprint(f\"{'params':>10} {'tokens':>11} {'tok/param':>11} {'loss':>9}\")\nbest = None\nfor N in [1e8, 3e8, 1e9, 3e9, 1e10, 3e10, 1e11]:\n    D = budget / (6 * N)\n    L = loss(N, D)\n    if best is None or L < best[2]:\n        best = (N, D, L)\n    print(f\"{N/1e9:>8.2f}B {D/1e9:>9.1f}B {D/N:>11.1f} {L:>9.4f}\")\nprint()\n# the coarse grid above only brackets the optimum -- find it properly\nNs = np.logspace(8, 11, 4000)\nLs = np.array([loss(N, budget / (6 * N)) for N in Ns])\ni = int(np.argmin(Ls))\nN_opt, L_opt = Ns[i], Ls[i]\nD_opt = budget / (6 * N_opt)\nbest = (N_opt, D_opt, L_opt)\nprint(f\"OPTIMAL (fine search): {N_opt/1e9:.2f}B params on {D_opt/1e9:.1f}B tokens\")\nprint(f\"  -> {D_opt/N_opt:.1f} tokens per parameter, loss {L_opt:.4f}\")\nprint()\nprint(\"NOTE: the widely-quoted Chinchilla rule of ~20 tokens/param comes from the\")\nprint(\"coefficients Hoffmann et al. fitted to THEIR runs. The illustrative constants\")\nprint(f\"used here imply {D_opt/N_opt:.0f} instead -- the shape of the argument holds\")\nprint(\"(there is one optimal split), but the exact ratio depends on the fitted law.\")\nprint()\n\n# what going wrong in each direction costs you\nN_opt, D_opt, L_opt = best\nprint(\"cost of mis-allocating the SAME budget:\")\nfor label, factor in [(\"4x too big (under-trained)\", 4.0), (\"4x too small (over-trained)\", 0.25)]:\n    N2 = N_opt * factor\n    D2 = budget / (6 * N2)\n    print(f\"  {label:>28}: {N2/1e9:>7.2f}B params, {D2/1e9:>7.1f}B tokens -> \"\n          f\"loss {loss(N2,D2):.4f} (+{loss(N2,D2)-L_opt:.4f})\")"}
+  output={"SCALING LAW: loss falls as a POWER of parameters and data, not exponentially.\n  L(N,D) = 1.69 + 406.4/N^0.34 + 410.7/D^0.28\n\nholding data fixed at 300B tokens, growing the model:\n    params      loss   improvement\n     0.1B    2.7155            --\n     1.0B    2.2951        0.4204\n    10.0B    2.1029        0.1922\n   100.0B    2.0151        0.0878\n  1000.0B    1.9750        0.0401\n\neach 10x in parameters buys a SMALLER absolute gain than the last -- and the\nloss can never fall below E=1.69, the irreducible entropy of the data itself.\n\nCOMPUTE-OPTIMAL: with a fixed budget C = 1e+22 FLOPs (C ~ 6ND),\nhow should it be split between model size and training tokens?\n    params      tokens   tok/param      loss\n    0.10B   16666.7B    166666.7    2.5459\n    0.30B    5555.6B     18518.5    2.3339\n    1.00B    1666.7B      1666.7    2.1993\n    3.00B     555.6B       185.2    2.1450\n   10.00B     166.7B        16.7    2.1479\n   30.00B      55.6B         1.9    2.2041\n  100.00B      16.7B         0.2    2.3281\n\nOPTIMAL (fine search): 5.16B params on 323.0B tokens\n  -> 62.6 tokens per parameter, loss 2.1386\n\nNOTE: the widely-quoted Chinchilla rule of ~20 tokens/param comes from the\ncoefficients Hoffmann et al. fitted to THEIR runs. The illustrative constants\nused here imply 63 instead -- the shape of the argument holds\n(there is one optimal split), but the exact ratio depends on the fitted law.\n\ncost of mis-allocating the SAME budget:\n    4x too big (under-trained):   20.64B params,    80.7B tokens -> loss 2.1791 (+0.0405)\n   4x too small (over-trained):    1.29B params,  1291.9B tokens -> loss 2.1815 (+0.0429)"}
+/>
+
+<Callout kind="warning" title="Don't take the tokens-per-parameter number on faith — including from this lesson">
+  The famous "≈20 tokens per parameter" figure is a property of the coefficients Hoffmann et al.
+  fitted to their own experiments, not a universal constant of nature. The illustrative
+  constants used above imply **62.6** instead. Both are computed the same way; they differ
+  because the fitted `A`, `B`, `α`, `β` differ.
+
+  What generalizes is the *structure* of the result: for a fixed budget there is a single
+  interior optimum, mis-allocating in either direction costs you (about `+0.04` loss at 4× off
+  in either direction here), and the penalty curve is fairly flat near the bottom. What does not
+  generalize is any specific ratio — that has to be re-fitted for your architecture, data, and
+  tokenizer.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="The loss curve includes an irreducible term E = 1.69 that no amount of scaling removes. What does it represent?"
+  correct={2}
+  options={[
+    { text: "A numerical floor imposed by float32 precision limits", why: "Floating-point precision operates far below this scale -- float32 resolves differences around 1e-7. E is a property of the data distribution, not of the arithmetic used to model it." },
+    { text: "The loss contributed by the model's remaining architectural inefficiency", why: "Architectural inefficiency is captured by the A/N^alpha term, which does shrink as the model grows. E is what remains after both the model-size and data terms have been driven to zero." },
+    { text: "The intrinsic entropy of language itself -- genuine unpredictability that no model can eliminate, since even a perfect predictor cannot know which of several equally valid continuations a writer will choose", why: "Correct — this connects directly to Month 5's entropy lessons: a distribution with real uncertainty has positive entropy, and cross-entropy against it is bounded below by that entropy no matter how good the model is." },
+    { text: "The validation loss, as distinct from training loss", why: "E appears in the same scaling law regardless of which split is measured -- it is a floor on achievable loss, not a train/validation distinction. Both curves are bounded below by it." },
+  ]}
+/>
+
+## Summary
+
+Loss follows a power law in parameters and data plus an irreducible term `E` representing
+language's own entropy — so each 10× in scale buys a smaller absolute gain than the last (0.4204
+down to 0.0401 across four steps). For a fixed compute budget `C ≈ 6ND` there is one optimal
+split, found here at 5.16B parameters on 323B tokens, with mis-allocation by 4× in either
+direction costing about `+0.04` loss. The tokens-per-parameter ratio at that optimum is a
+property of the fitted coefficients, not a universal constant: these constants give 62.6, while
+Chinchilla's own fit gives roughly 20. The next lesson trains a real GPT end to end.
+
+## Further reading
+
+- Hoffmann et al., *"Training Compute-Optimal Large Language Models"* (Chinchilla) — the fitted
+  scaling law and the compute-optimal allocation argument.
+- Kaplan et al., *"Scaling Laws for Neural Language Models"* — the earlier work that established
+  the power-law form.
