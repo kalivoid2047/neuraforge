@@ -1,0 +1,76 @@
+---
+slug: why-retrieval
+month: 10
+week: 1
+ord: 1
+title: "Why Retrieval? Parametric vs Non-Parametric Knowledge"
+code: "10.1.1"
+minutes: 60
+difficulty: 2
+objectives:
+  - "Distinguish knowledge stored in weights from knowledge looked up at inference"
+  - "State when retrieval is the right tool and when fine-tuning is"
+  - "Build a working vector space over real documents"
+prereqs:
+  - "Capstone: A Fine-Tune With a Real Evaluation Report ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: "Two Places Knowledge Can Live" }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Month 10: giving a model access to things it was never trained on</h2>
+
+Months 8 and 9 put knowledge **into weights** — first by pretraining, then by fine-tuning. That knowledge is fixed at training time, expensive to update, and impossible to cite. **Retrieval** puts knowledge somewhere else entirely: an external store the model queries at inference. Facts can then change without retraining, and every claim can point at a source.
+
+<h2 id="math">Two Places Knowledge Can Live</h2>
+
+**Parametric** knowledge lives in `θ`. Updating it means training; inspecting it is hard; attributing it is impossible.
+
+**Non-parametric** knowledge lives in a document store. The model receives it as context:
+
+<MathBlock tex="P(y \mid x) \;\longrightarrow\; P\big(y \mid x,\; \text{retrieve}(x)\big)" />
+
+Nothing about the model changes — only what it is shown. That single substitution is the whole of RAG.
+
+<Callout kind="tip" title="Retrieval and fine-tuning solve different problems">
+  A rule of thumb that survives contact with practice: **fine-tune to change behaviour, retrieve to change knowledge.** If the model answers in the wrong format or register, that is a fine-tuning problem. If it does not know your company's Q3 numbers, no amount of fine-tuning is the right fix — the facts change monthly and you would retrain forever. Month 10's final week returns to this comparison with measurements.
+</Callout>
+
+<h2 id="python">A real vector space over real curriculum lessons</h2>
+
+<CodeCell
+  code={"CORPUS = [\n    {\"id\": \"1.1.1\",  \"title\": \"Why Python for AI?\",                        \"text\": \"Explain what makes Python the dominant language for AI/ML work, specifically\"},\n    {\"id\": \"1.3.1\",  \"title\": \"What Is a Vector?\",                         \"text\": \"Define a vector as both a geometric arrow and a list of numbers, and connect the two views\"},\n    {\"id\": \"2.1.1\",  \"title\": \"Eigenvalues & Eigenvectors: Intuition\",     \"text\": \"Explain what makes a vector special with respect to a given matrix transformation\"},\n    {\"id\": \"2.3.1\",  \"title\": \"Why Nonlinearity Matters\",                  \"text\": \"Prove that stacking purely linear layers collapses to a single linear layer\"},\n    {\"id\": \"3.1.1\",  \"title\": \"What Is a Derivative?\",                     \"text\": \"Define the derivative as a limit of a difference quotient\"},\n    {\"id\": \"3.3.1\",  \"title\": \"The Value Class: Wrapping Numbers for Autograd\", \"text\": \"Build a Value class that wraps a scalar and records the computational graph as operations happen\"},\n    {\"id\": \"4.1.1\",  \"title\": \"From Value to Tensor: Why PyTorch Exists\",  \"text\": \"Explain what PyTorch automates relative to the Value engine built last month\"},\n    {\"id\": \"4.3.1\",  \"title\": \"Datasets and DataLoaders\",                  \"text\": \"Explain the separation of concerns between a Dataset (what the data is) and a DataLoader (how it's served)\"},\n    {\"id\": \"5.1.1\",  \"title\": \"What Is Probability?\",                      \"text\": \"Define a sample space and an event, and state the three axioms every valid probability must satisfy\"},\n    {\"id\": \"5.3.1\",  \"title\": \"Text Preprocessing: Tokenization, Casing, and Stopwords\", \"text\": \"Implement a basic tokenizer that splits raw text into a list of words\"},\n    {\"id\": \"6.1.1\",  \"title\": \"Why Word-Level Tokenization Breaks Down\",   \"text\": \"Demonstrate the out-of-vocabulary (OOV) problem with a fixed word-level vocabulary\"},\n    {\"id\": \"6.3.1\",  \"title\": \"What Is a Language Model?\",                 \"text\": \"Define a language model as a probability distribution over token sequences\"},\n    {\"id\": \"7.1.1\",  \"title\": \"Why Attention?\",                            \"text\": \"Explain the fixed-size bottleneck that limited pre-attention seq2seq models\"},\n    {\"id\": \"7.3.1\",  \"title\": \"LayerNorm & Residuals\",                     \"text\": \"Explain why deep Transformer stacks need residual connections to train at all\"},\n    {\"id\": \"8.1.1\",  \"title\": \"From Encoder-Decoder to Decoder-Only\",      \"text\": \"Explain why a decoder-only stack can handle tasks the encoder-decoder split was designed for\"},\n    {\"id\": \"8.3.1\",  \"title\": \"Sampling vs Greedy Decoding\",               \"text\": \"Contrast deterministic greedy decoding with stochastic sampling\"},\n    {\"id\": \"9.1.1\",  \"title\": \"Why Fine-Tune Instead of Training From Scratch\", \"text\": \"Quantify how much cheaper fine-tuning is than pretraining, using Month 8's compute model\"},\n    {\"id\": \"9.3.1\",  \"title\": \"Instruction Tuning and Chat Templates\",     \"text\": \"Render a conversation into a chat template and build its loss mask\"},\n]\n\nimport numpy as np, re\nfrom collections import Counter\n\n# ---- Why retrieval: parametric vs non-parametric knowledge ----\nprint(\"PARAMETRIC vs NON-PARAMETRIC KNOWLEDGE\")\nprint(\"  parametric     : facts baked into weights during training (Months 8-9)\")\nprint(\"  non-parametric : facts looked up at inference from an external store\")\nprint()\nprint(\"the curriculum below is REAL data -- 18 lessons drawn from this course,\")\nprint(\"two per month, using each lesson's first stated objective as its text.\")\nprint(f\"  corpus size: {len(CORPUS)} documents\")\nprint()\n\ndef tok(s):\n    return re.findall(r\"[a-z]+\", s.lower())\n\n# ---- Build a TF-IDF vector space (Month 5, applied to retrieval) ----\ndocs = [f\"{d['title']} {d['text']}\" for d in CORPUS]\ntoks = [tok(t) for t in docs]\nvocab = sorted({w for t in toks for w in t})\nvi = {w: i for i, w in enumerate(vocab)}\nN, V = len(docs), len(vocab)\n\ntf = np.zeros((N, V))\nfor i, t in enumerate(toks):\n    for w, c in Counter(t).items():\n        tf[i, vi[w]] = c\ndf = (tf > 0).sum(0)\nidf = np.log((N + 1) / (df + 1)) + 1.0\nX = tf * idf\n\n# L2-normalize so dot product IS cosine similarity\nnorms = np.linalg.norm(X, axis=1, keepdims=True)\nXn = X / np.maximum(norms, 1e-12)\nprint(f\"vector space: {N} docs x {V} vocabulary terms\")\nprint(f\"  after L2 normalization, every row has length \"\n      f\"{np.linalg.norm(Xn[0]):.6f} -> dot product == cosine\")\nprint()\n\ndef embed(q):\n    v = np.zeros(V)\n    for w, c in Counter(tok(q)).items():\n        if w in vi:\n            v[vi[w]] = c * idf[vi[w]]\n    n = np.linalg.norm(v)\n    return v / n if n > 0 else v\n\ndef search(q, k=3):\n    s = Xn @ embed(q)\n    order = np.argsort(-s)[:k]\n    return [(CORPUS[i][\"id\"], CORPUS[i][\"title\"], float(s[i])) for i in order]\n\nfor q in [\"how do I turn words into vectors\",\n          \"what makes training diverge\",\n          \"reduce memory when fine-tuning a large model\"]:\n    print(f\"query: {q!r}\")\n    for cid, title, sc in search(q):\n        print(f\"   {sc:.4f}  [{cid}] {title}\")\n    print()\n\n# ---- why normalization matters: a decisive test ----\nprint(\"WHY NORMALIZE: raw dot product rewards LENGTH, not relevance.\")\nprint(\"Test: take one document and simply REPEAT its text 3x. It is no more\")\nprint(\"relevant than before -- but it is three times longer.\")\nprint()\n\nbase = CORPUS[1]                      # a doc about vectors\norig = f\"{base['title']} {base['text']}\"\ninfl = \" \".join([orig] * 3)          # the ENTIRE document, repeated verbatim\n\ndef vec(text):\n    v = np.zeros(V)\n    for w, c in Counter(tok(text)).items():\n        if w in vi: v[vi[w]] = c * idf[vi[w]]\n    return v\n\nq = embed(\"what is a vector\")\nvo, vinf = vec(orig), vec(infl)\nprint(f\"  document: [{base['id']}] {base['title']}\")\nprint(f\"  {'':22}{'tokens':>8} {'raw dot':>10} {'cosine':>9}\")\nprint(f\"  {'original':>22}{len(tok(orig)):>8} {vo @ q:>10.4f} \"\n      f\"{(vo/np.linalg.norm(vo)) @ q:>9.4f}\")\nprint(f\"  {'same text, repeated 3x':>22}{len(tok(infl)):>8} {vinf @ q:>10.4f} \"\n      f\"{(vinf/np.linalg.norm(vinf)) @ q:>9.4f}\")\nprint()\nprint(f\"  raw dot product grew {(vinf @ q)/(vo @ q):.2f}x purely from padding.\")\nprint(f\"  cosine changed by {abs((vinf/np.linalg.norm(vinf)) @ q - (vo/np.linalg.norm(vo)) @ q):.2e} -- i.e. not at all.\")\nprint(\"  cosine measures DIRECTION. Repeating a document scales its vector but\")\nprint(\"  does not rotate it, so the cosine score is mathematically unchanged.\")\nprint(\"  that is why retrieval systems normalize and compare by cosine.\")\n"}
+  output={"PARAMETRIC vs NON-PARAMETRIC KNOWLEDGE\n  parametric     : facts baked into weights during training (Months 8-9)\n  non-parametric : facts looked up at inference from an external store\n\nthe curriculum below is REAL data -- 18 lessons drawn from this course,\ntwo per month, using each lesson's first stated objective as its text.\n  corpus size: 18 documents\n\nvector space: 18 docs x 183 vocabulary terms\n  after L2 normalization, every row has length 1.000000 -> dot product == cosine\n\nquery: 'how do I turn words into vectors'\n   0.2669  [5.3.1] Text Preprocessing: Tokenization, Casing, and Stopwords\n   0.1202  [4.3.1] Datasets and DataLoaders\n   0.1184  [9.3.1] Instruction Tuning and Chat Templates\n\nquery: 'what makes training diverge'\n   0.2131  [2.1.1] Eigenvalues & Eigenvectors: Intuition\n   0.1777  [1.1.1] Why Python for AI?\n   0.1541  [9.1.1] Why Fine-Tune Instead of Training From Scratch\n\nquery: 'reduce memory when fine-tuning a large model'\n   0.4738  [9.1.1] Why Fine-Tune Instead of Training From Scratch\n   0.3338  [6.3.1] What Is a Language Model?\n   0.1682  [9.3.1] Instruction Tuning and Chat Templates\n\nWHY NORMALIZE: raw dot product rewards LENGTH, not relevance.\nTest: take one document and simply REPEAT its text 3x. It is no more\nrelevant than before -- but it is three times longer.\n\n  document: [1.3.1] What Is a Vector?\n                          tokens    raw dot    cosine\n                original      22     7.4731    0.5528\n  same text, repeated 3x      66    22.4192    0.5528\n\n  raw dot product grew 3.00x purely from padding.\n  cosine changed by 0.00e+00 -- i.e. not at all.\n  cosine measures DIRECTION. Repeating a document scales its vector but\n  does not rotate it, so the cosine score is mathematically unchanged.\n  that is why retrieval systems normalize and compare by cosine."}
+/>
+
+<Callout kind="tip" title="This corpus is real curriculum data">
+  The `CORPUS` literal is not invented. It holds 18 genuine lessons drawn from this course — two
+  per month across Months 1–9 — using each lesson's actual title and first stated objective as its
+  text. Every retrieval result in the cell above is a real query against real course content, which
+  is also what makes the failures reported this month worth trusting.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why is retrieval usually preferred over fine-tuning for facts that change frequently?"
+  correct={1}
+  options={[
+    { text: "Fine-tuning cannot represent factual information at all, only formatting", why: "Fine-tuning can absolutely install facts -- pretraining is how models learn most of what they know. The issue is the cost and latency of updating them, not whether it is possible." },
+    { text: "Updating a document store is immediate and cheap, while updating parametric knowledge requires retraining -- and retrieved facts can be cited, whereas weight-stored facts cannot be attributed to a source", why: "Correct -- both the update cost and the attribution property push frequently-changing facts toward retrieval, which is why production systems index documents rather than continuously fine-tuning." },
+    { text: "Retrieved documents are always more accurate than model weights", why: "Retrieval is only as accurate as the indexed corpus -- retrieving a wrong document yields a wrong answer, often stated confidently. Accuracy comes from the source, not from the mechanism." },
+    { text: "Retrieval uses less memory at inference than a fine-tuned model", why: "Retrieval ADDS memory cost: the retrieved context enters the KV cache, which Month 8 measured growing linearly with sequence length. It is not a memory optimization." },
+  ]}
+/>
+
+## Summary
+
+Knowledge can live in weights (parametric) or in an external store (non-parametric). Retrieval swaps `P(y|x)` for `P(y|x, retrieve(x))` without changing the model at all — so facts update instantly and answers can cite sources. Fine-tune to change behaviour; retrieve to change knowledge. The vector space built above over 18 real curriculum lessons is the foundation for the rest of the month.
+
+## Further reading
+
+- Lewis et al., *"Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"* --
+  the paper that named RAG.

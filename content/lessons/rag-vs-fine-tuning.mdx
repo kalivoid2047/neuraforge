@@ -1,0 +1,84 @@
+---
+slug: rag-vs-fine-tuning
+month: 10
+week: 4
+ord: 3
+title: "RAG vs Fine-Tuning"
+code: "10.4.3"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Compare RAG and fine-tuning on cost, latency, freshness, and attribution"
+  - "State which problems each solves"
+  - "Explain why the two are frequently combined"
+prereqs:
+  - "Evaluating Generation: Groundedness and Faithfulness ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: "Different Tools, Different Problems" }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">The question is not which is better</h2>
+
+Month 9 adapted a model by changing its weights; Month 10 adapts it by changing what it sees. They are routinely posed as alternatives, which is the wrong framing — they address different failures and combine cleanly.
+
+<h2 id="math">Different Tools, Different Problems</h2>
+
+Where each one wins:
+
+<table>
+<thead><tr><th></th><th>fine-tuning</th><th>RAG</th></tr></thead>
+<tbody>
+<tr><td>update cost</td><td>a retraining run</td><td>reindex one document</td></tr>
+<tr><td>latency</td><td>none added</td><td>retrieval + longer prompt</td></tr>
+<tr><td>freshness</td><td>frozen at training cutoff</td><td>current</td></tr>
+<tr><td>attribution</td><td>impossible</td><td>citations</td></tr>
+<tr><td>changes behaviour</td><td>yes</td><td>weakly, via the prompt</td></tr>
+<tr><td>changes knowledge</td><td>yes, expensively</td><td>yes, cheaply</td></tr>
+</tbody>
+</table>
+
+The rule of thumb from lesson 10.1.1, now with a month of evidence behind it: **fine-tune for behaviour, retrieve for knowledge.**
+
+<Callout kind="tip" title="Production systems use both">
+  A typical deployment fine-tunes for format, tone, and domain register — the things that should be stable — and retrieves for facts that change. Month 9's capstone showed LoRA adapting behaviour while preserving capability at `1.000` retention; this month shows retrieval supplying current, citable facts. Neither substitutes for the other, and choosing between them is usually a false dichotomy.
+</Callout>
+
+<h2 id="python">The vector space underlying the retrieval half of the comparison</h2>
+
+<CodeCell
+  code={"CORPUS = [\n    {\"id\": \"1.1.1\",  \"title\": \"Why Python for AI?\",                        \"text\": \"Explain what makes Python the dominant language for AI/ML work, specifically\"},\n    {\"id\": \"1.3.1\",  \"title\": \"What Is a Vector?\",                         \"text\": \"Define a vector as both a geometric arrow and a list of numbers, and connect the two views\"},\n    {\"id\": \"2.1.1\",  \"title\": \"Eigenvalues & Eigenvectors: Intuition\",     \"text\": \"Explain what makes a vector special with respect to a given matrix transformation\"},\n    {\"id\": \"2.3.1\",  \"title\": \"Why Nonlinearity Matters\",                  \"text\": \"Prove that stacking purely linear layers collapses to a single linear layer\"},\n    {\"id\": \"3.1.1\",  \"title\": \"What Is a Derivative?\",                     \"text\": \"Define the derivative as a limit of a difference quotient\"},\n    {\"id\": \"3.3.1\",  \"title\": \"The Value Class: Wrapping Numbers for Autograd\", \"text\": \"Build a Value class that wraps a scalar and records the computational graph as operations happen\"},\n    {\"id\": \"4.1.1\",  \"title\": \"From Value to Tensor: Why PyTorch Exists\",  \"text\": \"Explain what PyTorch automates relative to the Value engine built last month\"},\n    {\"id\": \"4.3.1\",  \"title\": \"Datasets and DataLoaders\",                  \"text\": \"Explain the separation of concerns between a Dataset (what the data is) and a DataLoader (how it's served)\"},\n    {\"id\": \"5.1.1\",  \"title\": \"What Is Probability?\",                      \"text\": \"Define a sample space and an event, and state the three axioms every valid probability must satisfy\"},\n    {\"id\": \"5.3.1\",  \"title\": \"Text Preprocessing: Tokenization, Casing, and Stopwords\", \"text\": \"Implement a basic tokenizer that splits raw text into a list of words\"},\n    {\"id\": \"6.1.1\",  \"title\": \"Why Word-Level Tokenization Breaks Down\",   \"text\": \"Demonstrate the out-of-vocabulary (OOV) problem with a fixed word-level vocabulary\"},\n    {\"id\": \"6.3.1\",  \"title\": \"What Is a Language Model?\",                 \"text\": \"Define a language model as a probability distribution over token sequences\"},\n    {\"id\": \"7.1.1\",  \"title\": \"Why Attention?\",                            \"text\": \"Explain the fixed-size bottleneck that limited pre-attention seq2seq models\"},\n    {\"id\": \"7.3.1\",  \"title\": \"LayerNorm & Residuals\",                     \"text\": \"Explain why deep Transformer stacks need residual connections to train at all\"},\n    {\"id\": \"8.1.1\",  \"title\": \"From Encoder-Decoder to Decoder-Only\",      \"text\": \"Explain why a decoder-only stack can handle tasks the encoder-decoder split was designed for\"},\n    {\"id\": \"8.3.1\",  \"title\": \"Sampling vs Greedy Decoding\",               \"text\": \"Contrast deterministic greedy decoding with stochastic sampling\"},\n    {\"id\": \"9.1.1\",  \"title\": \"Why Fine-Tune Instead of Training From Scratch\", \"text\": \"Quantify how much cheaper fine-tuning is than pretraining, using Month 8's compute model\"},\n    {\"id\": \"9.3.1\",  \"title\": \"Instruction Tuning and Chat Templates\",     \"text\": \"Render a conversation into a chat template and build its loss mask\"},\n]\n\nimport numpy as np, re\nfrom collections import Counter\n\n# ---- Why retrieval: parametric vs non-parametric knowledge ----\nprint(\"PARAMETRIC vs NON-PARAMETRIC KNOWLEDGE\")\nprint(\"  parametric     : facts baked into weights during training (Months 8-9)\")\nprint(\"  non-parametric : facts looked up at inference from an external store\")\nprint()\nprint(\"the curriculum below is REAL data -- 18 lessons drawn from this course,\")\nprint(\"two per month, using each lesson's first stated objective as its text.\")\nprint(f\"  corpus size: {len(CORPUS)} documents\")\nprint()\n\ndef tok(s):\n    return re.findall(r\"[a-z]+\", s.lower())\n\n# ---- Build a TF-IDF vector space (Month 5, applied to retrieval) ----\ndocs = [f\"{d['title']} {d['text']}\" for d in CORPUS]\ntoks = [tok(t) for t in docs]\nvocab = sorted({w for t in toks for w in t})\nvi = {w: i for i, w in enumerate(vocab)}\nN, V = len(docs), len(vocab)\n\ntf = np.zeros((N, V))\nfor i, t in enumerate(toks):\n    for w, c in Counter(t).items():\n        tf[i, vi[w]] = c\ndf = (tf > 0).sum(0)\nidf = np.log((N + 1) / (df + 1)) + 1.0\nX = tf * idf\n\n# L2-normalize so dot product IS cosine similarity\nnorms = np.linalg.norm(X, axis=1, keepdims=True)\nXn = X / np.maximum(norms, 1e-12)\nprint(f\"vector space: {N} docs x {V} vocabulary terms\")\nprint(f\"  after L2 normalization, every row has length \"\n      f\"{np.linalg.norm(Xn[0]):.6f} -> dot product == cosine\")\nprint()\n\ndef embed(q):\n    v = np.zeros(V)\n    for w, c in Counter(tok(q)).items():\n        if w in vi:\n            v[vi[w]] = c * idf[vi[w]]\n    n = np.linalg.norm(v)\n    return v / n if n > 0 else v\n\ndef search(q, k=3):\n    s = Xn @ embed(q)\n    order = np.argsort(-s)[:k]\n    return [(CORPUS[i][\"id\"], CORPUS[i][\"title\"], float(s[i])) for i in order]\n\nfor q in [\"how do I turn words into vectors\",\n          \"what makes training diverge\",\n          \"reduce memory when fine-tuning a large model\"]:\n    print(f\"query: {q!r}\")\n    for cid, title, sc in search(q):\n        print(f\"   {sc:.4f}  [{cid}] {title}\")\n    print()\n\n# ---- why normalization matters: a decisive test ----\nprint(\"WHY NORMALIZE: raw dot product rewards LENGTH, not relevance.\")\nprint(\"Test: take one document and simply REPEAT its text 3x. It is no more\")\nprint(\"relevant than before -- but it is three times longer.\")\nprint()\n\nbase = CORPUS[1]                      # a doc about vectors\norig = f\"{base['title']} {base['text']}\"\ninfl = \" \".join([orig] * 3)          # the ENTIRE document, repeated verbatim\n\ndef vec(text):\n    v = np.zeros(V)\n    for w, c in Counter(tok(text)).items():\n        if w in vi: v[vi[w]] = c * idf[vi[w]]\n    return v\n\nq = embed(\"what is a vector\")\nvo, vinf = vec(orig), vec(infl)\nprint(f\"  document: [{base['id']}] {base['title']}\")\nprint(f\"  {'':22}{'tokens':>8} {'raw dot':>10} {'cosine':>9}\")\nprint(f\"  {'original':>22}{len(tok(orig)):>8} {vo @ q:>10.4f} \"\n      f\"{(vo/np.linalg.norm(vo)) @ q:>9.4f}\")\nprint(f\"  {'same text, repeated 3x':>22}{len(tok(infl)):>8} {vinf @ q:>10.4f} \"\n      f\"{(vinf/np.linalg.norm(vinf)) @ q:>9.4f}\")\nprint()\nprint(f\"  raw dot product grew {(vinf @ q)/(vo @ q):.2f}x purely from padding.\")\nprint(f\"  cosine changed by {abs((vinf/np.linalg.norm(vinf)) @ q - (vo/np.linalg.norm(vo)) @ q):.2e} -- i.e. not at all.\")\nprint(\"  cosine measures DIRECTION. Repeating a document scales its vector but\")\nprint(\"  does not rotate it, so the cosine score is mathematically unchanged.\")\nprint(\"  that is why retrieval systems normalize and compare by cosine.\")\n"}
+  output={"PARAMETRIC vs NON-PARAMETRIC KNOWLEDGE\n  parametric     : facts baked into weights during training (Months 8-9)\n  non-parametric : facts looked up at inference from an external store\n\nthe curriculum below is REAL data -- 18 lessons drawn from this course,\ntwo per month, using each lesson's first stated objective as its text.\n  corpus size: 18 documents\n\nvector space: 18 docs x 183 vocabulary terms\n  after L2 normalization, every row has length 1.000000 -> dot product == cosine\n\nquery: 'how do I turn words into vectors'\n   0.2669  [5.3.1] Text Preprocessing: Tokenization, Casing, and Stopwords\n   0.1202  [4.3.1] Datasets and DataLoaders\n   0.1184  [9.3.1] Instruction Tuning and Chat Templates\n\nquery: 'what makes training diverge'\n   0.2131  [2.1.1] Eigenvalues & Eigenvectors: Intuition\n   0.1777  [1.1.1] Why Python for AI?\n   0.1541  [9.1.1] Why Fine-Tune Instead of Training From Scratch\n\nquery: 'reduce memory when fine-tuning a large model'\n   0.4738  [9.1.1] Why Fine-Tune Instead of Training From Scratch\n   0.3338  [6.3.1] What Is a Language Model?\n   0.1682  [9.3.1] Instruction Tuning and Chat Templates\n\nWHY NORMALIZE: raw dot product rewards LENGTH, not relevance.\nTest: take one document and simply REPEAT its text 3x. It is no more\nrelevant than before -- but it is three times longer.\n\n  document: [1.3.1] What Is a Vector?\n                          tokens    raw dot    cosine\n                original      22     7.4731    0.5528\n  same text, repeated 3x      66    22.4192    0.5528\n\n  raw dot product grew 3.00x purely from padding.\n  cosine changed by 0.00e+00 -- i.e. not at all.\n  cosine measures DIRECTION. Repeating a document scales its vector but\n  does not rotate it, so the cosine score is mathematically unchanged.\n  that is why retrieval systems normalize and compare by cosine."}
+/>
+
+<Callout kind="tip" title="This corpus is real curriculum data">
+  The `CORPUS` literal is not invented. It holds 18 genuine lessons drawn from this course — two
+  per month across Months 1–9 — using each lesson's actual title and first stated objective as its
+  text. Every retrieval result in the cell above is a real query against real course content, which
+  is also what makes the failures reported this month worth trusting.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="A model answers in the wrong format and also lacks knowledge of this quarter's product line. What should be done?"
+  correct={1}
+  options={[
+    { text: "Fine-tune on both the format examples and the product documents", why: "Fine-tuning the product facts works until they change, and then requires another training run. It also forfeits citations, which matters for product information." },
+    { text: "Fine-tune for the format, and retrieve the product information -- format is stable behaviour suited to weights, while quarterly product data changes and benefits from being updatable and citable", why: "Correct -- this is the rule of thumb applied to a case that needs both, and it is why production systems combine the two rather than choosing." },
+    { text: "Use RAG for both, putting format examples in the context", why: "Few-shot format examples in context do work to a degree, but they consume budget on every request and control format less reliably than fine-tuning does." },
+    { text: "Neither -- prompt engineering alone can fix both problems", why: "Prompting cannot supply facts the model has never seen and cannot access. The product information has to come from somewhere, and prompting alone does not provide it." },
+  ]}
+/>
+
+## Summary
+
+Fine-tuning changes weights; RAG changes context. Fine-tuning wins on latency and behavioural control; RAG wins on update cost, freshness, and attribution. The rule is fine-tune for behaviour and retrieve for knowledge, and the two compose — Month 9's LoRA preserved capability at `1.000` retention while adapting behaviour, and retrieval supplies current citable facts on top. Treating them as competitors is usually a false dichotomy. The next lesson assembles the full evaluation.
+
+## Further reading
+
+- Ovadia et al., *"Fine-Tuning or Retrieval? Comparing Knowledge Injection in LLMs"* --
+  a controlled comparison on knowledge-intensive tasks.

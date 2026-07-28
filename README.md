@@ -89,8 +89,19 @@ and safety capabilities — closing with a capstone that adapts a pretrained mod
 shows LoRA matching full fine-tuning on the target task (both 1.000) while retaining 1.000
 against full fine-tuning's 0.880.
 
-**Months 1 through 9 run end to end with no gaps: 180/240 lessons.** `/learn/[slug]` presents
-each month-to-month transition as a normal "next lesson." Months 10–12 (60 lessons) are not yet
+Month 10 (Retrieval & Knowledge Systems → a RAG system over this curriculum) is complete,
+20/20 lessons: embeddings and vector search (cosine vs dot product, exact search, IVF/ANN),
+document preparation (chunking, overlap, BM25 and hybrid search, metadata filters, ingestion),
+RAG architectures (grounded prompts, context budgets, cross-encoder reranking, query
+transformation), and evaluation — closing with a capstone that indexes 18 real lessons from this
+course and answers questions about them with citations and abstention. It is also the month with
+the most negative results: paraphrased queries drop recall@10 to 0.571, term-overlap
+groundedness cannot separate a grounded answer (0.69) from a hallucinated one (0.60), hybrid
+search merely ties with a single method, and reranking changes nothing. All four are reported as
+measured, with the reason they do not generalize, rather than tuned away.
+
+**Months 1 through 10 run end to end with no gaps: 200/240 lessons.** `/learn/[slug]` presents
+each month-to-month transition as a normal "next lesson." Months 11–12 (40 lessons) are not yet
 authored; the navigation flags a genuine month gap explicitly rather than presenting a skip as
 the next lesson in sequence.
 

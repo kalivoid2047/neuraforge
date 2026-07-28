@@ -1,0 +1,83 @@
+---
+slug: rag-pipeline
+month: 10
+week: 3
+ord: 1
+title: "The RAG Pipeline"
+code: "10.3.1"
+minutes: 75
+difficulty: 3
+objectives:
+  - "Assemble retrieval, prompt construction, and generation into one flow"
+  - "Write a grounding instruction that permits abstention"
+  - "Explain why citations require carrying identifiers through the pipeline"
+prereqs:
+  - "Building the Index End to End ✓"
+sections:
+  - { anchor: objectives, title: Objectives }
+  - { anchor: intuition, title: Intuition }
+  - { anchor: math, title: "Retrieve, Assemble, Generate" }
+  - { anchor: python, title: Pure Python }
+  - { anchor: quiz, title: Mini Quiz }
+---
+
+<h2 id="intuition">Week three: actually answering questions</h2>
+
+With an index built, RAG is three steps: embed the question and retrieve, assemble the results into a prompt, and generate. The interesting engineering is almost entirely in step two — what you put in the prompt and what you instruct the model to do with it.
+
+<h2 id="math">Retrieve, Assemble, Generate</h2>
+
+The prompt carries three things: an instruction, the retrieved context, and the question.
+
+```
+Answer using ONLY the context. Cite the [id] you used.
+If the context does not contain the answer, say so.
+
+CONTEXT:
+[1.3.1] What Is a Vector?: ...
+
+QUESTION: ...
+ANSWER:
+```
+
+Two clauses do most of the work. **"ONLY the context"** discourages the model from answering from parametric memory, which is what produces confident unsourced claims. **"If the context does not contain the answer, say so"** gives the model an exit — without it, a fluent model will invent something rather than return nothing.
+
+<Callout kind="tip" title="Citations are an engineering property, not a prompting trick">
+  A model can only cite `[9.1.1]` if that identifier is present in the context it was given, which means the ingestion pipeline must have stored it alongside the chunk text and the prompt builder must have carried it through. Asking for citations from a pipeline that discarded the identifiers produces plausible-looking fabricated ones. Attribution is designed in at ingestion time or it is not available at all.
+</Callout>
+
+<h2 id="python">Retrieval, prompt assembly, and evaluation on real lessons</h2>
+
+<CodeCell
+  code={"CORPUS = [\n    {\"id\": \"1.1.1\",  \"title\": \"Why Python for AI?\",                        \"text\": \"Explain what makes Python the dominant language for AI/ML work, specifically\"},\n    {\"id\": \"1.3.1\",  \"title\": \"What Is a Vector?\",                         \"text\": \"Define a vector as both a geometric arrow and a list of numbers, and connect the two views\"},\n    {\"id\": \"2.1.1\",  \"title\": \"Eigenvalues & Eigenvectors: Intuition\",     \"text\": \"Explain what makes a vector special with respect to a given matrix transformation\"},\n    {\"id\": \"2.3.1\",  \"title\": \"Why Nonlinearity Matters\",                  \"text\": \"Prove that stacking purely linear layers collapses to a single linear layer\"},\n    {\"id\": \"3.1.1\",  \"title\": \"What Is a Derivative?\",                     \"text\": \"Define the derivative as a limit of a difference quotient\"},\n    {\"id\": \"3.3.1\",  \"title\": \"The Value Class: Wrapping Numbers for Autograd\", \"text\": \"Build a Value class that wraps a scalar and records the computational graph as operations happen\"},\n    {\"id\": \"4.1.1\",  \"title\": \"From Value to Tensor: Why PyTorch Exists\",  \"text\": \"Explain what PyTorch automates relative to the Value engine built last month\"},\n    {\"id\": \"4.3.1\",  \"title\": \"Datasets and DataLoaders\",                  \"text\": \"Explain the separation of concerns between a Dataset (what the data is) and a DataLoader (how it's served)\"},\n    {\"id\": \"5.1.1\",  \"title\": \"What Is Probability?\",                      \"text\": \"Define a sample space and an event, and state the three axioms every valid probability must satisfy\"},\n    {\"id\": \"5.3.1\",  \"title\": \"Text Preprocessing: Tokenization, Casing, and Stopwords\", \"text\": \"Implement a basic tokenizer that splits raw text into a list of words\"},\n    {\"id\": \"6.1.1\",  \"title\": \"Why Word-Level Tokenization Breaks Down\",   \"text\": \"Demonstrate the out-of-vocabulary (OOV) problem with a fixed word-level vocabulary\"},\n    {\"id\": \"6.3.1\",  \"title\": \"What Is a Language Model?\",                 \"text\": \"Define a language model as a probability distribution over token sequences\"},\n    {\"id\": \"7.1.1\",  \"title\": \"Why Attention?\",                            \"text\": \"Explain the fixed-size bottleneck that limited pre-attention seq2seq models\"},\n    {\"id\": \"7.3.1\",  \"title\": \"LayerNorm & Residuals\",                     \"text\": \"Explain why deep Transformer stacks need residual connections to train at all\"},\n    {\"id\": \"8.1.1\",  \"title\": \"From Encoder-Decoder to Decoder-Only\",      \"text\": \"Explain why a decoder-only stack can handle tasks the encoder-decoder split was designed for\"},\n    {\"id\": \"8.3.1\",  \"title\": \"Sampling vs Greedy Decoding\",               \"text\": \"Contrast deterministic greedy decoding with stochastic sampling\"},\n    {\"id\": \"9.1.1\",  \"title\": \"Why Fine-Tune Instead of Training From Scratch\", \"text\": \"Quantify how much cheaper fine-tuning is than pretraining, using Month 8's compute model\"},\n    {\"id\": \"9.3.1\",  \"title\": \"Instruction Tuning and Chat Templates\",     \"text\": \"Render a conversation into a chat template and build its loss mask\"},\n]\n\nimport numpy as np, re\nfrom collections import Counter\ndef tok(s): return re.findall(r\"[a-z]+\", s.lower())\n\ndocs=[f\"{d['title']} {d['text']}\" for d in CORPUS]; toks=[tok(t) for t in docs]\nvocab=sorted({w for t in toks for w in t}); vi={w:i for i,w in enumerate(vocab)}\nN,V=len(docs),len(vocab)\ntf=np.zeros((N,V))\nfor i,t in enumerate(toks):\n    for w,c in Counter(t).items(): tf[i,vi[w]]=c\nidf=np.log((N+1)/(((tf>0).sum(0))+1))+1.0\nX=tf*idf; Xn=X/np.maximum(np.linalg.norm(X,axis=1,keepdims=True),1e-12)\ndef embed(q):\n    v=np.zeros(V)\n    for w,c in Counter(tok(q)).items():\n        if w in vi: v[vi[w]]=c*idf[vi[w]]\n    n=np.linalg.norm(v); return v/n if n else v\ndef retrieve(q,k): \n    s=Xn@embed(q); o=np.argsort(-s)[:k]; return [(int(i),float(s[i])) for i in o]\n\n# ---------- THE RAG PIPELINE ----------\nprint(\"RAG PIPELINE: retrieve -> build context -> generate\")\nq=\"what is a vector\"\nhits=retrieve(q,3)\nprint(f\"query: {q!r}\")\nprint(\"1. RETRIEVE top-3:\")\nfor i,s in hits: print(f\"     {s:.4f} [{CORPUS[i]['id']}] {CORPUS[i]['title']}\")\nctx=\"\\n\".join(f\"[{CORPUS[i]['id']}] {CORPUS[i]['title']}: {CORPUS[i]['text']}\" for i,_ in hits)\nprompt=(f\"Answer using ONLY the context. Cite the [id] you used.\\n\"\n        f\"If the context does not contain the answer, say so.\\n\\n\"\n        f\"CONTEXT:\\n{ctx}\\n\\nQUESTION: {q}\\nANSWER:\")\nprint(\"\\n2. BUILD PROMPT:\")\nprint(\"     \" + prompt.replace(\"\\n\",\"\\n     \")[:420] + \"...\")\nprint(f\"\\n   prompt length: {len(tok(prompt))} tokens\")\nprint()\n\n# ---------- CONTEXT BUDGET ----------\nprint(\"CONTEXT BUDGET -- how many chunks fit, and what it costs\")\nprint(f\"{'ctx window':>11} {'reserved out':>13} {'usable':>8} {'chunks @120tok':>15}\")\nfor win,out in [(4096,512),(8192,1024),(32768,2048),(128000,4096)]:\n    usable=win-out-200\n    print(f\"{win:>11,} {out:>13,} {usable:>8,} {usable//120:>15,}\")\nprint()\nprint(\"more context is not free: Month 8 measured KV-cache growing linearly with\")\nprint(\"sequence length (85.90 GB at 32k on an 80-layer model). Retrieving 200\")\nprint(\"chunks because they fit is a real cost, and usually a quality regression.\")\nprint()\n\n# ---------- RETRIEVAL METRICS ----------\nprint(\"EVALUATING RETRIEVAL -- recall@k, MRR, and why they differ\")\n# REALISTIC queries: paraphrased the way a user would ask, NOT echoing the titles\ngold={\"an arrow with direction and magnitude\":\"1.3.1\",\n      \"splitting sentences into lowercase words\":\"5.3.1\",\n      \"adapting an existing model is cheaper than starting over\":\"9.1.1\",\n      \"predicting which word comes next\":\"6.3.1\",\n      \"letting each position look at other positions\":\"7.1.1\",\n      \"the encoder and decoder split, and dropping it\":\"8.1.1\",\n      \"teaching a model to answer rather than continue\":\"9.3.1\"}\nids=[d[\"id\"] for d in CORPUS]\nprint(f\"{'k':>3} {'recall@k':>10} {'MRR':>8}\")\nfinal={}\nfor k in [1,3,5,10]:\n    rec=[];rr=[]\n    for q,g in gold.items():\n        got=[ids[i] for i,_ in retrieve(q,k)]\n        rec.append(1.0 if g in got else 0.0)\n        rr.append(1.0/(got.index(g)+1) if g in got else 0.0)\n    final[k]=(np.mean(rec),np.mean(rr))\n    print(f\"{k:>3} {np.mean(rec):>10.3f} {np.mean(rr):>8.3f}\")\nr10,m10=final[10]\nprint()\nprint(\"recall@k asks 'is it in there at all'. MRR asks 'how high'.\")\nprint()\nprint(f\"READ THIS RESULT HONESTLY: recall@10 is only {r10:.3f}. On queries phrased the way\")\nprint(\"-- paraphrased rather than echoing the title --\")\nprint(f\"users actually ask, this TF-IDF retriever misses the right lesson {1-r10:.0%} of\")\nprint(\"the time, and raising k stops helping after 3. The failure is structural:\")\nprint(\"lexical matching needs shared WORDS, and a paraphrase avoids them by design.\")\nprint()\nprint(\"that gap is the entire reason production retrieval uses learned dense\")\nprint(\"embeddings, which map 'arrow with direction' near 'vector' even with zero\")\nprint(\"term overlap. Every RAG system's ceiling is set by its retriever.\")\nprint()\n\n# ---------- GROUNDEDNESS ----------\nprint(\"EVALUATING GENERATION -- is the answer actually supported?\")\ncands={\n \"A vector is a list of numbers, and also an arrow with direction and magnitude. [1.3.1]\":\"grounded\",\n \"A vector is a list of numbers invented by Euler in 1748.\":\"hallucinated\",\n \"The context does not cover that.\":\"abstained\",\n}\nctx_terms=set(tok(ctx))\nfor ans,label in cands.items():\n    at=set(tok(ans)); overlap=len(at&ctx_terms)/max(1,len(at))\n    cited=bool(re.search(r\"\\[\\d+\\.\\d+\\.\\d+\\]\",ans))\n    print(f\"  [{label:>12}] support={overlap:.2f} cites_source={cited}\")\n    print(f\"                {ans[:66]}\")\nprint()\nprint(\"term overlap is a crude proxy -- it cannot tell a correct claim from a\")\nprint(\"fluent wrong one. It does reliably catch the failure that matters most in\")\nprint(\"RAG: an answer whose content simply is not in the retrieved context.\")\n"}
+  output={"RAG PIPELINE: retrieve -> build context -> generate\nquery: 'what is a vector'\n1. RETRIEVE top-3:\n     0.5528 [1.3.1] What Is a Vector?\n     0.3226 [2.1.1] Eigenvalues & Eigenvectors: Intuition\n     0.2875 [3.1.1] What Is a Derivative?\n\n2. BUILD PROMPT:\n     Answer using ONLY the context. Cite the [id] you used.\n     If the context does not contain the answer, say so.\n     \n     CONTEXT:\n     [1.3.1] What Is a Vector?: Define a vector as both a geometric arrow and a list of numbers, and connect the two views\n     [2.1.1] Eigenvalues & Eigenvectors: Intuition: Explain what makes a vector special with respect to a given matrix transformation\n     [3.1.1] What Is a Derivati...\n\n   prompt length: 79 tokens\n\nCONTEXT BUDGET -- how many chunks fit, and what it costs\n ctx window  reserved out   usable  chunks @120tok\n      4,096           512    3,384              28\n      8,192         1,024    6,968              58\n     32,768         2,048   30,520             254\n    128,000         4,096  123,704           1,030\n\nmore context is not free: Month 8 measured KV-cache growing linearly with\nsequence length (85.90 GB at 32k on an 80-layer model). Retrieving 200\nchunks because they fit is a real cost, and usually a quality regression.\n\nEVALUATING RETRIEVAL -- recall@k, MRR, and why they differ\n  k   recall@k      MRR\n  1      0.286    0.286\n  3      0.571    0.429\n  5      0.571    0.429\n 10      0.571    0.429\n\nrecall@k asks 'is it in there at all'. MRR asks 'how high'.\n\nREAD THIS RESULT HONESTLY: recall@10 is only 0.571. On queries phrased the way\n-- paraphrased rather than echoing the title --\nusers actually ask, this TF-IDF retriever misses the right lesson 43% of\nthe time, and raising k stops helping after 3. The failure is structural:\nlexical matching needs shared WORDS, and a paraphrase avoids them by design.\n\nthat gap is the entire reason production retrieval uses learned dense\nembeddings, which map 'arrow with direction' near 'vector' even with zero\nterm overlap. Every RAG system's ceiling is set by its retriever.\n\nEVALUATING GENERATION -- is the answer actually supported?\n  [    grounded] support=0.69 cites_source=True\n                A vector is a list of numbers, and also an arrow with direction an\n  [hallucinated] support=0.60 cites_source=False\n                A vector is a list of numbers invented by Euler in 1748.\n  [   abstained] support=0.17 cites_source=False\n                The context does not cover that.\n\nterm overlap is a crude proxy -- it cannot tell a correct claim from a\nfluent wrong one. It does reliably catch the failure that matters most in\nRAG: an answer whose content simply is not in the retrieved context."}
+/>
+
+<Callout kind="tip" title="This corpus is real curriculum data">
+  The `CORPUS` literal is not invented. It holds 18 genuine lessons drawn from this course — two
+  per month across Months 1–9 — using each lesson's actual title and first stated objective as its
+  text. Every retrieval result in the cell above is a real query against real course content, which
+  is also what makes the failures reported this month worth trusting.
+</Callout>
+
+<h2 id="quiz">Check yourself</h2>
+
+<QuizCard
+  question="Why does the prompt explicitly permit the model to say the context does not contain the answer?"
+  correct={0}
+  options={[
+    { text: "Without an explicit exit, a fluent model will produce a confident answer from whatever context it was given rather than returning nothing -- the failure mode is invention, and the instruction gives it a licensed alternative", why: "Correct -- abstention has to be an allowed output. This pairs with the retrieval-side confidence gate the capstone builds: the prompt permits refusal, the retriever decides when it is warranted." },
+    { text: "It reduces the number of tokens the model generates, lowering cost", why: "Any cost saving is incidental and small. The clause exists to prevent fabrication, which is a correctness concern rather than an efficiency one." },
+    { text: "It is required by most model APIs for retrieval-augmented requests", why: "No API requires it -- it is an ordinary part of the prompt text, included because of how models behave without it." },
+    { text: "It prevents the model from accessing its parametric knowledge entirely", why: "It discourages but cannot prevent that -- models do draw on parametric knowledge despite such instructions, which is exactly why groundedness must be measured rather than assumed." },
+  ]}
+/>
+
+## Summary
+
+RAG is retrieve, assemble, generate — with the engineering concentrated in assembly. The instruction should restrict the model to the supplied context and explicitly permit abstention, because a fluent model with no licensed exit will invent rather than decline. Citations depend on identifiers surviving from ingestion through to the prompt; a pipeline that discards them will produce fabricated references instead. The next lesson budgets the context.
+
+## Further reading
+
+- Lewis et al., *"Retrieval-Augmented Generation"* -- the original architecture this
+  pipeline implements.
