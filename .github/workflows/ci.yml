@@ -3,10 +3,15 @@ name: CI
 # Lint/typecheck/test on every PR (SRS §8.1). No service containers — the
 # existing suite runs entirely against in-memory SQLite (tests/conftest.py),
 # and Docker is prohibited in CI same as dev/prod (ADR-0002, SRS C-1).
+#
+# `master` is listed alongside `main` because this repository's default branch
+# is master: with `[main]` alone the push trigger matched nothing, so direct
+# pushes to the default branch ran no checks at all. Keep both names here
+# unless the default branch is renamed.
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 jobs:
