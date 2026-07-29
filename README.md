@@ -100,8 +100,25 @@ groundedness cannot separate a grounded answer (0.69) from a hallucinated one (0
 search merely ties with a single method, and reranking changes nothing. All four are reported as
 measured, with the reason they do not generalize, rather than tuned away.
 
-**Months 1 through 10 run end to end with no gaps: 200/240 lessons.** `/learn/[slug]` presents
-each month-to-month transition as a normal "next lesson." Months 11–12 (40 lessons) are not yet
+Month 11 (Agents & Tooling → a tool-using research agent with MCP) is complete, 20/20 lessons:
+the agent loop and function calling, memory systems and the Model Context Protocol, planning and
+reflection, and agent safety and evaluation — closing with a capstone that discovers its tools at
+runtime over MCP, plans, retrieves, critiques, and blocks a live prompt-injection attempt on
+provenance rather than content.
+
+The month is built around measurements that constrain agent design rather than flatter it: the
+transcript is resent every step, so tokens processed grow `O(n²)` — a 50-step run ends at 6,400
+tokens having sent 173,000 (`27×`); per-step reliability compounds as `p^n`, so a 95% step
+completes a 20-step task 35.8% of the time; a recency-only summarizer retained 1 of 5 needed
+facts against plain truncation's 2 of 5; and a weak critic (detection 0.3, false positives 0.3)
+moved success by −0.2 and −0.0 points for ~39% more calls, against a strong critic's 0.275 →
+0.852. The capstone ablation is equally blunt: reading several candidates helped, pseudo-relevance
+feedback paid only in combination, and turning the critic off entirely scored the same 3/4 as the
+best configured version — so the chapter concludes that agent architecture buys control, not
+accuracy.
+
+**Months 1 through 11 run end to end with no gaps: 220/240 lessons.** `/learn/[slug]` presents
+each month-to-month transition as a normal "next lesson." Month 12 (20 lessons) is not yet
 authored; the navigation flags a genuine month gap explicitly rather than presenting a skip as
 the next lesson in sequence.
 
