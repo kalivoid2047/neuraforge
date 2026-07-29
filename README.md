@@ -117,10 +117,37 @@ feedback paid only in combination, and turning the critic off entirely scored th
 best configured version — so the chapter concludes that agent architecture buys control, not
 accuracy.
 
-**Months 1 through 11 run end to end with no gaps: 220/240 lessons.** `/learn/[slug]` presents
-each month-to-month transition as a normal "next lesson." Month 12 (20 lessons) is not yet
-authored; the navigation flags a genuine month gap explicitly rather than presenting a skip as
-the next lesson in sequence.
+Month 12 (Production AI Engineering → deploy a production language model on a Docker-free Python
+stack) is complete, 20/20 lessons: the serving stack and queueing, batching and KV-bounded
+concurrency, systemd/nginx/atomic deploys/CI gates, logs-to-metrics, percentiles and SLOs,
+backups, and performance/cost/canary/drift — closing with a capstone that derives a capacity,
+cost and rollout plan from a written SLO.
+
+Weeks two's lessons audit **this repository's own deployment artifacts** rather than invented
+examples: the real [systemd unit](deploy/systemd/neuraforge-api.service),
+[nginx config](deploy/nginx/neuraforge.conf) and [CI workflow](.github/workflows/ci.yml) are
+embedded verbatim and parsed in the lesson. The hardening audit scores the real unit at 12/13,
+and reports the one absent directive (`MemoryDenyWriteExecute`) together with the comment
+explaining why it was omitted deliberately.
+
+The measurements again constrain rather than flatter: `W = S/(1-ρ)` doubles latency between 80%
+and 90% utilization; continuous batching recovers 51.3% of slot-steps that static batching
+wastes; a 32k context leaves *zero* concurrent capacity where 1k leaves 16; fan-out turns a
+1%-slow backend into 63.4% slow pages; caching at an 80% hit rate cuts the mean 4.8× and moves
+p99 not at all; serving configuration spans 36× on unit cost; and detecting a doubled 0.1% error
+rate needs 23,510 requests per arm, so a ten-minute canary cannot see it. The capstone's two
+headline findings are both failures: the stated latency SLO is infeasible at any fleet size
+(service time alone is 6.88s against a 3,000 ms target), and the budget supports 0.81 rps against
+a stated 25 — both discovered in arithmetic before any hardware is provisioned.
+
+**The curriculum is complete: 240/240 lessons, Months 1 through 12, with no gaps.**
+`/learn/[slug]` presents every month-to-month transition as a normal "next lesson," and the
+final lesson (12.4.5) closes the sequence.
+
+Every code cell in Months 10–12 was executed in CPython and re-executed through the project's
+own [Pyodide worker](apps/web/public/pyodide.worker.js); outputs are byte-identical in both
+runtimes, including the Monte Carlo simulations, which reproduce exactly because
+`numpy.random.default_rng(seed)` is deterministic across platforms.
 
 ## License
 
