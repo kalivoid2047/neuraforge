@@ -23,8 +23,11 @@ jobs:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v7
+      # Pinned to an exact tag, not a floating major: astral-sh/setup-uv stopped
+      # publishing major aliases after v7, so `@v8`/`@v9` do not resolve at all
+      # (the run that tried @v9 failed with "unable to find version v9").
       - name: Install uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           version: "latest"
       - run: uv sync --frozen
