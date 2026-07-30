@@ -38,10 +38,14 @@ jobs:
     name: Web — lint, typecheck, build
     runs-on: ubuntu-latest
     steps:
+      # Node 24: matches the version local development runs on, so CI and dev
+      # build against the same runtime. Node 20 is EOL. package.json only
+      # requires ">=20", so this is within the declared support range rather
+      # than a bump of the project's minimum.
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
       - run: npm ci
       - run: npm run lint
