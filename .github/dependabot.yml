@@ -1,0 +1,80 @@
+# Dependabot configuration.
+#
+# Added because CI pins some actions to exact tags rather than floating majors
+# — astral-sh/setup-uv stopped publishing major aliases after v7, so
+# `setup-uv@v9.0.0` in ci.yml will never pick up a patch on its own. Rather
+# than revisit that by hand, let Dependabot open the PRs.
+#
+# Updates land as pull requests, which is deliberate: `pull_request` is a CI
+# trigger (see ci.yml), so every proposed bump runs lint/typecheck/test/build
+# before it can be merged. A dependency update that breaks the build shows up
+# as a red PR instead of a red default branch.
+#
+# Groups are used to keep PR volume manageable for a small number of
+# maintainers — an ungrouped monorepo of this size produces dozens of
+# individual PRs a week, which is how dependency automation gets muted.
+
+version: 2
+
+updates:
+  # ---------------------------------------------------------------------------
+  # GitHub Actions. `directory: "/"` is correct even though the workflows live
+  # in .github/workflows — Dependabot looks there (and at a root action.yml)
+  # relative to the given directory.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # ---------------------------------------------------------------------------
+  # npm. One entry at the root: this is an npm workspace monorepo
+  # (workspaces: apps/*, packages/*) with a single root package-lock.json, so
+  # Dependabot resolves every workspace from here. Separate entries per
+  # workspace would fight over the same lockfile.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      # Patch and minor bumps are grouped into one PR per dependency type;
+      # majors are left ungrouped so each one gets reviewed on its own, since
+      # that is where the breaking changes are.
+      npm-production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      npm-development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # ---------------------------------------------------------------------------
+  # Python, via uv. Scoped to apps/api, where pyproject.toml and uv.lock live.
+  # CI runs `uv sync --frozen`, so the lockfile must be updated in the same
+  # commit as the manifest — which is what Dependabot does.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: uv
+    directory: "/apps/api"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
