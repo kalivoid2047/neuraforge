@@ -5,7 +5,7 @@ description = "Neuraforge API — FastAPI modular monolith (ADR-0001)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
+    "uvicorn[standard]>=0.52.0",
     "sqlalchemy[asyncio]>=2.0.51",
     "aiosqlite>=0.20",          # dev database driver
     "asyncpg>=0.30",            # production database driver
