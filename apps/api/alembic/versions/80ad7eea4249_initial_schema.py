@@ -4,9 +4,10 @@ Revision ID: 80ad7eea4249
 Revises: 
 Create Date: 2026-07-22 16:26:43.386617
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = '80ad7eea4249'
 down_revision = None

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     def is_dev(self) -> bool:
         return self.env == "dev"
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, context: object, /) -> None:
         if self.env != "dev" and self.dev_autologin:
             raise ValueError("NF_DEV_AUTOLOGIN must be false outside dev")
 

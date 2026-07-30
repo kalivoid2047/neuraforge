@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -24,7 +25,9 @@ class Base(DeclarativeBase):
     # against a naive TIMESTAMP column (found live-testing Phase 12 against
     # real Postgres). Map every Mapped[datetime] to TIMESTAMPTZ so both
     # dialects agree on one convention, instead of annotating every column.
-    type_annotation_map = {datetime: DateTime(timezone=True)}
+    # ClassVar so it is configuration rather than a mapped column; SQLAlchemy
+    # reads this off the class and explicitly ignores ClassVar annotations.
+    type_annotation_map: ClassVar[dict] = {datetime: DateTime(timezone=True)}
 
 
 class TimestampMixin:

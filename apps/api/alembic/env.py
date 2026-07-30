@@ -8,18 +8,19 @@ create_all (core/db.py). Discipline: DATABASE.md §12 (expand-migrate-contract).
 import asyncio
 import os
 
-from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from neuraforge.core.db import Base
+from alembic import context
+from neuraforge.assessment import models as _assessment_models  # noqa: F401
+
 # Import every module's models so metadata is complete:
-from neuraforge.auth import models as _auth_models              # noqa: F401
-from neuraforge.content import models as _content_models        # noqa: F401
-from neuraforge.learning import models as _learning_models      # noqa: F401
+from neuraforge.auth import models as _auth_models  # noqa: F401
+from neuraforge.content import models as _content_models  # noqa: F401
+from neuraforge.core.db import Base
 from neuraforge.gamification import models as _gamification_models  # noqa: F401
-from neuraforge.tutor import models as _tutor_models             # noqa: F401
-from neuraforge.assessment import models as _assessment_models   # noqa: F401
+from neuraforge.learning import models as _learning_models  # noqa: F401
+from neuraforge.tutor import models as _tutor_models  # noqa: F401
 
 config = context.config
 url = os.environ.get("NF_DATABASE_URL", "")

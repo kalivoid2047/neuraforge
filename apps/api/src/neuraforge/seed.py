@@ -74,8 +74,8 @@ CURRENT_TICKED = ["objectives", "intuition", "history"]
 
 MHA_CARDS = [
     ("What does multi-head attention buy over a single head, at equal FLOPs?",
-     "h parallel low-dim heads learn *different* relations (syntax, coreference, position); "
-     "d_k = d_model/h keeps total cost constant."),
+     ("h parallel low-dim heads learn *different* relations (syntax, coreference, position); "
+      "d_k = d_model/h keeps total cost constant.")),
     ("Shapes: X is (seq, d_model), 8 heads. What is each head's Q?",
      "(seq, d_k) with d_k = d_model/8 — after X·W_i^Q, W_i^Q ∈ R^{d_model×d_k}."),
     ("Why scale scores by 1/√d_k?",

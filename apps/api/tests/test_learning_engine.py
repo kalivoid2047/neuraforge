@@ -1,6 +1,7 @@
-from neuraforge.learning.review import schedule
-from neuraforge.learning.models import ReviewState
 from datetime import UTC, datetime
+
+from neuraforge.learning.models import ReviewState
+from neuraforge.learning.review import schedule
 
 API = "/api/v1"
 

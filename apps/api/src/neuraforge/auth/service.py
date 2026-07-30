@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
 from ..core.errors import DomainError
-from .models import EmailToken, RefreshToken, User
 from . import security
+from .models import EmailToken, RefreshToken, User
 
 log = logging.getLogger("neuraforge.auth")
 

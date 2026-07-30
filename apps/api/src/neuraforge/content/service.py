@@ -9,7 +9,12 @@ from ..core.errors import NotFoundError
 from ..learning.service import progress_map
 from .models import Lesson
 from .schemas import (
-    CurriculumOut, LessonDetail, LessonSummary, MonthOut, SectionOut, WeekOut,
+    CurriculumOut,
+    LessonDetail,
+    LessonSummary,
+    MonthOut,
+    SectionOut,
+    WeekOut,
 )
 
 

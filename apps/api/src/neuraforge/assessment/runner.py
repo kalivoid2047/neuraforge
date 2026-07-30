@@ -75,9 +75,14 @@ def _run_blocking(payload: str, wall_s: float, mem_mb: int) -> dict:
         # -I: isolated mode (ignores env vars, no user site dir) — deliberately
         # NOT -S, which would also drop the venv's site-packages and break
         # numpy/torch imports in submitted exercise code (FR-RUN-2).
+        # check=False is deliberate, not an oversight: this runs SUBMITTED
+        # exercise code, so a non-zero exit is an ordinary outcome (a learner's
+        # traceback) that is reported below via the returncode. check=True would
+        # raise CalledProcessError on every failing submission.
         proc = subprocess.run(
             [sys.executable, "-I", "-c", _SCRIPT],
-            input=payload, capture_output=True, text=True, timeout=wall_s, **kwargs,
+            input=payload, capture_output=True, text=True, timeout=wall_s,
+            check=False, **kwargs,
         )
     except subprocess.TimeoutExpired:
         ms = int((time.monotonic() - started) * 1000)

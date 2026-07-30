@@ -85,8 +85,8 @@ def _fallback_answer(question: str, chunks: list[Chunk]) -> str:
             "(e.g. “softmax”, “attention heads”)."
         )
     lines = [
-        "Ember's model isn't reachable right now, so here is what the curriculum "
-        "says — retrieved, not generated:",
+        ("Ember's model isn't reachable right now, so here is what the curriculum "
+         "says — retrieved, not generated:"),
         "",
     ]
     for i, c in enumerate(chunks, 1):

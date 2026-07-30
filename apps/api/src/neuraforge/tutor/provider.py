@@ -22,27 +22,26 @@ async def stream_chat(messages: list[dict]) -> AsyncIterator[str]:
         headers["Authorization"] = f"Bearer {s.ember_api_key}"
 
     try:
-        async with httpx.AsyncClient(timeout=s.ember_timeout_s) as client:
-            async with client.stream(
-                "POST",
-                f"{s.ember_base_url.rstrip('/')}/chat/completions",
-                headers=headers,
-                json={"model": s.ember_model, "messages": messages, "stream": True},
-            ) as resp:
-                if resp.status_code != 200:
-                    raise ProviderUnavailable(f"provider returned {resp.status_code}")
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    payload = line.removeprefix("data:").strip()
-                    if payload == "[DONE]":
-                        return
-                    try:
-                        delta = json.loads(payload)["choices"][0]["delta"]
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
-                    token = delta.get("content")
-                    if token:
-                        yield token
+        async with httpx.AsyncClient(timeout=s.ember_timeout_s) as client, client.stream(
+            "POST",
+            f"{s.ember_base_url.rstrip('/')}/chat/completions",
+            headers=headers,
+            json={"model": s.ember_model, "messages": messages, "stream": True},
+        ) as resp:
+            if resp.status_code != 200:
+                raise ProviderUnavailable(f"provider returned {resp.status_code}")
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                payload = line.removeprefix("data:").strip()
+                if payload == "[DONE]":
+                    return
+                try:
+                    delta = json.loads(payload)["choices"][0]["delta"]
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+                token = delta.get("content")
+                if token:
+                    yield token
     except (httpx.HTTPError, OSError) as exc:
         raise ProviderUnavailable(str(exc)) from exc

@@ -6,14 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..assessment.router import router as assessment_router
 from ..auth.router import router as auth_router
 from ..content.router import router as content_router
-from ..gamification import subscribers as _game_subscribers  # noqa: F401 — registers event handlers
-from ..gamification.router import router as game_router
 from ..core.config import get_settings
 from ..core.db import create_all_dev
 from ..core.errors import install_error_handlers
+from ..gamification import subscribers as _game_subscribers  # noqa: F401 — registers event handlers
+from ..gamification.router import router as game_router
 from ..learning.router import router as learning_router
-from ..tutor.router import router as tutor_router
 from ..seed import seed_if_empty
+from ..tutor.router import router as tutor_router
 
 
 def create_app() -> FastAPI:

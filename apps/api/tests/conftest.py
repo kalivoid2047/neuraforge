@@ -22,10 +22,10 @@ async def client():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     app = create_app()
-    async with httpx.ASGITransport(app=app) as transport:
-        # ASGITransport doesn't run lifespan; trigger startup manually
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as c:
-                yield c
+    # ASGITransport doesn't run lifespan; trigger startup manually
+    async with (
+        httpx.ASGITransport(app=app) as transport,
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=transport, base_url="http://test") as c,
+    ):
+        yield c
