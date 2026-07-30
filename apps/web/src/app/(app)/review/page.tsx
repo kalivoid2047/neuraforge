@@ -44,6 +44,11 @@ export default function ReviewPage() {
     }
   }, []);
 
+  // refresh is async and every setState inside it runs after
+  // `await Promise.all(...)`, so there is no synchronous cascading render;
+  // this is React's own documented fetch-in-effect pattern
+  // (react.dev/learn/synchronizing-with-effects#fetching-data).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   React.useEffect(() => { void refresh(); }, [refresh]);
 
   const card = queue[0];

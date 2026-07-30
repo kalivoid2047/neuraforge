@@ -24,6 +24,11 @@ export function EditorHost({
   const [dark, setDark] = React.useState(true);
 
   React.useEffect(() => {
+    // Syncing React state to a DOM attribute an inline pre-hydration script
+    // (app/layout.tsx's themeScript) already set from localStorage before
+    // React mounted; the one-time extra render on mount is intentional and
+    // matches <html data-theme="dark" suppressHydrationWarning> in layout.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDark(document.documentElement.dataset.theme !== "light");
     if (fallback) return;
     const t = window.setTimeout(() => {
