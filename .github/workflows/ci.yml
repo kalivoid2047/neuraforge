@@ -27,7 +27,7 @@ jobs:
       # publishing major aliases after v7, so `@v8`/`@v9` do not resolve at all
       # (the run that tried @v9 failed with "unable to find version v9").
       - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           version: "latest"
       - run: uv sync --frozen
